@@ -1,0 +1,9 @@
+[
+  {
+    "origin": ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Authorization", "Content-Length", "User-Agent", "x-goog-resumable", "x-goog-upload-command", "x-goog-upload-header-content-length", "x-goog-upload-header-content-type", "x-goog-upload-protocol", "x-goog-upload-url", "x-goog-upload-status", "x-goog-upload-chunk-granularity", "x-goog-upload-control-url", "x-goog-upload-offset", "x-goog-upload-status-code"],
+    "maxAgeSeconds": 3600
+  }
+]
+
