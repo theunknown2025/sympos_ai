@@ -1,5 +1,5 @@
 import { supabase, TABLES } from '../supabase';
-import { ReviewCommitteeMember } from '../types';
+import { ReviewCommitteeMember, CommitteeInvitation, InvitationStatus } from '../types';
 
 const TABLE_NAME = TABLES.COMMITTEE_MEMBERS;
 
@@ -267,6 +267,63 @@ export const getCommitteeMember = async (memberId: string): Promise<ReviewCommit
 };
 
 /**
+ * Get committee members by their IDs
+ */
+export const getCommitteeMembersByIds = async (memberIds: string[]): Promise<ReviewCommitteeMember[]> => {
+  try {
+    if (memberIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('*')
+      .in('id', memberIds);
+    
+    if (error) {
+      throw error;
+    }
+    
+    if (!data) {
+      return [];
+    }
+    
+    return data.map(doc => {
+      // Deserialize JSON fields from Supabase storage
+      const affiliation = doc.affiliation ? JSON.parse(doc.affiliation as string) : {};
+      const researchDomains = doc.research_domains ? JSON.parse(doc.research_domains as string) : [];
+      const links = doc.links ? JSON.parse(doc.links as string) : {};
+      const preferredLanguages = doc.preferred_languages ? JSON.parse(doc.preferred_languages as string) : [];
+      
+      return {
+        id: doc.id,
+        userId: doc.user_id,
+        committeeMemberId: doc.committee_member_id,
+        email: doc.email,
+        firstName: doc.first_name,
+        lastName: doc.last_name,
+        title: doc.title,
+        gender: doc.gender,
+        nationality: doc.nationality,
+        phone: doc.phone,
+        address: doc.address,
+        country: doc.country,
+        position: doc.position,
+        affiliation,
+        researchDomains,
+        identifiers: links,
+        preferredLanguage: preferredLanguages[0] || undefined,
+        createdAt: new Date(doc.created_at),
+        updatedAt: new Date(doc.updated_at),
+      } as ReviewCommitteeMember;
+    });
+  } catch (error: any) {
+    console.error('Error getting committee members by IDs:', error);
+    throw error;
+  }
+};
+
+/**
  * Delete a committee member
  */
 export const deleteCommitteeMember = async (memberId: string): Promise<void> => {
@@ -282,5 +339,132 @@ export const deleteCommitteeMember = async (memberId: string): Promise<void> => 
   } catch (error: any) {
     console.error('Error deleting committee member:', error);
     throw new Error(error.message || 'Failed to delete committee member');
+  }
+};
+
+/**
+ * Create an invitation for a committee member
+ */
+export const createMemberInvitation = async (
+  memberId: string,
+  memberEmail: string,
+  invitedBy: string
+): Promise<string> => {
+  try {
+    // Check if jury member exists, if not create one
+    let juryMemberId: string;
+    const { data: existingJuryMember } = await supabase
+      .from(TABLES.JURY_MEMBERS)
+      .select('id')
+      .eq('email', memberEmail)
+      .single();
+
+    if (existingJuryMember) {
+      juryMemberId = existingJuryMember.id;
+    } else {
+      // Create a jury member profile for this committee member
+      const member = await getCommitteeMember(memberId);
+      if (!member) {
+        throw new Error('Committee member not found');
+      }
+
+      const { data: newJuryMember, error: juryError } = await supabase
+        .from(TABLES.JURY_MEMBERS)
+        .insert({
+          email: member.email,
+          first_name: member.firstName,
+          last_name: member.lastName,
+          title: member.title,
+          gender: member.gender,
+          nationality: member.nationality,
+          phone: member.phone,
+          address: member.address,
+          preferred_language: member.preferredLanguage,
+          affiliation: JSON.stringify(member.affiliation || {}),
+          research_domains: JSON.stringify(member.researchDomains || []),
+          links: JSON.stringify(member.identifiers || {}),
+          profile_completed: false,
+        })
+        .select()
+        .single();
+
+      if (juryError) {
+        throw juryError;
+      }
+
+      juryMemberId = newJuryMember.id;
+    }
+
+    // Create invitation
+    const { data, error } = await supabase
+      .from(TABLES.COMMITTEE_INVITATIONS)
+      .insert({
+        jury_member_id: juryMemberId,
+        jury_member_email: memberEmail,
+        invited_by: invitedBy,
+        status: InvitationStatus.PENDING,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return data.id;
+  } catch (error: any) {
+    console.error('Error creating invitation:', error);
+    throw new Error(error.message || 'Failed to create invitation');
+  }
+};
+
+/**
+ * Get all invitations for a committee member
+ */
+export const getMemberInvitations = async (memberId: string): Promise<CommitteeInvitation[]> => {
+  try {
+    const member = await getCommitteeMember(memberId);
+    if (!member) {
+      return [];
+    }
+
+    // Find jury member by email
+    const { data: juryMember } = await supabase
+      .from(TABLES.JURY_MEMBERS)
+      .select('id')
+      .eq('email', member.email)
+      .single();
+
+    if (!juryMember) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from(TABLES.COMMITTEE_INVITATIONS)
+      .select('*')
+      .eq('jury_member_id', juryMember.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return [];
+    }
+
+    return data.map((inv) => ({
+      id: inv.id,
+      juryMemberId: inv.jury_member_id,
+      juryMemberEmail: inv.jury_member_email,
+      invitedBy: inv.invited_by,
+      status: inv.status as InvitationStatus,
+      commentary: inv.commentary,
+      createdAt: new Date(inv.created_at),
+      respondedAt: inv.responded_at ? new Date(inv.responded_at) : undefined,
+    }));
+  } catch (error: any) {
+    console.error('Error getting member invitations:', error);
+    return [];
   }
 };

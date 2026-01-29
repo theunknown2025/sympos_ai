@@ -230,7 +230,8 @@ export const sendConfirmationEmail = async (
 export const sendInvitationEmail = async (
   recipients: Array<{ email: string; fullName: string }>,
   subject: string,
-  content: string
+  content: string,
+  attachments?: Array<{ name: string; url: string }>
 ): Promise<void> => {
   try {
     if (recipients.length === 0) {
@@ -246,10 +247,36 @@ export const sendInvitationEmail = async (
     }
 
     // Format email content with recipient personalization
-    const formatEmailContent = (fullName: string, emailContent: string): string => {
+    const formatEmailContent = (fullName: string, emailContent: string, email: string, emailAttachments?: Array<{ name: string; url: string }>): string => {
       // Replace placeholders like {{name}} with actual name
       let personalizedContent = emailContent.replace(/\{\{name\}\}/g, fullName);
       personalizedContent = personalizedContent.replace(/\{\{fullName\}\}/g, fullName);
+      personalizedContent = personalizedContent.replace(/\{\{email\}\}/g, email);
+      
+      // Build attachments section HTML if attachments exist
+      let attachmentsSection = '';
+      if (emailAttachments && emailAttachments.length > 0) {
+        attachmentsSection = `
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e5e7eb;">
+            <h3 style="color: #1f2937; font-size: 16px; font-weight: 600; margin: 0 0 15px 0; font-family: Arial, sans-serif;">Attachments</h3>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              ${emailAttachments.map(attachment => `
+                <div style="display: flex; align-items: center; padding: 12px; background-color: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;">
+                  <svg style="width: 20px; height: 20px; margin-right: 12px; color: #6b7280; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
+                  </svg>
+                  <div style="flex: 1; min-width: 0;">
+                    <a href="${attachment.url}" style="color: #2563eb; text-decoration: none; font-weight: 500; font-size: 14px; display: block; word-break: break-all;" target="_blank" rel="noopener noreferrer">
+                      ${attachment.name}
+                    </a>
+                    <p style="color: #9ca3af; font-size: 12px; margin: 4px 0 0 0;">Click to download</p>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }
       
       return `
         <!DOCTYPE html>
@@ -263,6 +290,7 @@ export const sendInvitationEmail = async (
               <div style="white-space: pre-wrap; font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 ${personalizedContent.replace(/\n/g, '<br>')}
               </div>
+              ${attachmentsSection}
               <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
               <p style="color: #9ca3af; font-size: 12px; margin: 0;">This is an automated email. Please do not reply.</p>
             </div>
@@ -278,7 +306,7 @@ export const sendInvitationEmail = async (
     const results = await Promise.allSettled(
       recipients.map(async (recipient) => {
         console.log(`Sending invitation email to ${recipient.email}...`);
-        const html = formatEmailContent(recipient.fullName, content);
+        const html = formatEmailContent(recipient.fullName, content, recipient.email, attachments);
         
         try {
           // Call the Express email API endpoint
@@ -302,8 +330,8 @@ export const sendInvitationEmail = async (
             success: data.success,
             hasError: !!data.error,
             messageId: data.messageId
-          });
-
+                });
+                
           // Check if request failed
           if (!response.ok) {
             const errorMsg = data.message || data.error || `HTTP ${response.status}: Failed to send email`;

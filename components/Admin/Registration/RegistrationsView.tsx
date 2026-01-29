@@ -17,12 +17,23 @@ import {
   Building,
   MapPin,
   File,
-  ExternalLink
+  ExternalLink,
+  CheckCircle,
+  XCircle,
+  Clock,
+  X,
+  Award
 } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
 import { getUserSubmissions, FormSubmission, deleteFormSubmission, deleteFormSubmissions } from '../../../services/registrationSubmissionService';
 import { getRegistrationForm } from '../../../services/registrationFormService';
-import { RegistrationForm } from '../../../types';
+import { getUserEvents } from '../../../services/eventService';
+import { RegistrationForm, Event, ApprovalStatus } from '../../../types';
+import { supabase, TABLES } from '../../../supabase';
+import type { EmailRecipient } from '../Tools/EmailSender/EmailSender';
+import { generateAndSaveBadge, getBadgeForSubmission, ParticipantBadge } from '../../../services/badgeGeneratorService';
+import RegistrationApprovalModal from './RegistrationApprovalModal';
+import RegistrationEmailModal from './RegistrationEmailModal';
 
 const RegistrationsView: React.FC = () => {
   const { currentUser } = useAuth();
@@ -35,6 +46,17 @@ const RegistrationsView: React.FC = () => {
   const [selectedSubmissions, setSelectedSubmissions] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
   const [expandedSubmissions, setExpandedSubmissions] = useState<Set<string>>(new Set());
+  const [events, setEvents] = useState<Event[]>([]);
+  const [headerDisplayFields, setHeaderDisplayFields] = useState<string[]>(['general_name', 'general_email']); // Default fields
+  const [registrationTypeFilter, setRegistrationTypeFilter] = useState<'all' | 'internal' | 'external'>('all');
+  const [approvalModalOpen, setApprovalModalOpen] = useState(false);
+  const [selectedSubmissionForApproval, setSelectedSubmissionForApproval] = useState<FormSubmission | null>(null);
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [selectedSubmissionForEmail, setSelectedSubmissionForEmail] = useState<FormSubmission | null>(null);
+  const [emailRecipients, setEmailRecipients] = useState<EmailRecipient[]>([]);
+  const [badgesMap, setBadgesMap] = useState<Map<string, ParticipantBadge>>(new Map());
+  const [badgePreviewOpen, setBadgePreviewOpen] = useState(false);
+  const [previewBadgeUrl, setPreviewBadgeUrl] = useState<string>('');
 
   useEffect(() => {
     if (currentUser) {
@@ -44,15 +66,133 @@ const RegistrationsView: React.FC = () => {
     }
   }, [currentUser]);
 
+  // Initialize header display fields with filter fields when forms are loaded
+  useEffect(() => {
+    if (formsMap.size > 0 && submissions.length > 0) {
+      // Get all unique form IDs from submissions
+      const formIds = Array.from(new Set(submissions.map(s => s.formId)));
+      
+      // Collect all filter field IDs from all forms
+      const filterFieldIds = new Set<string>();
+      formIds.forEach(formId => {
+        const form = formsMap.get(formId);
+        if (!form) return;
+
+        // Check fields from sections
+        form.sections.forEach(section => {
+          section.fields.forEach(field => {
+            if ((field.type === 'checkbox' || field.type === 'select') && field.useAsFilter) {
+              filterFieldIds.add(field.id);
+            }
+          });
+          section.subsections.forEach(subsection => {
+            subsection.fields.forEach(field => {
+              if ((field.type === 'checkbox' || field.type === 'select') && field.useAsFilter) {
+                filterFieldIds.add(field.id);
+              }
+            });
+          });
+        });
+
+        // Check legacy fields
+        form.fields.forEach(field => {
+          if ((field.type === 'checkbox' || field.type === 'select') && field.useAsFilter) {
+            filterFieldIds.add(field.id);
+          }
+        });
+      });
+      
+      // Update header display fields to include filter fields
+      // Start with default fields, then add filter fields
+      const defaultFields = ['general_name', 'general_email'];
+      const allFields = [...defaultFields, ...Array.from(filterFieldIds)];
+      
+      // Only update if we have new filter fields or if current fields don't match
+      if (filterFieldIds.size > 0 || headerDisplayFields.length === 2) {
+        setHeaderDisplayFields(allFields);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formsMap, submissions.length]);
+
   const loadSubmissions = async (userId: string) => {
     try {
       setLoading(true);
       setError('');
+      
+      // Load events to get registration form IDs
+      const userEvents = await getUserEvents(userId);
+      setEvents(userEvents);
+      
+      // Create a set of registration form IDs from all events
+      const registrationFormIds = new Set<string>();
+      userEvents.forEach(event => {
+        // Events now have registrationFormIds as an array
+        if (event.registrationFormIds && event.registrationFormIds.length > 0) {
+          event.registrationFormIds.forEach(formId => {
+            registrationFormIds.add(formId);
+          });
+        }
+      });
+      
+      // Get all submissions
       const userSubmissions = await getUserSubmissions(userId);
-      setSubmissions(userSubmissions);
+      
+      // Filter to only include submissions from registration forms (not submission forms)
+      // AND ensure the submission's eventId matches an event that has this formId in its registrationFormIds
+      // Note: submission.eventId might be a landing page ID (legacy) or an event ID (new)
+      const registrationSubmissions = userSubmissions
+        .map(submission => {
+          // Check if this formId is a registration form for any event
+          if (!registrationFormIds.has(submission.formId)) {
+            return null;
+          }
+          
+          // Find matching event - check both event ID and landing page IDs
+          const matchingEvent = userEvents.find(event => {
+            // Check if formId is in this event's registration forms
+            if (!event.registrationFormIds || !event.registrationFormIds.includes(submission.formId)) {
+              return false;
+            }
+            
+            // Check if submission's eventId matches the event ID directly
+            if (event.id === submission.eventId) {
+              return true;
+            }
+            
+            // Check if submission's eventId matches any of the event's landing page IDs (legacy support)
+            if (event.landingPageIds && event.landingPageIds.includes(submission.eventId)) {
+              return true;
+            }
+            
+            return false;
+          });
+          
+          if (!matchingEvent) {
+            return null;
+          }
+          
+          // Update submission's eventId to the actual event ID for consistent filtering
+          return {
+            ...submission,
+            eventId: matchingEvent.id,
+            eventTitle: matchingEvent.name
+          };
+        })
+        .filter((submission): submission is FormSubmission => submission !== null);
+      
+      setSubmissions(registrationSubmissions);
+      
+      // Debug: Log registration types
+      const internalCount = registrationSubmissions.filter(s => !!s.participantUserId).length;
+      const externalCount = registrationSubmissions.filter(s => !s.participantUserId).length;
+      console.log(`Loaded registrations: ${registrationSubmissions.length} total (${internalCount} internal, ${externalCount} external)`);
       
       // Load all unique forms
-      await loadForms(userSubmissions);
+      await loadForms(registrationSubmissions);
+      
+      // Load badges for all submissions
+      await loadBadgesForSubmissions(registrationSubmissions);
     } catch (err: any) {
       setError('Failed to load registrations. Please try again.');
       console.error(err);
@@ -86,19 +226,110 @@ const RegistrationsView: React.FC = () => {
     }
   };
 
-  const getUniqueEvents = () => {
-    const events = submissions.map(s => ({ id: s.eventId, title: s.eventTitle }));
-    const unique = Array.from(new Map(events.map(e => [e.id, e])).values());
-    return unique;
+  const loadBadgesForSubmissions = async (submissions: FormSubmission[]) => {
+    try {
+      const badges = new Map<string, ParticipantBadge>();
+      
+      // Load badges for all submissions in parallel
+      const badgePromises = submissions.map(async (submission) => {
+        try {
+          const badge = await getBadgeForSubmission(submission.id);
+          if (badge) {
+            badges.set(submission.id, badge);
+          }
+        } catch (err) {
+          // Silently fail - badge might not exist yet
+          console.debug(`No badge found for submission ${submission.id}`);
+        }
+      });
+      
+      await Promise.all(badgePromises);
+      setBadgesMap(badges);
+    } catch (err: any) {
+      console.error('Error loading badges:', err);
+    }
+  };
+
+  const getUniqueEvents = (): { id: string; title: string }[] => {
+    // Get ALL events that have registration forms (regardless of whether they have submissions)
+    const eventsWithRegistrationForms: { id: string; title: string }[] = events
+      .filter(event => 
+        event.registrationFormIds && 
+        event.registrationFormIds.length > 0
+      )
+      .map(event => ({
+        id: event.id,
+        title: event.name
+      }));
+    
+    // Also include events from submissions that might not be in the events list (fallback)
+    // This handles edge cases where an event might have been deleted but submissions still reference it
+    const submissionEvents: { id: string; title: string }[] = submissions.map(s => ({ 
+      id: s.eventId, 
+      title: s.eventTitle 
+    }));
+    const uniqueSubmissionEvents: { id: string; title: string }[] = Array.from(
+      new Map(submissionEvents.map(e => [e.id, e])).values()
+    );
+    
+    // Merge and deduplicate - prioritize events from the events list over submission events
+    const merged = new Map<string, { id: string; title: string }>();
+    
+    // First add events from the events list (these are authoritative)
+    eventsWithRegistrationForms.forEach(event => {
+      merged.set(event.id, event);
+    });
+    
+    // Then add submission events that aren't already in the map
+    uniqueSubmissionEvents.forEach(event => {
+      if (!merged.has(event.id)) {
+        merged.set(event.id, event);
+      }
+    });
+    
+    return Array.from(merged.values());
+  };
+
+  const isInternalRegistration = (submission: FormSubmission): boolean => {
+    return !!submission.participantUserId;
+  };
+
+  const getFilteredSubmissions = (): FormSubmission[] => {
+    let filtered = submissions;
+
+    // Filter by registration type (internal/external)
+    if (registrationTypeFilter === 'internal') {
+      filtered = filtered.filter(s => isInternalRegistration(s));
+    } else if (registrationTypeFilter === 'external') {
+      filtered = filtered.filter(s => !isInternalRegistration(s));
+    }
+
+    return filtered;
   };
 
   const getSubmissionsByEvent = () => {
+    const filteredSubmissions = getFilteredSubmissions();
     const grouped = new Map<string, FormSubmission[]>();
-    submissions.forEach(submission => {
-      if (selectedEvent === 'all' || submission.eventId === selectedEvent) {
-        const existing = grouped.get(submission.eventId) || [];
-        grouped.set(submission.eventId, [...existing, submission]);
+    
+    // Debug: Log filtered submissions
+    const internalFiltered = filteredSubmissions.filter(s => !!s.participantUserId).length;
+    const externalFiltered = filteredSubmissions.filter(s => !s.participantUserId).length;
+    console.log(`Filtered registrations: ${filteredSubmissions.length} total (${internalFiltered} internal, ${externalFiltered} external), filter: ${registrationTypeFilter}`);
+    
+    filteredSubmissions.forEach(submission => {
+      // Filter by selected event
+      if (selectedEvent !== 'all' && submission.eventId !== selectedEvent) {
+        return;
       }
+      
+      // Additional safety check: verify the submission's formId is in the event's registrationFormIds
+      const event = events.find(e => e.id === submission.eventId);
+      if (event && event.registrationFormIds && !event.registrationFormIds.includes(submission.formId)) {
+        return;
+      }
+      
+      const existing = grouped.get(submission.eventId) || [];
+      grouped.set(submission.eventId, [...existing, submission]);
     });
     return grouped;
   };
@@ -134,6 +365,39 @@ const RegistrationsView: React.FC = () => {
     });
 
     return fields;
+  };
+
+  // Get filter fields (fields with useAsFilter = true) for a form
+  const getFilterFields = (formId: string): string[] => {
+    const form = formsMap.get(formId);
+    if (!form) return [];
+
+    const filterFieldIds: string[] = [];
+
+    // Check fields from sections
+    form.sections.forEach(section => {
+      section.fields.forEach(field => {
+        if ((field.type === 'checkbox' || field.type === 'select') && field.useAsFilter) {
+          filterFieldIds.push(field.id);
+        }
+      });
+      section.subsections.forEach(subsection => {
+        subsection.fields.forEach(field => {
+          if ((field.type === 'checkbox' || field.type === 'select') && field.useAsFilter) {
+            filterFieldIds.push(field.id);
+          }
+        });
+      });
+    });
+
+    // Check legacy fields
+    form.fields.forEach(field => {
+      if ((field.type === 'checkbox' || field.type === 'select') && field.useAsFilter) {
+        filterFieldIds.push(field.id);
+      }
+    });
+
+    return filterFieldIds;
   };
 
   const getFieldValue = (submission: FormSubmission, fieldId: string): string => {
@@ -239,7 +503,23 @@ const RegistrationsView: React.FC = () => {
   };
 
   const exportToCSV = () => {
-    const submissionsByEvent = getSubmissionsByEvent();
+    const filteredSubmissions = getFilteredSubmissions();
+    const submissionsByEvent = new Map<string, FormSubmission[]>();
+    
+    filteredSubmissions.forEach(submission => {
+      // Filter by selected event
+      if (selectedEvent !== 'all' && submission.eventId !== selectedEvent) {
+        return;
+      }
+      
+      const event = events.find(e => e.id === submission.eventId);
+      if (event && event.registrationFormIds && !event.registrationFormIds.includes(submission.formId)) {
+        return;
+      }
+      
+      const existing = submissionsByEvent.get(submission.eventId) || [];
+      submissionsByEvent.set(submission.eventId, [...existing, submission]);
+    });
     
     // Collect all data
     const csvData: string[] = [];
@@ -255,13 +535,16 @@ const RegistrationsView: React.FC = () => {
       csvData.push('');
       
       // Table header
-      const headers = ['Submitted At', ...fieldLabels.map(f => f.label)];
+      const headers = ['Submitted At', 'Subscription Type', 'Entity Name', 'Role', ...fieldLabels.map(f => f.label)];
       csvData.push(headers.join(','));
       
       // Table rows
       eventSubmissions.forEach(submission => {
         const row = [
           formatDate(submission.submittedAt),
+          submission.subscriptionType === 'entity' ? 'Entity' : 'Self',
+          submission.entityName || 'N/A',
+          submission.role,
           ...fieldLabels.map(field => {
             const value = submission.answers[field.id];
             let formattedValue: string;
@@ -450,6 +733,128 @@ const RegistrationsView: React.FC = () => {
     });
   };
 
+  const handleOpenApprovalModal = (submission: FormSubmission) => {
+    setSelectedSubmissionForApproval(submission);
+    setApprovalModalOpen(true);
+  };
+
+  const handleOpenEmailModal = (submission: FormSubmission) => {
+    setSelectedSubmissionForEmail(submission);
+    
+    // Prepare email recipient
+    const recipientEmail = submission.generalInfo?.email || submission.submittedBy;
+    if (!recipientEmail) {
+      setError('No email address found for this registration.');
+      return;
+    }
+
+    // Prepare recipients for email sender
+    const recipients: EmailRecipient[] = [{
+      email: recipientEmail,
+      name: submission.generalInfo?.name || submission.submittedBy,
+      approvalStatus: submission.approvalStatus,
+      comment: submission.decisionComment,
+      eventTitle: submission.eventTitle,
+      submissionId: submission.id,
+    }];
+    setEmailRecipients(recipients);
+    setEmailModalOpen(true);
+  };
+
+  const handleApprovalSubmit = async (approval: ApprovalStatus, comment: string, badgeTemplateId?: string) => {
+    if (!selectedSubmissionForApproval || !currentUser?.id) return;
+
+    try {
+      setError('');
+
+      // Update approval_status in database
+      const { error: updateError } = await supabase
+        .from(TABLES.FORM_SUBMISSIONS)
+        .update({
+          approval_status: approval,
+          decision_comment: comment || null,
+          decision_date: new Date().toISOString(),
+          decided_by: currentUser.id,
+        })
+        .eq('id', selectedSubmissionForApproval.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Generate badge if template is selected
+      if (badgeTemplateId && approval === 'accepted') {
+        try {
+          const badge = await generateAndSaveBadge(
+            currentUser.id,
+            selectedSubmissionForApproval.eventId,
+            selectedSubmissionForApproval.id,
+            badgeTemplateId,
+            selectedSubmissionForApproval
+          );
+          
+          // Update badges map
+          setBadgesMap(prev => new Map(prev).set(selectedSubmissionForApproval.id, badge));
+        } catch (badgeError: any) {
+          console.error('Error generating badge:', badgeError);
+          // Don't fail the approval if badge generation fails
+          setError(`Approval saved, but badge generation failed: ${badgeError.message}`);
+        }
+      }
+
+      // Update local state
+      setSubmissions(prev => prev.map(s => 
+        s.id === selectedSubmissionForApproval.id
+          ? {
+              ...s,
+              approvalStatus: approval,
+              decisionComment: comment || undefined,
+              decisionDate: new Date(),
+              decidedBy: currentUser.id,
+            }
+          : s
+      ));
+
+      // Close the modal
+      setApprovalModalOpen(false);
+      setSelectedSubmissionForApproval(null);
+    } catch (err: any) {
+      console.error('Error updating registration approval:', err);
+      setError(err.message || 'Failed to update registration approval');
+      throw err;
+    }
+  };
+
+  const getApprovalStatusBadge = (status?: ApprovalStatus) => {
+    if (!status) return null;
+    
+    switch (status) {
+      case 'accepted':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            <CheckCircle size={12} className="mr-1" />
+            Approved
+          </span>
+        );
+      case 'reserved':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+            <Clock size={12} className="mr-1" />
+            Approved with Reserve
+          </span>
+        );
+      case 'rejected':
+        return (
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+            <XCircle size={12} className="mr-1" />
+            Rejected
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
+
   const isFileField = (value: any): boolean => {
     if (typeof value === 'string') {
       // Check if it looks like a file name or URL
@@ -479,7 +884,7 @@ const RegistrationsView: React.FC = () => {
            lower.endsWith('.gif') ||
            lower.endsWith('.webp') ||
            lower.endsWith('.svg') ||
-           (value.startsWith('http') && (lower.includes('image') || lower.match(/\.(jpg|jpeg|png|gif|webp|svg)/)));
+           (value.startsWith('http') && (lower.includes('image') || !!lower.match(/\.(jpg|jpeg|png|gif|webp|svg)/)));
   };
 
   const isPdfFile = (value: string): boolean => {
@@ -546,7 +951,7 @@ const RegistrationsView: React.FC = () => {
           )}
           <button 
             onClick={exportToCSV}
-            disabled={submissions.length === 0 || loadingForms}
+            disabled={getFilteredSubmissions().length === 0 || loadingForms}
             className="flex items-center gap-2 px-4 py-2 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Download size={18} /> Export CSV
@@ -561,26 +966,70 @@ const RegistrationsView: React.FC = () => {
         </div>
       )}
 
-      {/* Event Filter */}
-      <div className="mb-6 bg-white rounded-xl shadow-sm border border-slate-200 p-4">
-        <div className="flex items-center gap-3">
-          <Filter size={18} className="text-slate-500" />
-          <label className="text-sm font-medium text-slate-700">Filter by Event:</label>
-          <select
-            value={selectedEvent}
-            onChange={(e) => setSelectedEvent(e.target.value)}
-            className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="all">All Events ({submissions.length})</option>
-            {uniqueEvents.map((event) => {
-              const count = submissions.filter(s => s.eventId === event.id).length;
-              return (
-                <option key={event.id} value={event.id}>
-                  {event.title} ({count})
-                </option>
-              );
-            })}
-          </select>
+      {/* Filters */}
+      <div className="mb-6 space-y-4">
+        {/* Event Filter */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+          <div className="flex items-center gap-3">
+            <Filter size={18} className="text-slate-500" />
+            <label className="text-sm font-medium text-slate-700">Filter by Event:</label>
+            <select
+              value={selectedEvent}
+              onChange={(e) => setSelectedEvent(e.target.value)}
+              className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="all">All Events ({getFilteredSubmissions().length})</option>
+              {uniqueEvents.map((event) => {
+                const filtered = getFilteredSubmissions();
+                const count = filtered.filter(s => s.eventId === event.id).length;
+                return (
+                  <option key={event.id} value={event.id}>
+                    {event.title} ({count})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+        </div>
+
+        {/* Registration Type Filter */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-4">
+          <div className="flex items-center gap-3">
+            <Filter size={18} className="text-slate-500" />
+            <label className="text-sm font-medium text-slate-700">Registration Type:</label>
+            <div className="flex gap-2 flex-1">
+              <button
+                onClick={() => setRegistrationTypeFilter('all')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  registrationTypeFilter === 'all'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                All ({submissions.length})
+              </button>
+              <button
+                onClick={() => setRegistrationTypeFilter('internal')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  registrationTypeFilter === 'internal'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Internal ({submissions.filter(s => isInternalRegistration(s)).length})
+              </button>
+              <button
+                onClick={() => setRegistrationTypeFilter('external')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  registrationTypeFilter === 'external'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                External ({submissions.filter(s => !isInternalRegistration(s)).length})
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -601,8 +1050,10 @@ const RegistrationsView: React.FC = () => {
               <h3 className="text-lg font-semibold text-slate-700 mb-2">No registrations yet</h3>
               <p className="text-slate-500">
                 {selectedEvent === 'all' 
-                  ? 'Registrations will appear here once users submit forms.'
-                  : 'No registrations found for this event.'}
+                  ? registrationTypeFilter === 'all'
+                    ? 'Registrations will appear here once users submit forms.'
+                    : `No ${registrationTypeFilter} registrations found.`
+                  : `No registrations found for this event${registrationTypeFilter !== 'all' ? ` (${registrationTypeFilter} only)` : ''}.`}
               </p>
             </div>
           );
@@ -666,17 +1117,42 @@ const RegistrationsView: React.FC = () => {
                       const isSelected = selectedSubmissions.has(submission.id);
                       const isDeleting = deletingIds.has(submission.id);
                       const isExpanded = expandedSubmissions.has(submission.id);
+                      const isInternal = isInternalRegistration(submission);
                       const name = submission.generalInfo?.name || submission.submittedBy || 'Anonymous';
                       const email = submission.generalInfo?.email || 'N/A';
                       
+                      // Determine row background color based on approval status
+                      const getRowBackgroundColor = () => {
+                        if (isSelected) {
+                          // Selected rows keep indigo tint
+                          if (submission.approvalStatus === 'accepted') return 'bg-green-50/70';
+                          if (submission.approvalStatus === 'rejected') return 'bg-red-50/70';
+                          if (submission.approvalStatus === 'reserved') return 'bg-yellow-50/70';
+                          return 'bg-indigo-50/50';
+                        }
+                        // Non-selected rows
+                        if (submission.approvalStatus === 'accepted') return 'bg-green-50';
+                        if (submission.approvalStatus === 'rejected') return 'bg-red-50';
+                        if (submission.approvalStatus === 'reserved') return 'bg-yellow-50';
+                        return 'bg-white';
+                      };
+
                       return (
                         <div 
                           key={submission.id} 
-                          className={`border-b border-slate-200 last:border-b-0 ${isSelected ? 'bg-indigo-50/50' : 'bg-white'} ${isDeleting ? 'opacity-50' : ''}`}
+                          className={`border-b border-slate-200 last:border-b-0 ${getRowBackgroundColor()} ${isDeleting ? 'opacity-50' : ''}`}
                         >
                           {/* Collapsed Row Header */}
                           <div 
-                            className="px-6 py-4 hover:bg-slate-50 transition-colors cursor-pointer"
+                            className={`px-6 py-4 transition-colors cursor-pointer ${
+                              submission.approvalStatus === 'accepted' 
+                                ? 'hover:bg-green-100' 
+                                : submission.approvalStatus === 'rejected'
+                                ? 'hover:bg-red-100'
+                                : submission.approvalStatus === 'reserved'
+                                ? 'hover:bg-yellow-100'
+                                : 'hover:bg-slate-50'
+                            }`}
                             onClick={() => toggleExpanded(submission.id)}
                           >
                             <div className="flex items-center justify-between">
@@ -696,23 +1172,131 @@ const RegistrationsView: React.FC = () => {
                                   )}
                                 </button>
                                 
-                                <div className="flex-1 min-w-0 grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className={`flex-1 min-w-0 grid gap-4 ${headerDisplayFields.length === 0 ? 'grid-cols-1 md:grid-cols-4' : headerDisplayFields.length === 1 ? 'grid-cols-1 md:grid-cols-2' : headerDisplayFields.length === 2 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-4'}`}>
+                                  {/* Type Column */}
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <User size={16} className="text-slate-400 flex-shrink-0" />
-                                    <span className="font-semibold text-slate-900 truncate">{name}</span>
+                                    <FileText size={16} className="text-slate-400 flex-shrink-0" />
+                                    <div className="min-w-0 flex-1">
+                                      <span className="text-xs text-slate-500 block truncate">Type</span>
+                                      {isInternal ? (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
+                                          Internal
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                                          External
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <Mail size={16} className="text-slate-400 flex-shrink-0" />
-                                    <span className="text-slate-600 truncate">{email}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <Calendar size={16} className="text-slate-400 flex-shrink-0" />
-                                    <span className="text-slate-600 text-sm">{formatDate(submission.submittedAt)}</span>
-                                  </div>
+                                  {headerDisplayFields.length > 0 ? (
+                                    headerDisplayFields.map((fieldId) => {
+                                      const form = formsMap.get(submission.formId);
+                                      const fieldLabel = form ? getAllFieldLabels(submission.formId).find(f => f.id === fieldId)?.label : fieldId;
+                                      let fieldValue: string = 'N/A';
+                                      let icon = <FileText size={16} className="text-slate-400 flex-shrink-0" />;
+
+                                      if (fieldId === 'general_name') {
+                                        fieldValue = name;
+                                        icon = <User size={16} className="text-slate-400 flex-shrink-0" />;
+                                      } else if (fieldId === 'general_email') {
+                                        fieldValue = email;
+                                        icon = <Mail size={16} className="text-slate-400 flex-shrink-0" />;
+                                      } else if (fieldId === 'general_phone') {
+                                        fieldValue = submission.generalInfo?.phone || 'N/A';
+                                        icon = <Phone size={16} className="text-slate-400 flex-shrink-0" />;
+                                      } else if (fieldId === 'general_organization') {
+                                        fieldValue = submission.generalInfo?.organization || 'N/A';
+                                        icon = <Building size={16} className="text-slate-400 flex-shrink-0" />;
+                                      } else if (fieldId === 'general_address') {
+                                        fieldValue = submission.generalInfo?.address || 'N/A';
+                                        icon = <MapPin size={16} className="text-slate-400 flex-shrink-0" />;
+                                      } else if (fieldId === 'submitted_at') {
+                                        fieldValue = formatDate(submission.submittedAt);
+                                        icon = <Calendar size={16} className="text-slate-400 flex-shrink-0" />;
+                                      } else {
+                                        // Custom form field (including filter fields)
+                                        const value = submission.answers[fieldId];
+                                        fieldValue = renderFieldValue(fieldId, value);
+                                      }
+
+                                      return (
+                                        <div key={fieldId} className="flex items-center gap-2 min-w-0">
+                                          {icon}
+                                          <div className="min-w-0 flex-1">
+                                            <span className="text-xs text-slate-500 block truncate">{fieldLabel || fieldId}</span>
+                                            <span className="text-sm font-medium text-slate-900 truncate block">
+                                              {fieldValue}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  ) : (
+                                    // Fallback if no fields selected
+                                    <>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <User size={16} className="text-slate-400 flex-shrink-0" />
+                                        <span className="font-semibold text-slate-900 truncate">{name}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <Mail size={16} className="text-slate-400 flex-shrink-0" />
+                                        <span className="text-slate-600 truncate">{email}</span>
+                                      </div>
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <Calendar size={16} className="text-slate-400 flex-shrink-0" />
+                                        <span className="text-slate-600 text-sm">{formatDate(submission.submittedAt)}</span>
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
                               </div>
                               
                               <div className="flex items-center gap-3 flex-shrink-0">
+                                {/* Badge Column */}
+                                {badgesMap.has(submission.id) ? (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const badge = badgesMap.get(submission.id);
+                                      if (badge) {
+                                        setPreviewBadgeUrl(badge.badgeImageUrl);
+                                        setBadgePreviewOpen(true);
+                                      }
+                                    }}
+                                    disabled={isDeleting}
+                                    className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="View badge"
+                                  >
+                                    <Award size={16} />
+                                  </button>
+                                ) : (
+                                  <div className="p-2 text-slate-300" title="No badge generated">
+                                    <Award size={16} />
+                                  </div>
+                                )}
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenApprovalModal(submission);
+                                  }}
+                                  disabled={isDeleting}
+                                  className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Approve or reject this registration"
+                                >
+                                  <CheckCircle size={16} />
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenEmailModal(submission);
+                                  }}
+                                  disabled={isDeleting}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Send email to this registration"
+                                >
+                                  <Mail size={16} />
+                                </button>
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -741,6 +1325,39 @@ const RegistrationsView: React.FC = () => {
                           {isExpanded && (
                             <div className="px-6 py-6 bg-slate-50 border-t border-slate-200">
                               <div className="space-y-6">
+                                {/* Registration Type and Approval Status */}
+                                <div className="mb-4 pb-4 border-b border-slate-200">
+                                  {/* Registration Type Badge */}
+                                  <div className="mb-2">
+                                    {isInternal ? (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-800">
+                                        Internal Registration
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                        External Registration
+                                      </span>
+                                    )}
+                                  </div>
+                                  {/* Approval Status */}
+                                  {submission.approvalStatus && (
+                                    <div className="mb-2">
+                                      {getApprovalStatusBadge(submission.approvalStatus)}
+                                    </div>
+                                  )}
+                                  {submission.decisionComment && (
+                                    <div className="mt-2 p-3 bg-white rounded-lg border border-slate-200">
+                                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Approval Comment</p>
+                                      <p className="text-sm text-slate-900">{submission.decisionComment}</p>
+                                    </div>
+                                  )}
+                                  {isInternal && submission.participantUserId && (
+                                    <div className="mt-2 text-xs text-slate-500">
+                                      User ID: {submission.participantUserId.substring(0, 8)}...
+                                    </div>
+                                  )}
+                                </div>
+
                                 {/* General Information */}
                                 {submission.generalInfo && (
                                   <div>
@@ -946,6 +1563,62 @@ const RegistrationsView: React.FC = () => {
         );
       })()}
 
+      {/* Approval Modal */}
+      {approvalModalOpen && selectedSubmissionForApproval && (
+        <RegistrationApprovalModal
+          isOpen={approvalModalOpen}
+          onClose={() => {
+            setApprovalModalOpen(false);
+            setSelectedSubmissionForApproval(null);
+          }}
+          onSubmit={handleApprovalSubmit}
+          currentApproval={selectedSubmissionForApproval.approvalStatus}
+          currentComment={selectedSubmissionForApproval.decisionComment}
+          registrationName={selectedSubmissionForApproval.generalInfo?.name || selectedSubmissionForApproval.submittedBy || 'Registration'}
+        />
+      )}
+
+      {emailModalOpen && selectedSubmissionForEmail && (
+        <RegistrationEmailModal
+          isOpen={emailModalOpen}
+          onClose={() => {
+            setEmailModalOpen(false);
+            setSelectedSubmissionForEmail(null);
+            setEmailRecipients([]);
+          }}
+          recipients={emailRecipients}
+          submission={selectedSubmissionForEmail}
+        />
+      )}
+
+      {/* Badge Preview Modal */}
+      {badgePreviewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-slate-200">
+              <h2 className="text-2xl font-bold text-slate-900">Participant Badge</h2>
+              <button
+                onClick={() => {
+                  setBadgePreviewOpen(false);
+                  setPreviewBadgeUrl('');
+                }}
+                className="p-2 text-slate-400 hover:text-slate-600 rounded-lg transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-6 flex items-center justify-center">
+              {previewBadgeUrl && (
+                <img
+                  src={previewBadgeUrl}
+                  alt="Participant Badge"
+                  className="max-w-full h-auto rounded-lg shadow-lg"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

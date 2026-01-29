@@ -14,9 +14,22 @@ export const uploadImageToStorage = async (
 ): Promise<string> => {
   try {
     // Determine bucket based on folder
-    const bucketId = folder === 'certificate-templates' 
-      ? STORAGE_BUCKETS.CERTIFICATE_TEMPLATES 
-      : STORAGE_BUCKETS.GENERAL;
+    let bucketId: string;
+    if (folder === 'certificate-templates') {
+      bucketId = STORAGE_BUCKETS.CERTIFICATE_TEMPLATES;
+    } else if (folder === 'badges') {
+      bucketId = STORAGE_BUCKETS.BADGES;
+    } else if (folder === 'landing-page-images') {
+      bucketId = STORAGE_BUCKETS.MEDIA;
+    } else if (folder === 'organizer-profiles') {
+      bucketId = STORAGE_BUCKETS.ORGANIZER_PROFILES;
+    } else if (folder === 'participant-profiles') {
+      bucketId = STORAGE_BUCKETS.PARTICIPANT_PROFILES;
+    } else if (folder === 'participant-badges' || folder === 'Participant_Badge') {
+      bucketId = STORAGE_BUCKETS.PARTICIPANT_BADGE;
+    } else {
+      bucketId = STORAGE_BUCKETS.GENERAL;
+    }
     
     // Generate unique filename
     const fileExt = file.name.split('.').pop();
@@ -66,9 +79,19 @@ export const uploadBase64ImageToStorage = async (
     const blob = await response.blob();
     
     // Determine bucket based on folder
-    const bucketId = folder === 'certificate-templates' 
-      ? STORAGE_BUCKETS.CERTIFICATE_TEMPLATES 
-      : STORAGE_BUCKETS.GENERAL;
+    let bucketId: string;
+    if (folder === 'certificate-templates') {
+      bucketId = STORAGE_BUCKETS.CERTIFICATE_TEMPLATES;
+    } else if (folder === 'badges') {
+      bucketId = STORAGE_BUCKETS.BADGES;
+    } else if (folder === 'certificates') {
+      // Use MEDIA bucket for generated certificates
+      bucketId = STORAGE_BUCKETS.MEDIA;
+    } else if (folder === 'participant-badges' || folder === 'Participant_Badge') {
+      bucketId = STORAGE_BUCKETS.PARTICIPANT_BADGE;
+    } else {
+      bucketId = STORAGE_BUCKETS.GENERAL;
+    }
     
     // Create a unique filename
     const timestamp = Date.now();
@@ -112,7 +135,7 @@ export const uploadBase64ImageToStorage = async (
  * Upload any file to Supabase Storage
  * @param userId The current user ID
  * @param file The file to upload
- * @param folder The folder path in storage (e.g., 'form-submissions')
+ * @param folder The folder path in storage (e.g., 'form-submissions', 'sub-files')
  * @returns The download URL of the uploaded file
  */
 export const uploadFileToStorage = async (
@@ -122,13 +145,31 @@ export const uploadFileToStorage = async (
 ): Promise<string> => {
   try {
     // Determine bucket based on folder
-    const bucketId = folder === 'form-submissions' 
-      ? STORAGE_BUCKETS.FORM_SUBMISSIONS 
+    // Use Sub_Files for submission files (papers, documents from submission forms)
+    const bucketId = folder === 'form-submissions' || folder === 'sub-files' || folder === 'submission-files'
+      ? STORAGE_BUCKETS.SUB_FILES 
+      : folder === 'certificate-templates'
+      ? STORAGE_BUCKETS.CERTIFICATE_TEMPLATES
+      : folder === 'badges'
+      ? STORAGE_BUCKETS.BADGES
+      : folder === 'email-attachments'
+      ? STORAGE_BUCKETS.EMAIL_ATTACHMENTS
       : STORAGE_BUCKETS.GENERAL;
+    
+    // Debug: Log the bucket being used
+    console.log('Uploading to bucket:', bucketId, 'for folder:', folder);
     
     // Generate unique filename
     const fileExt = file.name.split('.').pop();
     const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+    
+    console.log('Upload details:', {
+      bucket: bucketId,
+      fileName: fileName,
+      fileSize: file.size,
+      fileType: file.type,
+      userId: userId
+    });
     
     // Upload the file to Supabase Storage
     const { data, error } = await supabase.storage
@@ -139,13 +180,33 @@ export const uploadFileToStorage = async (
       });
     
     if (error) {
+      console.error('Upload error details:', {
+        error,
+        statusCode: error.statusCode,
+        message: error.message,
+        bucket: bucketId,
+        fileName: fileName
+      });
       throw error;
     }
+    
+    if (!data) {
+      console.error('Upload returned no data:', { bucketId, fileName });
+      throw new Error('Upload failed: No data returned from storage');
+    }
+    
+    console.log('Upload successful:', {
+      path: data.path,
+      id: data.id,
+      bucket: bucketId
+    });
     
     // Get public URL
     const { data: urlData } = supabase.storage
       .from(bucketId)
       .getPublicUrl(data.path);
+    
+    console.log('File URL generated:', urlData.publicUrl);
     
     return urlData.publicUrl;
   } catch (error: any) {
@@ -192,13 +253,53 @@ export const deleteImageFromStorage = async (
 
 /**
  * Get file download URL from Supabase Storage
+ * For private buckets, use signed URLs. For public buckets, use public URLs.
  * @param bucketId The bucket ID
- * @param fileId The file ID
+ * @param filePath The file path (not just ID)
+ * @param expiresIn Optional expiration time in seconds (default: 3600 for 1 hour)
  * @returns The download URL
  */
-export const getFileDownloadURL = (bucketId: string, fileId: string): string => {
+export const getFileDownloadURL = async (
+  bucketId: string,
+  filePath: string,
+  expiresIn: number = 3600
+): Promise<string> => {
+  try {
+    // Check if bucket is public or private
+    // For Sub_Files bucket (private), use signed URL
+    if (bucketId === STORAGE_BUCKETS.SUB_FILES) {
+      const { data, error } = await supabase.storage
+        .from(bucketId)
+        .createSignedUrl(filePath, expiresIn);
+      
+      if (error) {
+        console.error('Error creating signed URL:', error);
+        throw error;
+      }
+      
+      return data.signedUrl;
+    }
+    
+    // For public buckets, use public URL
+    const { data } = supabase.storage
+      .from(bucketId)
+      .getPublicUrl(filePath);
+    return data.publicUrl;
+  } catch (error: any) {
+    console.error('Error getting file download URL:', error);
+    throw new Error('Failed to get file URL. Please try again.');
+  }
+};
+
+/**
+ * Get file download URL synchronously (for public buckets only)
+ * @param bucketId The bucket ID
+ * @param filePath The file path
+ * @returns The download URL
+ */
+export const getFileDownloadURLSync = (bucketId: string, filePath: string): string => {
   const { data } = supabase.storage
     .from(bucketId)
-    .getPublicUrl(fileId);
+    .getPublicUrl(filePath);
   return data.publicUrl;
 };

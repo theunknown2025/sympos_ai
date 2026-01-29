@@ -1,7 +1,8 @@
 
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, Loader2, UserPlus, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, Loader2, UserPlus, AlertCircle, User, Building2, Briefcase } from 'lucide-react';
 import { supabase } from "../../../supabase";
+import { SubscriptionType, SubscriptionRole } from "../../../types";
 import EmailConfirmationModal from './EmailConfirmationModal';
 
 interface RegisterFormProps {
@@ -13,6 +14,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [subscriptionType, setSubscriptionType] = useState<SubscriptionType>('self');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
@@ -31,10 +33,19 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin 
     setError('');
     
     try {
-      // Create account in Supabase
+      // Automatically set role based on subscription type
+      const role: SubscriptionRole = subscriptionType === 'self' ? 'Participant' : 'Organizer';
+      
+      // Create account in Supabase with subscription metadata
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          data: {
+            subscriptionType,
+            role,
+          }
+        }
       });
 
       if (error) {
@@ -50,6 +61,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin 
         setEmail('');
         setPassword('');
         setConfirmPassword('');
+        setSubscriptionType('self');
       }
     } catch (err: any) {
       console.error(err);
@@ -66,7 +78,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin 
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in h-full flex flex-col justify-center">
       <div className="text-center">
         <h2 className="text-2xl font-bold text-slate-900">Get Started</h2>
         <p className="text-slate-500 mt-1">Join the community of scientific organizers.</p>
@@ -80,6 +92,47 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin 
       )}
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Subscription Details */}
+        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Briefcase className="text-indigo-600" size={18} />
+            <h3 className="text-sm font-semibold text-slate-900">Subscription Details</h3>
+          </div>
+          
+          {/* Subscription Type */}
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-2">
+              Subscribe on behalf of <span className="text-red-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setSubscriptionType('self')}
+                className={`p-3 border-2 rounded-lg transition-all flex items-center gap-2 ${
+                  subscriptionType === 'self'
+                    ? 'border-indigo-600 bg-indigo-100 text-indigo-900'
+                    : 'border-slate-300 bg-white text-slate-700 hover:border-indigo-300'
+                }`}
+              >
+                <User size={16} />
+                <span className="text-sm font-medium">Myself</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setSubscriptionType('entity')}
+                className={`p-3 border-2 rounded-lg transition-all flex items-center gap-2 ${
+                  subscriptionType === 'entity'
+                    ? 'border-indigo-600 bg-indigo-100 text-indigo-900'
+                    : 'border-slate-300 bg-white text-slate-700 hover:border-indigo-300'
+                }`}
+              >
+                <Building2 size={16} />
+                <span className="text-sm font-medium">Entity</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
         <div className="space-y-2">
           <label className="text-sm font-medium text-slate-700 block">Email Address</label>
           <div className="relative">

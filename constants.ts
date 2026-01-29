@@ -310,6 +310,7 @@ export const INITIAL_CONFERENCE_CONFIG: ConferenceConfig = {
       isHighlighted: false
     }
   ],
+  imageGroups: [],
   sections: [
     { id: 'sec-1', type: 'hero', title: 'Hero Section', isVisible: true, titleAlignment: 'center' },
     { id: 'sec-2', type: 'about', title: 'About the Conference', content: 'This conference brings together experts...', isVisible: true, titleAlignment: 'center' },
@@ -322,6 +323,7 @@ export const INITIAL_CONFERENCE_CONFIG: ConferenceConfig = {
     { id: 'sec-9', type: 'partners', title: 'Partners & Sponsors', isVisible: true, titleAlignment: 'center' },
     { id: 'sec-5', type: 'faq', title: 'FAQ', isVisible: true, titleAlignment: 'center' },
     { id: 'sec-7', type: 'contact', title: 'Contact Us', isVisible: true, titleAlignment: 'center' },
+    { id: 'sec-12', type: 'images', title: 'Gallery', isVisible: true, titleAlignment: 'center' },
   ],
   about: {
     includeImage: false,

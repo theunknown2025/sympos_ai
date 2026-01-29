@@ -1,0 +1,124 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{geometry}
+\geometry{margin=1in}
+
+\title{LaTeX Editor Test Document}
+\author{Test User}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+
+This is a test document to verify the LaTeX editor functionality. It includes various LaTeX features to test both the MathJax preview and PDF compilation.
+
+\subsection{Basic Text Formatting}
+
+Here is some \textbf{bold text}, \textit{italic text}, and \underline{underlined text}. We can also use \texttt{monospace text} for code.
+
+\section{Mathematical Expressions}
+
+\subsection{Inline Math}
+
+Einstein's famous equation is $E = mc^2$. The quadratic formula is $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$.
+
+\subsection{Display Math}
+
+The Pythagorean theorem states:
+\[
+a^2 + b^2 = c^2
+\]
+
+The Euler's identity is one of the most beautiful equations in mathematics:
+\[
+e^{i\pi} + 1 = 0
+\]
+
+The integral of a function can be written as:
+\[
+\int_{a}^{b} f(x) \, dx = F(b) - F(a)
+\]
+
+\subsection{Complex Mathematical Expressions}
+
+The Schrödinger equation:
+\[
+i\hbar\frac{\partial}{\partial t}\Psi(\mathbf{r},t) = \hat{H}\Psi(\mathbf{r},t)
+\]
+
+Maxwell's equations in differential form:
+\begin{align}
+\nabla \cdot \mathbf{E} &= \frac{\rho}{\varepsilon_0} \\
+\nabla \cdot \mathbf{B} &= 0 \\
+\nabla \times \mathbf{E} &= -\frac{\partial \mathbf{B}}{\partial t} \\
+\nabla \times \mathbf{B} &= \mu_0\mathbf{J} + \mu_0\varepsilon_0\frac{\partial \mathbf{E}}{\partial t}
+\end{align}
+
+\section{Lists}
+
+\subsection{Unordered List}
+
+\begin{itemize}
+    \item First item
+    \item Second item
+    \item Third item with \textbf{bold text}
+    \item Fourth item with math: $f(x) = x^2 + 3x + 2$
+\end{itemize}
+
+\subsection{Ordered List}
+
+\begin{enumerate}
+    \item First step
+    \item Second step
+    \item Third step
+    \item Fourth step
+\end{enumerate}
+
+\section{Tables}
+
+Here is a simple table:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{Column 1} & \textbf{Column 2} & \textbf{Column 3} \\
+\hline
+Row 1, Col 1 & Row 1, Col 2 & Row 1, Col 3 \\
+Row 2, Col 1 & Row 2, Col 2 & Row 2, Col 3 \\
+Row 3, Col 1 & Row 3, Col 2 & Row 3, Col 3 \\
+\hline
+\end{tabular}
+\caption{A sample table}
+\end{table}
+
+\section{Special Characters and Symbols}
+
+Greek letters: $\alpha, \beta, \gamma, \delta, \epsilon, \theta, \lambda, \mu, \pi, \sigma, \phi, \omega$
+
+Mathematical operators: $\sum, \prod, \int, \oint, \partial, \nabla$
+
+Relations: $\leq, \geq, \neq, \approx, \equiv, \sim$
+
+\section{Conclusion}
+
+This document demonstrates various LaTeX features including:
+\begin{itemize}
+    \item Document structure and sections
+    \item Text formatting
+    \item Mathematical expressions (inline and display)
+    \item Lists (ordered and unordered)
+    \item Tables
+    \item Special symbols and characters
+\end{itemize}
+
+The LaTeX editor should be able to compile this document to PDF successfully.
+
+\end{document}

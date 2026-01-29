@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { X, Mail, Send, Loader2, AlertCircle, User, CheckCircle2 } from 'lucide-react';
 import { ReviewCommitteeMember } from '../../../../types';
 import { sendInvitationEmail } from '../../../../services/emailService';
+import { createMemberInvitation } from '../../../../services/committeeMemberService';
+import { useAuth } from '../../../../hooks/useAuth';
 
 interface InvitationEmailModalProps {
   isOpen: boolean;
@@ -12,12 +14,22 @@ interface InvitationEmailModalProps {
 
 const DEFAULT_EMAIL_CONTENT = `Dear {{name}},
 
-We are pleased to invite you to join our committee as a valued member.
+We are pleased to invite you to join our platform as a valued member.
+
+To accept this invitation and respond, please follow these steps:
+
+1. Sign up for an account on our platform using this email address: {{email}}
+2. Once you have created your account, log in to the platform
+3. Navigate to the "Invitations" section in your dashboard
+4. You will see this invitation and can choose to accept or reject it
+5. You may also add a comment when responding
+
+If you already have an account, simply log in and check your Invitations page.
 
 Your expertise and contributions would be greatly appreciated.
 
 Best regards,
-Committee Management Team`;
+Platform Management Team`;
 
 const InvitationEmailModal: React.FC<InvitationEmailModalProps> = ({
   isOpen,
@@ -25,9 +37,10 @@ const InvitationEmailModal: React.FC<InvitationEmailModalProps> = ({
   members = [],
   selectedMemberIds = []
 }) => {
+  const { currentUser } = useAuth();
   // Ensure members is always an array
   const safeMembers = Array.isArray(members) ? members : [];
-  const [subject, setSubject] = useState('Invitation to Join Committee');
+  const [subject, setSubject] = useState('Invitation to Join Platform');
   const [content, setContent] = useState(DEFAULT_EMAIL_CONTENT);
   const [recipients, setRecipients] = useState<Array<{ id: string; email: string; fullName: string; selected: boolean }>>([]);
   const [sending, setSending] = useState(false);
@@ -75,7 +88,7 @@ const InvitationEmailModal: React.FC<InvitationEmailModalProps> = ({
   // Reset form when modal opens/closes
   useEffect(() => {
     if (!isOpen) {
-      setSubject('Invitation to Join Committee');
+      setSubject('Invitation to Join Platform');
       setContent(DEFAULT_EMAIL_CONTENT);
       setError('');
       setSuccess(false);
@@ -134,6 +147,25 @@ const InvitationEmailModal: React.FC<InvitationEmailModalProps> = ({
     try {
       setSending(true);
       
+      if (!currentUser?.id) {
+        setError('You must be logged in to send invitations');
+        return;
+      }
+
+      // Create invitation records in database
+      for (const recipient of selectedRecipients) {
+        const member = safeMembers.find(m => m.id === recipient.id);
+        if (member) {
+          try {
+            await createMemberInvitation(member.id, recipient.email.trim(), currentUser.id);
+          } catch (err: any) {
+            console.error(`Failed to create invitation for ${recipient.email}:`, err);
+            // Continue with other recipients even if one fails
+          }
+        }
+      }
+
+      // Send emails
       await sendInvitationEmail(
         selectedRecipients.map(r => ({ 
           email: r.email.trim(), 
@@ -303,7 +335,7 @@ const InvitationEmailModal: React.FC<InvitationEmailModalProps> = ({
               )}
             </div>
             <p className="text-xs text-slate-500 mt-2">
-              Tip: Use <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{name}}'}</code> or <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{fullName}}'}</code> in the content to personalize each email
+              Tip: Use <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{name}}'}</code>, <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{fullName}}'}</code>, or <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{email}}'}</code> in the content to personalize each email
             </p>
           </div>
 
@@ -334,7 +366,7 @@ const InvitationEmailModal: React.FC<InvitationEmailModalProps> = ({
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm"
             />
             <p className="text-xs text-slate-500 mt-2">
-              You can use placeholders: <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{name}}'}</code> or <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{fullName}}'}</code> to personalize the email
+              You can use placeholders: <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{name}}'}</code>, <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{fullName}}'}</code>, or <code className="bg-slate-100 px-1 py-0.5 rounded">{'{{email}}'}</code> to personalize the email
             </p>
           </div>
         </div>
@@ -372,4 +404,3 @@ const InvitationEmailModal: React.FC<InvitationEmailModalProps> = ({
 };
 
 export default InvitationEmailModal;
-

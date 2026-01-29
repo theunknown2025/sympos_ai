@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Edit2,
   Trash2,
@@ -8,7 +8,11 @@ import {
   AlertCircle,
   Plus,
   Eye,
-  X
+  X,
+  UserCheck,
+  FileCheck,
+  Grid3x3,
+  List
 } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
 import {
@@ -19,6 +23,14 @@ import {
   FormField,
   FormFieldType
 } from '../../../../services/registrationFormService';
+import {
+  getUserEvaluationForms,
+  deleteEvaluationForm,
+  getEvaluationForm,
+  EvaluationForm
+} from '../../../../services/evaluationFormService';
+import FormFiltersComponent, { FormFilters } from './FormFilters';
+import FormEdit from './FormEdit';
 
 interface FormListProps {
   onEdit: (formId: string) => void;
@@ -26,14 +38,273 @@ interface FormListProps {
   refreshTrigger?: number;
 }
 
+interface FormCardProps {
+  form: RegistrationForm | EvaluationForm;
+  formType: 'registration' | 'submission' | 'evaluation' | 'other';
+  onEdit: (formId: string) => void;
+  onDelete: (formId: string) => void;
+  onDisplay: (formId: string) => void;
+  isLoadingForm: boolean;
+  deletingId: string | null;
+  getTotalFieldCount: (form: RegistrationForm | EvaluationForm) => number;
+  formatDate: (date: Date) => string;
+  cleanFormTitle: (title: string) => string;
+}
+
+interface FormRowProps {
+  form: RegistrationForm | EvaluationForm;
+  formType: 'registration' | 'submission' | 'evaluation' | 'other';
+  onEdit: (formId: string) => void;
+  onDelete: (formId: string) => void;
+  onDisplay: (formId: string) => void;
+  isLoadingForm: boolean;
+  deletingId: string | null;
+  getTotalFieldCount: (form: RegistrationForm | EvaluationForm) => number;
+  formatDate: (date: Date) => string;
+  cleanFormTitle: (title: string) => string;
+}
+
+const FormCard: React.FC<FormCardProps> = ({
+  form,
+  formType,
+  onEdit,
+  onDelete,
+  onDisplay,
+  isLoadingForm,
+  deletingId,
+  getTotalFieldCount,
+  formatDate,
+  cleanFormTitle,
+}) => {
+  return (
+    <div
+      className={`bg-white rounded-xl shadow-sm border hover:shadow-md transition-shadow overflow-hidden flex flex-col ${
+        formType === 'registration' 
+          ? 'border-blue-200' 
+          : formType === 'submission' 
+          ? 'border-purple-200' 
+          : formType === 'evaluation'
+          ? 'border-orange-200'
+          : 'border-slate-200'
+      }`}
+    >
+      <div className="p-6 flex-1">
+        <div className="flex items-start justify-between mb-2">
+          <h3 className="text-xl font-bold text-slate-900 truncate flex-1">
+            {cleanFormTitle(form.title)}
+          </h3>
+        </div>
+        {form.description && (
+          <p className="text-sm text-slate-600 mb-4 line-clamp-2">
+            {form.description}
+          </p>
+        )}
+
+        <div className="space-y-2 mb-4">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <FileText 
+              size={16} 
+              className={
+                formType === 'registration' 
+                  ? 'text-blue-600' 
+                  : formType === 'submission' 
+                  ? 'text-purple-600' 
+                  : formType === 'evaluation'
+                  ? 'text-orange-600'
+                  : 'text-slate-600'
+              } 
+            />
+            <span>{getTotalFieldCount(form)} field(s)</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <Calendar size={16} />
+            <span>Updated: {formatDate(form.updatedAt)}</span>
+          </div>
+        </div>
+
+        <div className="pt-4 border-t border-slate-100">
+          <p className="text-xs text-slate-500 mb-1">
+            Created: {formatDate(form.createdAt)}
+          </p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {Object.entries(form.generalInfo)
+              .filter(([_, value]) => value)
+              .map(([key]) => (
+                <span
+                  key={key}
+                  className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded"
+                >
+                  {key.replace('collect', '').replace(/([A-Z])/g, ' $1').trim()}
+                </span>
+              ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span className="font-medium">Actions:</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onDisplay(form.id)}
+            disabled={isLoadingForm}
+            className="p-2.5 text-indigo-600 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 hover:border-indigo-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow"
+            title="Preview Form"
+          >
+            {isLoadingForm ? (
+              <Loader2 className="animate-spin" size={18} />
+            ) : (
+              <Eye size={18} />
+            )}
+          </button>
+          <button
+            onClick={() => onEdit(form.id)}
+            className="p-2.5 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm hover:shadow"
+            title="Edit Form"
+          >
+            <Edit2 size={18} />
+          </button>
+          <button
+            onClick={() => onDelete(form.id)}
+            disabled={deletingId === form.id}
+            className="p-2.5 text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 hover:border-red-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow"
+            title="Delete Form"
+          >
+            {deletingId === form.id ? (
+              <Loader2 className="animate-spin" size={18} />
+            ) : (
+              <Trash2 size={18} />
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const FormRow: React.FC<FormRowProps> = ({
+  form,
+  formType,
+  onEdit,
+  onDelete,
+  onDisplay,
+  isLoadingForm,
+  deletingId,
+  getTotalFieldCount,
+  formatDate,
+  cleanFormTitle,
+}) => {
+  return (
+    <div
+      className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all overflow-hidden ${
+        formType === 'registration' 
+          ? 'border-l-4 border-l-blue-500' 
+          : formType === 'submission' 
+          ? 'border-l-4 border-l-purple-500' 
+          : formType === 'evaluation'
+          ? 'border-l-4 border-l-orange-500'
+          : 'border-l-4 border-l-slate-300'
+      }`}
+    >
+      <div className="p-4 flex items-center justify-between gap-4">
+        {/* Left Section - Form Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 mb-2">
+            <h3 className="text-lg font-bold text-slate-900 truncate">
+              {cleanFormTitle(form.title)}
+            </h3>
+          </div>
+          {form.description && (
+            <p className="text-sm text-slate-600 mb-2 line-clamp-1">
+              {form.description}
+            </p>
+          )}
+          <div className="flex items-center gap-4 text-xs text-slate-500">
+            <div className="flex items-center gap-1">
+              <FileText 
+                size={14} 
+                className={
+                  formType === 'registration' 
+                    ? 'text-blue-600' 
+                    : formType === 'submission' 
+                    ? 'text-purple-600' 
+                    : formType === 'evaluation'
+                    ? 'text-orange-600'
+                    : 'text-slate-600'
+                } 
+              />
+              <span>{getTotalFieldCount(form)} field(s)</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Calendar size={14} />
+              <span>Updated: {formatDate(form.updatedAt)}</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Calendar size={14} />
+              <span>Created: {formatDate(form.createdAt)}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Section - Actions */}
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => onDisplay(form.id)}
+            disabled={isLoadingForm}
+            className="p-2 text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Preview Form"
+          >
+            {isLoadingForm ? (
+              <Loader2 className="animate-spin" size={18} />
+            ) : (
+              <Eye size={18} />
+            )}
+          </button>
+          <button
+            onClick={() => onEdit(form.id)}
+            className="p-2 text-slate-700 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+            title="Edit Form"
+          >
+            <Edit2 size={18} />
+          </button>
+          <button
+            onClick={() => onDelete(form.id)}
+            disabled={deletingId === form.id}
+            className="p-2 text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Delete Form"
+          >
+            {deletingId === form.id ? (
+              <Loader2 className="animate-spin" size={18} />
+            ) : (
+              <Trash2 size={18} />
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) => {
-  const [forms, setForms] = useState<RegistrationForm[]>([]);
+  const [forms, setForms] = useState<(RegistrationForm | EvaluationForm)[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const { currentUser } = useAuth();
-  const [displayingForm, setDisplayingForm] = useState<RegistrationForm | null>(null);
+  const [displayingForm, setDisplayingForm] = useState<RegistrationForm | EvaluationForm | null>(null);
   const [isLoadingForm, setIsLoadingForm] = useState(false);
+  const [editingFormId, setEditingFormId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'cards' | 'rows'>('cards');
+  const [filters, setFilters] = useState<FormFilters>({
+    name: '',
+    type: 'all',
+    dateType: 'created',
+    dateFrom: '',
+    dateTo: '',
+    minFields: '',
+    maxFields: '',
+  });
 
   useEffect(() => {
     if (currentUser) {
@@ -55,9 +326,18 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
     try {
       setLoading(true);
       setError('');
-      const userForms = await getUserRegistrationForms(userId);
-      userForms.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-      setForms(userForms);
+      const [registrationForms, evaluationForms] = await Promise.all([
+        getUserRegistrationForms(userId),
+        getUserEvaluationForms(userId)
+      ]);
+      
+      // Combine and sort all forms by updated date
+      const allForms: (RegistrationForm | EvaluationForm)[] = [
+        ...registrationForms,
+        ...evaluationForms
+      ];
+      allForms.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+      setForms(allForms);
     } catch (err: any) {
       setError('Failed to load forms. Please try again.');
       console.error(err);
@@ -73,7 +353,14 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
 
     try {
       setDeletingId(formId);
-      await deleteRegistrationForm(formId);
+      const form = forms.find(f => f.id === formId);
+      const formType = getFormType(form as RegistrationForm | EvaluationForm);
+      
+      if (formType === 'evaluation') {
+        await deleteEvaluationForm(formId);
+      } else {
+        await deleteRegistrationForm(formId);
+      }
       setForms(forms.filter(f => f.id !== formId));
     } catch (err: any) {
       setError('Failed to delete form. Please try again.');
@@ -86,7 +373,12 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
   const handleDisplay = async (formId: string) => {
     try {
       setIsLoadingForm(true);
-      const form = await getRegistrationForm(formId);
+      // Try to load as registration form first
+      let form = await getRegistrationForm(formId);
+      if (!form) {
+        // If not found, try evaluation form
+        form = await getEvaluationForm(formId);
+      }
       if (form) {
         setDisplayingForm(form);
       }
@@ -98,7 +390,23 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
     }
   };
 
-  const getTotalFieldCount = (form: RegistrationForm): number => {
+  const handleEdit = (formId: string) => {
+    setEditingFormId(formId);
+  };
+
+  const handleEditClose = () => {
+    setEditingFormId(null);
+  };
+
+  const handleEditSave = () => {
+    setEditingFormId(null);
+    // Reload forms to show updated data
+    if (currentUser) {
+      loadForms(currentUser.id);
+    }
+  };
+
+  const getTotalFieldCount = (form: RegistrationForm | EvaluationForm): number => {
     let count = form.fields?.length || 0;
     form.sections?.forEach(section => {
       count += section.fields?.length || 0;
@@ -117,6 +425,125 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
       hour: '2-digit',
       minute: '2-digit',
     }).format(date);
+  };
+
+  const cleanFormTitle = (title: string): string => {
+    // Remove "Reg - ", "Reg-", "Sub - ", "Sub-", "Eval - ", "Eval-" prefixes
+    return title
+      .replace(/^reg\s*-\s*/i, '')
+      .replace(/^sub\s*-\s*/i, '')
+      .replace(/^eval\s*-\s*/i, '')
+      .trim();
+  };
+
+  // Detect form type from title prefix
+  const getFormType = (form: RegistrationForm | EvaluationForm): 'registration' | 'submission' | 'evaluation' | 'other' => {
+    const titleLower = form.title.toLowerCase();
+    if (titleLower.startsWith('reg - ') || titleLower.startsWith('reg-') || titleLower.includes('registration')) {
+      return 'registration';
+    } else if (titleLower.startsWith('sub - ') || titleLower.startsWith('sub-') || titleLower.includes('submission')) {
+      return 'submission';
+    } else if (titleLower.startsWith('eval - ') || titleLower.startsWith('eval-') || titleLower.includes('evaluation')) {
+      return 'evaluation';
+    }
+    return 'other';
+  };
+
+  // Filter forms based on filter criteria
+  const filteredForms = useMemo(() => {
+    return forms.filter(form => {
+      // Name filter
+      if (filters.name) {
+        const cleanedTitle = cleanFormTitle(form.title).toLowerCase();
+        const searchTerm = filters.name.toLowerCase();
+        if (!cleanedTitle.includes(searchTerm) && 
+            !(form.description?.toLowerCase().includes(searchTerm) ?? false)) {
+          return false;
+        }
+      }
+
+      // Type filter
+      if (filters.type !== 'all') {
+        const formType = getFormType(form);
+        if (formType !== filters.type) {
+          return false;
+        }
+      }
+
+      // Date filters
+      const dateToCheck = filters.dateType === 'created' ? form.createdAt : form.updatedAt;
+      if (filters.dateFrom) {
+        const fromDate = new Date(filters.dateFrom);
+        fromDate.setHours(0, 0, 0, 0);
+        if (dateToCheck < fromDate) {
+          return false;
+        }
+      }
+      if (filters.dateTo) {
+        const toDate = new Date(filters.dateTo);
+        toDate.setHours(23, 59, 59, 999);
+        if (dateToCheck > toDate) {
+          return false;
+        }
+      }
+
+      // Field count filters
+      const fieldCount = getTotalFieldCount(form);
+      if (filters.minFields) {
+        const min = parseInt(filters.minFields, 10);
+        if (!isNaN(min) && fieldCount < min) {
+          return false;
+        }
+      }
+      if (filters.maxFields) {
+        const max = parseInt(filters.maxFields, 10);
+        if (!isNaN(max) && fieldCount > max) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forms, filters]);
+
+  // Group forms by type
+  const groupedForms = useMemo(() => {
+    const registration: (RegistrationForm | EvaluationForm)[] = [];
+    const submission: (RegistrationForm | EvaluationForm)[] = [];
+    const evaluation: (RegistrationForm | EvaluationForm)[] = [];
+    const other: (RegistrationForm | EvaluationForm)[] = [];
+
+    filteredForms.forEach(form => {
+      const type = getFormType(form);
+      if (type === 'registration') {
+        registration.push(form);
+      } else if (type === 'submission') {
+        submission.push(form);
+      } else if (type === 'evaluation') {
+        evaluation.push(form);
+      } else {
+        other.push(form);
+      }
+    });
+
+    return { registration, submission, evaluation, other };
+  }, [filteredForms]);
+
+  const handleFiltersChange = (newFilters: FormFilters) => {
+    setFilters(newFilters);
+  };
+
+  const handleResetFilters = () => {
+    setFilters({
+      name: '',
+      type: 'all',
+      dateType: 'created',
+      dateFrom: '',
+      dateTo: '',
+      minFields: '',
+      maxFields: '',
+    });
   };
 
   const renderPreviewField = (field: FormField) => {
@@ -238,14 +665,41 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
       <header className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">List of Forms</h1>
-          <p className="text-slate-500 mt-1 text-sm">Manage your registration forms</p>
+          <p className="text-slate-500 mt-1 text-sm">Manage your registration and submission forms</p>
         </div>
-        <button
-          onClick={onNew}
-          className="flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm shadow-indigo-200"
-        >
-          <Plus size={18} /> New Form
-        </button>
+        <div className="flex items-center gap-3">
+          {/* View Toggle */}
+          <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('cards')}
+              className={`p-2 rounded-md transition-colors ${
+                viewMode === 'cards'
+                  ? 'bg-white text-indigo-600 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Card View"
+            >
+              <Grid3x3 size={18} />
+            </button>
+            <button
+              onClick={() => setViewMode('rows')}
+              className={`p-2 rounded-md transition-colors ${
+                viewMode === 'rows'
+                  ? 'bg-white text-indigo-600 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+              title="Row View"
+            >
+              <List size={18} />
+            </button>
+          </div>
+          <button
+            onClick={onNew}
+            className="flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm shadow-indigo-200"
+          >
+            <Plus size={18} /> New Form
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -253,6 +707,15 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
           <AlertCircle size={20} />
           <span>{error}</span>
         </div>
+      )}
+
+      {/* Filters */}
+      {forms.length > 0 && (
+        <FormFiltersComponent
+          filters={filters}
+          onFiltersChange={handleFiltersChange}
+          onReset={handleResetFilters}
+        />
       )}
 
       {forms.length === 0 ? (
@@ -267,89 +730,238 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
             <Plus size={18} /> Create Form
           </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {forms.map((form) => (
-            <div
-              key={form.id}
-              className="bg-white rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow overflow-hidden flex flex-col"
-            >
-              <div className="p-6 flex-1">
-                <h3 className="text-xl font-bold text-slate-900 mb-2 truncate">
-                  {form.title}
-                </h3>
-                {form.description && (
-                  <p className="text-sm text-slate-600 mb-4 line-clamp-2">
-                    {form.description}
-                  </p>
-                )}
-
-                <div className="space-y-2 mb-4">
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <FileText size={16} />
-                    <span>{getTotalFieldCount(form)} field(s)</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <Calendar size={16} />
-                    <span>Updated: {formatDate(form.updatedAt)}</span>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-slate-100">
-                  <p className="text-xs text-slate-500 mb-1">
-                    Created: {formatDate(form.createdAt)}
-                  </p>
-                  <div className="flex flex-wrap gap-2 mt-2">
-                    {Object.entries(form.generalInfo)
-                      .filter(([_, value]) => value)
-                      .map(([key]) => (
-                        <span
-                          key={key}
-                          className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded"
-                        >
-                          {key.replace('collect', '').replace(/([A-Z])/g, ' $1').trim()}
-                        </span>
-                      ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
-                <button
-                  onClick={() => handleDisplay(form.id)}
-                  disabled={isLoadingForm}
-                  className="p-2 text-indigo-600 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Display Form"
-                >
-                  {isLoadingForm ? (
-                    <Loader2 className="animate-spin" size={16} />
-                  ) : (
-                    <Eye size={16} />
-                  )}
-                </button>
-                <button
-                  onClick={() => onEdit(form.id)}
-                  className="p-2 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-                  title="Edit Form"
-                >
-                  <Edit2 size={16} />
-                </button>
-                <button
-                  onClick={() => handleDelete(form.id)}
-                  disabled={deletingId === form.id}
-                  className="p-2 text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Delete Form"
-                >
-                  {deletingId === form.id ? (
-                    <Loader2 className="animate-spin" size={16} />
-                  ) : (
-                    <Trash2 size={16} />
-                  )}
-                </button>
-              </div>
-            </div>
-          ))}
+      ) : filteredForms.length === 0 ? (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
+          <FileText className="mx-auto text-slate-300 mb-4" size={48} />
+          <h3 className="text-lg font-semibold text-slate-700 mb-2">No forms match your filters</h3>
+          <p className="text-slate-500 mb-6">Try adjusting your search criteria or clear the filters</p>
+          <button
+            onClick={handleResetFilters}
+            className="inline-flex items-center gap-2 px-6 py-3 text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 shadow-sm"
+          >
+            Clear Filters
+          </button>
         </div>
+      ) : (
+        <div className="space-y-8">
+          {/* Registration Forms Section */}
+          {groupedForms.registration.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <UserCheck className="text-blue-600" size={20} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Registration Forms</h2>
+                  <p className="text-sm text-slate-500">{groupedForms.registration.length} form(s)</p>
+                </div>
+              </div>
+              {viewMode === 'cards' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {groupedForms.registration.map((form) => (
+                    <FormCard
+                      key={form.id}
+                      form={form}
+                      formType="registration"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {groupedForms.registration.map((form) => (
+                    <FormRow
+                      key={form.id}
+                      form={form}
+                      formType="registration"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Submission Forms Section */}
+          {groupedForms.submission.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <FileCheck className="text-purple-600" size={20} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Submission Forms</h2>
+                  <p className="text-sm text-slate-500">{groupedForms.submission.length} form(s)</p>
+                </div>
+              </div>
+              {viewMode === 'cards' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {groupedForms.submission.map((form) => (
+                    <FormCard
+                      key={form.id}
+                      form={form}
+                      formType="submission"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {groupedForms.submission.map((form) => (
+                    <FormRow
+                      key={form.id}
+                      form={form}
+                      formType="submission"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Evaluation Forms Section */}
+          {groupedForms.evaluation.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <FileText className="text-orange-600" size={20} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Evaluation Forms</h2>
+                  <p className="text-sm text-slate-500">{groupedForms.evaluation.length} form(s)</p>
+                </div>
+              </div>
+              {viewMode === 'cards' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {groupedForms.evaluation.map((form) => (
+                    <FormCard
+                      key={form.id}
+                      form={form}
+                      formType="evaluation"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {groupedForms.evaluation.map((form) => (
+                    <FormRow
+                      key={form.id}
+                      form={form}
+                      formType="evaluation"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Other Forms Section */}
+          {groupedForms.other.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-slate-100 rounded-lg">
+                  <FileText className="text-slate-600" size={20} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Other Forms</h2>
+                  <p className="text-sm text-slate-500">{groupedForms.other.length} form(s)</p>
+                </div>
+              </div>
+              {viewMode === 'cards' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {groupedForms.other.map((form) => (
+                    <FormCard
+                      key={form.id}
+                      form={form}
+                      formType="other"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {groupedForms.other.map((form) => (
+                    <FormRow
+                      key={form.id}
+                      form={form}
+                      formType="other"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Edit Modal */}
+      {editingFormId && (
+        <FormEdit
+          formId={editingFormId}
+          onClose={handleEditClose}
+          onSave={handleEditSave}
+          onCancel={handleEditClose}
+        />
       )}
 
       {/* Display Modal */}
@@ -357,7 +969,7 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-900">{displayingForm.title}</h2>
+              <h2 className="text-2xl font-bold text-slate-900">{cleanFormTitle(displayingForm.title)}</h2>
               <button
                 onClick={() => setDisplayingForm(null)}
                 className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
@@ -369,7 +981,7 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
               <form className="space-y-6">
                 {/* Form Title and Description */}
                 <div>
-                  <h1 className="text-3xl font-bold text-slate-900 mb-2">{displayingForm.title}</h1>
+                  <h1 className="text-3xl font-bold text-slate-900 mb-2">{cleanFormTitle(displayingForm.title)}</h1>
                   {displayingForm.description && <p className="text-slate-600">{displayingForm.description}</p>}
                 </div>
 

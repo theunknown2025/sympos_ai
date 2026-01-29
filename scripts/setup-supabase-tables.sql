@@ -73,6 +73,7 @@ CREATE TABLE IF NOT EXISTS registration_forms (
   sections TEXT, -- JSON string
   fields TEXT, -- JSON string
   general_info TEXT, -- JSON string
+  actions TEXT, -- JSON string for email actions (sendCopyOfAnswers, sendConfirmationEmail)
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -89,6 +90,11 @@ CREATE TABLE IF NOT EXISTS form_submissions (
   event_title TEXT,
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   submitted_by TEXT,
+  subscription_type TEXT NOT NULL DEFAULT 'self' CHECK (subscription_type IN ('self', 'entity')),
+  entity_name TEXT,
+  role TEXT NOT NULL DEFAULT 'Participant' CHECK (role IN ('Organizer', 'Participant')),
+  is_jury_member BOOLEAN DEFAULT false,
+  jury_member_id UUID REFERENCES jury_members(id) ON DELETE SET NULL,
   general_info TEXT, -- JSON string
   answers TEXT, -- JSON string
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -234,7 +240,46 @@ CREATE TRIGGER update_registration_forms_updated_at
   EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================
--- 6. PROGRAMS TABLE
+-- 6. COMMITTEES TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS committees (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  fields_of_intervention TEXT NOT NULL DEFAULT '[]', -- JSON string: FieldOfIntervention[]
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_committees_user_id ON committees(user_id);
+CREATE INDEX IF NOT EXISTS idx_committees_created_at ON committees(created_at DESC);
+
+ALTER TABLE committees ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own committees"
+  ON committees FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own committees"
+  ON committees FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own committees"
+  ON committees FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own committees"
+  ON committees FOR DELETE
+  USING (auth.uid() = user_id);
+
+CREATE TRIGGER update_committees_updated_at
+  BEFORE UPDATE ON committees
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 7. PROGRAMS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS programs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -271,6 +316,48 @@ CREATE POLICY "Users can delete own programs"
 
 CREATE TRIGGER update_programs_updated_at
   BEFORE UPDATE ON programs
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- 8. EVENTS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  landing_page_id UUID NOT NULL REFERENCES landing_pages(id) ON DELETE RESTRICT,
+  registration_form_id UUID REFERENCES registration_forms(id) ON DELETE SET NULL,
+  submission_form_id UUID REFERENCES registration_forms(id) ON DELETE SET NULL,
+  certificate_template_ids TEXT NOT NULL DEFAULT '[]', -- JSON string array
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_user_id ON events(user_id);
+CREATE INDEX IF NOT EXISTS idx_events_landing_page_id ON events(landing_page_id);
+
+ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own events"
+  ON events FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own events"
+  ON events FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own events"
+  ON events FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own events"
+  ON events FOR DELETE
+  USING (auth.uid() = user_id);
+
+CREATE TRIGGER update_events_updated_at
+  BEFORE UPDATE ON events
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at_column();
 

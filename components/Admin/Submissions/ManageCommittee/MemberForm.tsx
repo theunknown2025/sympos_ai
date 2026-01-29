@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Loader2, AlertCircle, Plus, Trash2, ChevronLeft, ChevronRight, User as UserIcon, Mail, GraduationCap, Link as LinkIcon, UserCircle, Check } from 'lucide-react';
-import { ReviewCommitteeMember } from '../../../../types';
+import { X, Save, Loader2, AlertCircle, Plus, Trash2, ChevronLeft, ChevronRight, User as UserIcon, Mail, GraduationCap, Link as LinkIcon, UserCircle, Check, Search } from 'lucide-react';
+import { ReviewCommitteeMember, FormSubmission } from '../../../../types';
 import { useAuth } from '../../../../hooks/useAuth';
 import { saveCommitteeMember, updateCommitteeMember } from '../../../../services/committeeMemberService';
+import ParticipantSearchModal from './ParticipantSearchModal';
+import ParticipantSearchInline from './ParticipantSearchInline';
 
 interface MemberFormProps {
   member?: ReviewCommitteeMember | null;
   onClose: () => void;
   onSuccess?: () => void;
   inline?: boolean; // If true, render inline instead of as modal
+  showParticipantSearch?: boolean; // If true, show participant search inline
+  onParticipantSelect?: () => void; // Callback when participant is selected
 }
 
-const MemberForm: React.FC<MemberFormProps> = ({ member, onClose, onSuccess, inline = false }) => {
+const MemberForm: React.FC<MemberFormProps> = ({ member, onClose, onSuccess, inline = false, showParticipantSearch = false, onParticipantSelect }) => {
   const { currentUser } = useAuth();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -176,6 +180,84 @@ const MemberForm: React.FC<MemberFormProps> = ({ member, onClose, onSuccess, inl
       }
     } else if (e.key === 'Escape') {
       setShowLanguageSuggestions(false);
+    }
+  };
+
+  // Map FormSubmission to form fields
+  const populateFromParticipant = (participant: FormSubmission) => {
+    const generalInfo = participant.generalInfo || {};
+    const name = generalInfo.name || participant.submittedBy || '';
+    const nameParts = name.split(' ').filter(p => p.trim());
+    
+    // Extract first and last name
+    if (nameParts.length > 0) {
+      setFirstName(nameParts[0]);
+      if (nameParts.length > 1) {
+        setLastName(nameParts.slice(1).join(' '));
+      }
+    }
+    
+    // Set email
+    if (generalInfo.email) {
+      setEmail(generalInfo.email);
+    } else if (participant.submittedBy) {
+      setEmail(participant.submittedBy);
+    }
+    
+    // Set phone
+    if (generalInfo.phone) {
+      setPhone(generalInfo.phone);
+    }
+    
+    // Set address
+    if (generalInfo.address) {
+      setAddress(generalInfo.address);
+    }
+    
+    // Set organization/affiliation
+    if (generalInfo.organization) {
+      setInstitution(generalInfo.organization);
+      setUniversity(generalInfo.organization);
+      setOrganization(generalInfo.organization);
+    }
+    
+    // Try to extract additional info from answers if available
+    const answers = participant.answers || {};
+    Object.keys(answers).forEach(key => {
+      const value = answers[key];
+      if (typeof value === 'string' && value.trim()) {
+        const lowerKey = key.toLowerCase();
+        const lowerValue = value.toLowerCase();
+        
+        // Try to match common fields
+        if (lowerKey.includes('title') || lowerKey.includes('prefix')) {
+          setTitle(value);
+        } else if (lowerKey.includes('position') || lowerKey.includes('role')) {
+          setPosition(value);
+        } else if (lowerKey.includes('department')) {
+          setDepartment(value);
+        } else if (lowerKey.includes('faculty')) {
+          setFaculty(value);
+        } else if (lowerKey.includes('country')) {
+          setCountry(value);
+        } else if (lowerKey.includes('nationality')) {
+          setNationality(value);
+        } else if (lowerKey.includes('gender')) {
+          setGender(value);
+        } else if (lowerKey.includes('language') || lowerKey.includes('preferred language')) {
+          if (!preferredLanguages.includes(value)) {
+            setPreferredLanguages([...preferredLanguages, value]);
+          }
+        } else if (lowerKey.includes('research') || lowerKey.includes('domain') || lowerKey.includes('field')) {
+          if (!researchDomains.includes(value)) {
+            setResearchDomains([...researchDomains, value]);
+          }
+        }
+      }
+    });
+    
+    if (onParticipantSelect) {
+      onParticipantSelect();
     }
   };
 
@@ -916,18 +998,44 @@ const MemberForm: React.FC<MemberFormProps> = ({ member, onClose, onSuccess, inl
 
   if (inline) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 w-full max-h-[90vh] overflow-y-auto">
-        {formContent}
-      </div>
+      <>
+        {showParticipantSearch ? (
+          <ParticipantSearchInline
+            onSelect={populateFromParticipant}
+            onClose={() => {
+              if (onParticipantSelect) {
+                onParticipantSelect();
+              }
+            }}
+          />
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 w-full max-h-[90vh] overflow-y-auto">
+            {formContent}
+          </div>
+        )}
+      </>
     );
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-        {formContent}
+    <>
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+          {formContent}
+        </div>
       </div>
-    </div>
+      {showParticipantSearch && (
+        <ParticipantSearchModal
+          isOpen={showParticipantSearch}
+          onClose={() => {
+            if (onParticipantSelect) {
+              onParticipantSelect();
+            }
+          }}
+          onSelect={populateFromParticipant}
+        />
+      )}
+    </>
   );
 };
 

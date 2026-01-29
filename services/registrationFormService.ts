@@ -61,6 +61,9 @@ export const saveRegistrationForm = async (
     if (cleanedForm.generalInfo !== undefined) {
       insertData.general_info = JSON.stringify(cleanedForm.generalInfo);
     }
+    if (cleanedForm.actions !== undefined) {
+      insertData.actions = JSON.stringify(cleanedForm.actions);
+    }
     
     const { data, error } = await supabase
       .from(TABLE_NAME)
@@ -103,6 +106,9 @@ export const updateRegistrationForm = async (
     }
     if (cleanedForm.generalInfo !== undefined) {
       updateData.general_info = JSON.stringify(cleanedForm.generalInfo);
+    }
+    if (cleanedForm.actions !== undefined) {
+      updateData.actions = JSON.stringify(cleanedForm.actions);
     }
     
     const { error } = await supabase
@@ -157,6 +163,9 @@ export const getRegistrationForm = async (formId: string): Promise<RegistrationF
         collectOrganization: false,
         collectAddress: false,
       });
+    const actions = typeof data.actions === 'string' 
+      ? JSON.parse(data.actions) 
+      : (data.actions || undefined);
     
     return {
       id: data.id,
@@ -166,6 +175,7 @@ export const getRegistrationForm = async (formId: string): Promise<RegistrationF
       sections: sections,
       fields: fields,
       generalInfo: generalInfo,
+      actions: actions,
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
     };
@@ -215,6 +225,9 @@ export const getUserRegistrationForms = async (userId: string): Promise<Registra
           collectOrganization: false,
           collectAddress: false,
         });
+      const actions = typeof doc.actions === 'string' 
+        ? JSON.parse(doc.actions) 
+        : (doc.actions || undefined);
       
       return {
         id: doc.id,
@@ -224,6 +237,7 @@ export const getUserRegistrationForms = async (userId: string): Promise<Registra
         sections: sections,
         fields: fields,
         generalInfo: generalInfo,
+        actions: actions,
         createdAt: new Date(doc.created_at),
         updatedAt: new Date(doc.updated_at),
       };

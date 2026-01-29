@@ -6,7 +6,13 @@ import {
   updateCertificateTemplate, 
   getCertificateTemplate 
 } from '../../../services/certificateTemplateService';
+import {
+  saveBadgeTemplate,
+  updateBadgeTemplate,
+  getBadgeTemplate
+} from '../../../services/badgeTemplateService';
 import { uploadImageToStorage, uploadBase64ImageToStorage } from '../../../services/storageService';
+import SaveTypeModal from './SaveTypeModal';
 import { 
   ArrowLeft, 
   Save, 
@@ -19,7 +25,8 @@ import {
   X,
   Move,
   Maximize2,
-  Minimize2
+  Minimize2,
+  QrCode
 } from 'lucide-react';
 
 interface CertificateTemplateBuilderProps {
@@ -38,6 +45,8 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [templateType, setTemplateType] = useState<'certificate' | 'badge' | null>(null);
   
   const [title, setTitle] = useState('');
   const [backgroundImage, setBackgroundImage] = useState('');
@@ -49,11 +58,42 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   
+  // Size and orientation state
+  const [sizeType, setSizeType] = useState<'predefined' | 'custom'>('predefined');
+  const [paperSize, setPaperSize] = useState<'A5' | 'A4' | 'A3'>('A4');
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [customWidth, setCustomWidth] = useState(1200);
+  const [customHeight, setCustomHeight] = useState(800);
+  
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const defaultWidth = 1200;
-  const defaultHeight = 800;
+  // Paper size dimensions in pixels (at 150 DPI for good quality)
+  const paperDimensions: Record<'A5' | 'A4' | 'A3', { portrait: { width: number; height: number }; landscape: { width: number; height: number } }> = {
+    A5: {
+      portrait: { width: 496, height: 701 },
+      landscape: { width: 701, height: 496 }
+    },
+    A4: {
+      portrait: { width: 701, height: 993 },
+      landscape: { width: 993, height: 701 }
+    },
+    A3: {
+      portrait: { width: 993, height: 1403 },
+      landscape: { width: 1403, height: 993 }
+    }
+  };
+  
+  // Calculate current dimensions
+  const getCurrentDimensions = () => {
+    if (sizeType === 'custom') {
+      return { width: customWidth, height: customHeight };
+    } else {
+      return paperDimensions[paperSize][orientation];
+    }
+  };
+  
+  const { width: canvasWidth, height: canvasHeight } = getCurrentDimensions();
 
   useEffect(() => {
     if (currentUser && templateId) {
@@ -75,13 +115,54 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
     if (!templateId) return;
     try {
       setLoading(true);
-      const template = await getCertificateTemplate(templateId);
+      // Try to load as certificate first, then badge
+      let template = await getCertificateTemplate(templateId);
+      if (template) {
+        setTemplateType('certificate');
+      } else {
+        template = await getBadgeTemplate(templateId);
+        if (template) {
+          setTemplateType('badge');
+        }
+      }
+      
       if (template) {
         setTitle(template.title);
         setBackgroundImage(template.backgroundImage);
         setBackgroundImageType(template.backgroundImageType);
         setPreviewImage(template.backgroundImage); // Set preview for display
         setElements(template.elements || []);
+        
+        // Load dimensions and determine size type
+        if (template.width && template.height) {
+          // Check if dimensions match a predefined size
+          const matchesPredefined = Object.entries(paperDimensions).some(([size, dims]) => 
+            (dims.portrait.width === template.width && dims.portrait.height === template.height) ||
+            (dims.landscape.width === template.width && dims.landscape.height === template.height)
+          );
+          
+          if (matchesPredefined) {
+            // Find which predefined size matches
+            for (const [size, dims] of Object.entries(paperDimensions)) {
+              if (dims.portrait.width === template.width && dims.portrait.height === template.height) {
+                setPaperSize(size as 'A5' | 'A4' | 'A3');
+                setOrientation('portrait');
+                setSizeType('predefined');
+                break;
+              } else if (dims.landscape.width === template.width && dims.landscape.height === template.height) {
+                setPaperSize(size as 'A5' | 'A4' | 'A3');
+                setOrientation('landscape');
+                setSizeType('predefined');
+                break;
+              }
+            }
+          } else {
+            // Custom dimensions
+            setSizeType('custom');
+            setCustomWidth(template.width);
+            setCustomHeight(template.height);
+          }
+        }
       }
     } catch (err: any) {
       setError('Failed to load template');
@@ -142,6 +223,23 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
     setSelectedElementId(newElement.id);
   };
 
+  const addQRElement = () => {
+    const newElement: CertificateTextElement = {
+      id: Date.now().toString(),
+      type: 'qr',
+      content: '', // Will be auto-generated when certificate is created
+      x: 85, // Default position (right side)
+      y: 85, // Default position (bottom)
+      fontSize: 100, // QR code size in pixels
+      fontFamily: 'Arial',
+      fontWeight: 'normal',
+      color: '#000000',
+      textAlign: 'center',
+    };
+    setElements([...elements, newElement]);
+    setSelectedElementId(newElement.id);
+  };
+
   const removeElement = (id: string) => {
     setElements(elements.filter(el => el.id !== id));
     if (selectedElementId === id) {
@@ -192,7 +290,7 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
     setIsDragging(false);
   };
 
-  const handleSave = async () => {
+  const handleSaveClick = () => {
     if (!currentUser) {
       setError('You must be logged in to save templates');
       return;
@@ -208,20 +306,37 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
       return;
     }
 
+    // If editing existing template, use the existing type
+    if (templateId && templateType) {
+      handleSave(templateType);
+    } else {
+      // Show modal to select type for new templates
+      setShowSaveModal(true);
+    }
+  };
+
+  const handleSave = async (type: 'certificate' | 'badge') => {
+    if (!currentUser) {
+      setError('You must be logged in to save templates');
+      return;
+    }
+
     try {
       setSaving(true);
       setError('');
       setSuccess(false);
+      setShowSaveModal(false);
 
-      // Upload image to Firebase Storage if it's a file upload
+      // Upload image to Storage if it's a file upload
       let finalBackgroundImage = backgroundImage;
       let finalBackgroundImageType = backgroundImageType;
+      const folder = type === 'badge' ? 'badges' : 'certificate-templates';
 
       if (backgroundImageType === 'upload' && uploadedFile) {
         try {
           setError('Uploading image to storage...');
-          // Upload the file to Firebase Storage
-          finalBackgroundImage = await uploadImageToStorage(currentUser.id, uploadedFile, 'certificate-templates');
+          // Upload the file to Storage
+          finalBackgroundImage = await uploadImageToStorage(currentUser.id, uploadedFile, folder);
           finalBackgroundImageType = 'upload';
           setError(''); // Clear error on success
         } catch (err: any) {
@@ -237,21 +352,33 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
         return;
       }
 
+      const dimensions = getCurrentDimensions();
       const templateData = {
         title: title.trim(),
         backgroundImage: finalBackgroundImage,
         backgroundImageType: finalBackgroundImageType,
-        width: defaultWidth,
-        height: defaultHeight,
+        width: dimensions.width,
+        height: dimensions.height,
         elements,
       };
 
-      if (templateId) {
-        await updateCertificateTemplate(templateId, templateData);
+      if (templateId && templateType) {
+        // Update existing template
+        if (type === 'badge') {
+          await updateBadgeTemplate(templateId, templateData);
+        } else {
+          await updateCertificateTemplate(templateId, templateData);
+        }
       } else {
-        await saveCertificateTemplate(currentUser.id, templateData);
+        // Save new template
+        if (type === 'badge') {
+          await saveBadgeTemplate(currentUser.id, templateData);
+        } else {
+          await saveCertificateTemplate(currentUser.id, templateData);
+        }
       }
 
+      setTemplateType(type);
       setSuccess(true);
       setTimeout(() => {
         if (onSave) onSave();
@@ -294,8 +421,8 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
           </div>
         </div>
         <button
-          onClick={handleSave}
-          disabled={saving || !title.trim() || !backgroundImage}
+          onClick={handleSaveClick}
+          disabled={saving || !title.trim() || (!backgroundImage && !uploadedFile && !previewImage)}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saving ? (
@@ -327,6 +454,120 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
               placeholder="e.g., Conference Certificate"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
+          </div>
+
+          {/* Size Selection */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              Canvas Size
+            </label>
+            <div className="space-y-3">
+              {/* Size Type Selection */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setSizeType('predefined')}
+                  className={`flex-1 px-3 py-2 text-sm border rounded-lg ${
+                    sizeType === 'predefined'
+                      ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
+                      : 'bg-white border-slate-300 text-slate-700'
+                  }`}
+                >
+                  Predefined
+                </button>
+                <button
+                  onClick={() => setSizeType('custom')}
+                  className={`flex-1 px-3 py-2 text-sm border rounded-lg ${
+                    sizeType === 'custom'
+                      ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
+                      : 'bg-white border-slate-300 text-slate-700'
+                  }`}
+                >
+                  Custom
+                </button>
+              </div>
+
+              {/* Predefined Size Options */}
+              {sizeType === 'predefined' && (
+                <>
+                  {/* Paper Size Selection */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Paper Size</label>
+                    <select
+                      value={paperSize}
+                      onChange={(e) => setPaperSize(e.target.value as 'A5' | 'A4' | 'A3')}
+                      className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+                    >
+                      <option value="A5">A5</option>
+                      <option value="A4">A4</option>
+                      <option value="A3">A3</option>
+                    </select>
+                  </div>
+
+                  {/* Orientation Selection */}
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Orientation</label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setOrientation('portrait')}
+                        className={`flex-1 px-2 py-1.5 text-xs border rounded ${
+                          orientation === 'portrait'
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
+                            : 'bg-white border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        Portrait
+                      </button>
+                      <button
+                        onClick={() => setOrientation('landscape')}
+                        className={`flex-1 px-2 py-1.5 text-xs border rounded ${
+                          orientation === 'landscape'
+                            ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
+                            : 'bg-white border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        Landscape
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Display Dimensions */}
+                  <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded">
+                    Dimensions: {canvasWidth} × {canvasHeight} px
+                  </div>
+                </>
+              )}
+
+              {/* Custom Size Options */}
+              {sizeType === 'custom' && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Width (px)</label>
+                    <input
+                      type="number"
+                      min="100"
+                      max="5000"
+                      value={customWidth}
+                      onChange={(e) => setCustomWidth(parseInt(e.target.value) || 100)}
+                      className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Height (px)</label>
+                    <input
+                      type="number"
+                      min="100"
+                      max="5000"
+                      value={customHeight}
+                      onChange={(e) => setCustomHeight(parseInt(e.target.value) || 100)}
+                      className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+                    />
+                  </div>
+                  <div className="text-xs text-slate-500 bg-slate-50 p-2 rounded">
+                    Dimensions: {canvasWidth} × {canvasHeight} px
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Background Image */}
@@ -389,20 +630,27 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
             <label className="block text-sm font-medium text-slate-700 mb-2">
               Add Elements
             </label>
-            <div className="flex gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 onClick={addTextElement}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                className="flex flex-col items-center justify-center gap-1 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
               >
                 <Type size={16} />
-                <span className="text-sm">Text</span>
+                <span className="text-xs">Text</span>
               </button>
               <button
                 onClick={addFieldElement}
-                className="flex-1 flex items-center justify-center gap-2 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                className="flex flex-col items-center justify-center gap-1 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
               >
                 <Type size={16} />
-                <span className="text-sm">Field</span>
+                <span className="text-xs">Field</span>
+              </button>
+              <button
+                onClick={addQRElement}
+                className="flex flex-col items-center justify-center gap-1 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+              >
+                <QrCode size={16} />
+                <span className="text-xs">QR Code</span>
               </button>
             </div>
           </div>
@@ -425,14 +673,18 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
                 <label className="block text-xs font-medium text-slate-600 mb-1">Type</label>
                 <select
                   value={selectedElement.type}
-                  onChange={(e) => updateElement(selectedElement.id, { 
-                    type: e.target.value as 'text' | 'field',
-                    content: e.target.value === 'field' ? 'name' : selectedElement.content
-                  })}
+                  onChange={(e) => {
+                    const newType = e.target.value as 'text' | 'field' | 'qr';
+                    updateElement(selectedElement.id, { 
+                      type: newType,
+                      content: newType === 'field' ? 'name' : newType === 'qr' ? '' : selectedElement.content
+                    });
+                  }}
                   className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
                 >
                   <option value="text">Text</option>
                   <option value="field">Field (Placeholder)</option>
+                  <option value="qr">QR Code</option>
                 </select>
               </div>
 
@@ -447,7 +699,7 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
                     className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
                   />
                 </div>
-              ) : (
+              ) : selectedElement.type === 'field' ? (
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Field Name</label>
                   <select
@@ -462,17 +714,24 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
                     <option value="address">Address</option>
                   </select>
                 </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">QR Code</label>
+                  <p className="text-xs text-slate-500 mb-2">
+                    QR code will automatically link to the certificate when generated.
+                  </p>
+                </div>
               )}
 
-              {/* Font Size */}
+              {/* Font Size / QR Size */}
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Font Size: {selectedElement.fontSize}px
+                  {selectedElement.type === 'qr' ? 'QR Code Size' : 'Font Size'}: {selectedElement.fontSize}px
                 </label>
                 <input
                   type="range"
-                  min="12"
-                  max="72"
+                  min={selectedElement.type === 'qr' ? '50' : '12'}
+                  max={selectedElement.type === 'qr' ? '300' : '72'}
                   value={selectedElement.fontSize}
                   onChange={(e) => updateElement(selectedElement.id, { fontSize: parseInt(e.target.value) })}
                   className="w-full"
@@ -546,8 +805,8 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
               ref={canvasRef}
               className="relative bg-white border-2 border-slate-300"
               style={{
-                width: `${defaultWidth}px`,
-                height: `${defaultHeight}px`,
+                width: `${canvasWidth}px`,
+                height: `${canvasHeight}px`,
                 backgroundImage: (previewImage || backgroundImage) ? `url(${previewImage || backgroundImage})` : 'none',
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
@@ -585,17 +844,23 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
                     left: `${element.x}%`,
                     top: `${element.y}%`,
                     transform: 'translate(-50%, -50%)',
-                    fontSize: `${element.fontSize}px`,
+                    fontSize: element.type === 'qr' ? undefined : `${element.fontSize}px`,
                     fontFamily: element.fontFamily,
                     fontWeight: element.fontWeight,
                     color: element.color,
                     textAlign: element.textAlign,
+                    width: element.type === 'qr' ? `${element.fontSize}px` : undefined,
+                    height: element.type === 'qr' ? `${element.fontSize}px` : undefined,
                   }}
                 >
                   {element.type === 'field' ? (
                     <span className="px-2 py-1 bg-indigo-100 border border-indigo-300 rounded text-indigo-700">
                       {'{'}{element.content}{'}'}
                     </span>
+                  ) : element.type === 'qr' ? (
+                    <div className="w-full h-full bg-slate-200 border-2 border-dashed border-slate-400 rounded flex items-center justify-center">
+                      <QrCode size={element.fontSize * 0.6} className="text-slate-500" />
+                    </div>
                   ) : (
                     <span>{element.content}</span>
                   )}
@@ -605,6 +870,13 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Save Type Modal */}
+      <SaveTypeModal
+        isOpen={showSaveModal}
+        onClose={() => setShowSaveModal(false)}
+        onSelect={handleSave}
+      />
     </div>
   );
 };

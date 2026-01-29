@@ -4,6 +4,12 @@ import { useAuth } from '../../../hooks/useAuth';
 import { getUserLandingPages, SavedLandingPage } from '../../../services/landingPageService';
 import { getEventSubmissions } from '../../../services/registrationSubmissionService';
 import { getUserCertificateTemplates, getCertificateTemplate } from '../../../services/certificateTemplateService';
+import { saveCertificate } from '../../../services/certificateService';
+import { supabase, TABLES, STORAGE_BUCKETS } from '../../../supabase';
+import GenerateCertificateAction from './GenerateCertificateAction';
+import SendCertificateByEmailAction from './SendCertificateByEmailAction';
+import AddToAccountAction from './AddToAccountAction';
+import SendCertificateEmailModal from './SendCertificateEmailModal';
 import { 
   Download, 
   Loader2, 
@@ -15,6 +21,7 @@ import {
 } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import QRCode from 'qrcode';
 
 interface GenerateCertificatesProps {}
 
@@ -26,6 +33,7 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [participants, setParticipants] = useState<FormSubmission[]>([]);
   const [selectedParticipants, setSelectedParticipants] = useState<Set<string>>(new Set());
+  const [registrationFilter, setRegistrationFilter] = useState<'all' | 'internal' | 'external'>('all');
   const [loading, setLoading] = useState(true);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
   const [loadingParticipants, setLoadingParticipants] = useState(false);
@@ -34,6 +42,7 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
@@ -107,10 +116,24 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
   };
 
   const toggleSelectAll = () => {
-    if (selectedParticipants.size === participants.length) {
-      setSelectedParticipants(new Set());
+    const filtered = getFilteredParticipants();
+    const filteredIds = new Set(filtered.map(p => p.id));
+    const allFilteredSelected = filtered.every(p => selectedParticipants.has(p.id));
+    
+    if (allFilteredSelected) {
+      // Deselect all filtered participants
+      setSelectedParticipants(prev => {
+        const newSet = new Set(prev);
+        filteredIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
     } else {
-      setSelectedParticipants(new Set(participants.map(p => p.id)));
+      // Select all filtered participants
+      setSelectedParticipants(prev => {
+        const newSet = new Set(prev);
+        filteredIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
     }
   };
 
@@ -119,6 +142,20 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
            submission.submittedBy || 
            submission.answers['general_name'] as string || 
            'Participant';
+  };
+
+  const isInternalRegistration = (submission: FormSubmission): boolean => {
+    return !!submission.participantUserId;
+  };
+
+  const getFilteredParticipants = (): FormSubmission[] => {
+    if (registrationFilter === 'all') {
+      return participants;
+    } else if (registrationFilter === 'internal') {
+      return participants.filter(p => isInternalRegistration(p));
+    } else {
+      return participants.filter(p => !isInternalRegistration(p));
+    }
   };
 
   const getFieldValue = (submission: FormSubmission, fieldName: string): string => {
@@ -140,9 +177,28 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
     return submission.answers[fieldName] as string || '';
   };
 
+  const generateQRCodeDataURL = async (url: string, size: number): Promise<string> => {
+    try {
+      // Generate QR code as data URL directly
+      const dataUrl = await QRCode.toDataURL(url, {
+        width: size,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+      return dataUrl;
+    } catch (error) {
+      console.error('Error generating QR code:', error);
+      throw error;
+    }
+  };
+
   const generateCertificatePDF = async (
     template: CertificateTemplate,
-    submission: FormSubmission
+    submission: FormSubmission,
+    certificateUrl?: string
   ): Promise<string> => {
     // Create a temporary container for the certificate
     const container = document.createElement('div');
@@ -181,28 +237,63 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
     }
     
     // Add all elements to the container
-    template.elements.forEach(element => {
+    for (const element of template.elements) {
       const elementDiv = document.createElement('div');
       elementDiv.style.position = 'absolute';
       elementDiv.style.left = `${element.x}%`;
       elementDiv.style.top = `${element.y}%`;
       elementDiv.style.transform = 'translate(-50%, -50%)';
-      elementDiv.style.fontSize = `${element.fontSize}px`;
-      elementDiv.style.fontFamily = element.fontFamily;
-      elementDiv.style.fontWeight = element.fontWeight;
-      elementDiv.style.color = element.color;
-      elementDiv.style.textAlign = element.textAlign;
-      elementDiv.style.whiteSpace = 'nowrap';
       elementDiv.style.zIndex = '10';
       
-      let content = element.content;
-      if (element.type === 'field') {
-        content = getFieldValue(submission, element.content);
+      if (element.type === 'qr') {
+        // Generate QR code for this element
+        if (certificateUrl) {
+          try {
+            const qrSize = element.fontSize;
+            const qrDataUrl = await generateQRCodeDataURL(certificateUrl, qrSize);
+            
+            const qrImg = document.createElement('img');
+            qrImg.src = qrDataUrl;
+            qrImg.style.width = `${qrSize}px`;
+            qrImg.style.height = `${qrSize}px`;
+            qrImg.style.display = 'block';
+            elementDiv.appendChild(qrImg);
+          } catch (error) {
+            console.error('Error generating QR code:', error);
+            // Fallback: show placeholder
+            elementDiv.style.width = `${element.fontSize}px`;
+            elementDiv.style.height = `${element.fontSize}px`;
+            elementDiv.style.backgroundColor = '#f3f4f6';
+            elementDiv.style.border = '2px dashed #9ca3af';
+            elementDiv.textContent = 'QR';
+          }
+        } else {
+          // No certificate URL yet, show placeholder
+          elementDiv.style.width = `${element.fontSize}px`;
+          elementDiv.style.height = `${element.fontSize}px`;
+          elementDiv.style.backgroundColor = '#f3f4f6';
+          elementDiv.style.border = '2px dashed #9ca3af';
+          elementDiv.textContent = 'QR';
+        }
+      } else {
+        // Text or field element
+        elementDiv.style.fontSize = `${element.fontSize}px`;
+        elementDiv.style.fontFamily = element.fontFamily;
+        elementDiv.style.fontWeight = element.fontWeight;
+        elementDiv.style.color = element.color;
+        elementDiv.style.textAlign = element.textAlign;
+        elementDiv.style.whiteSpace = 'nowrap';
+        
+        let content = element.content;
+        if (element.type === 'field') {
+          content = getFieldValue(submission, element.content);
+        }
+        
+        elementDiv.textContent = content;
       }
       
-      elementDiv.textContent = content;
       container.appendChild(elementDiv);
-    });
+    }
 
     // Append to body temporarily (off-screen)
     container.style.position = 'fixed';
@@ -211,7 +302,7 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
     document.body.appendChild(container);
 
     // Wait a bit for rendering
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     try {
       // Convert to canvas using html2canvas
@@ -260,12 +351,132 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
       const selectedSubmissions = participants.filter(p => selectedParticipants.has(p.id));
       setTotalCount(selectedSubmissions.length);
 
-      // Generate all certificate images
+      // Check if template has QR codes
+      const hasQRCodes = template.elements.some(el => el.type === 'qr');
+      
+      // Generate all certificate images and store them
       const certificateImages: string[] = [];
+      
       for (let i = 0; i < selectedSubmissions.length; i++) {
         const submission = selectedSubmissions[i];
-        const imageData = await generateCertificatePDF(template, submission);
-        certificateImages.push(imageData);
+        const participantName = getParticipantName(submission);
+        const participantEmail = submission.generalInfo?.email || submission.answers['general_email'] as string;
+        
+        let certificateUrl: string | undefined;
+        
+        // If template has QR codes, we need to save the certificate first to get the storage URL
+        if (hasQRCodes) {
+          // Step 1: Generate a temporary certificate (without QR code) to upload and get storage URL
+          const tempImageData = await generateCertificatePDF(template, submission);
+          
+          // Step 2: Upload the temporary image to get the storage URL
+          try {
+            // Upload directly to storage to get URL
+            const imageBlob = await fetch(tempImageData).then(r => r.blob());
+            const file = new File([imageBlob], `certificate-${Date.now()}.png`, { type: 'image/png' });
+            
+            const fileExt = 'png';
+            const fileName = `${currentUser.id}/certificates/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+            
+            // Try MEDIA bucket first
+            let uploadData: any;
+            let bucketId: string;
+            let uploadError: any;
+            
+            try {
+              bucketId = STORAGE_BUCKETS.MEDIA;
+              const result = await supabase.storage
+                .from(bucketId)
+                .upload(fileName, file, {
+                  cacheControl: '3600',
+                  upsert: false
+                });
+              uploadData = result.data;
+              uploadError = result.error;
+            } catch (err) {
+              // Fallback to GENERAL bucket
+              bucketId = STORAGE_BUCKETS.GENERAL;
+              const result = await supabase.storage
+                .from(bucketId)
+                .upload(fileName, file, {
+                  cacheControl: '3600',
+                  upsert: false
+                });
+              uploadData = result.data;
+              uploadError = result.error;
+            }
+            
+            if (uploadError) {
+              throw uploadError;
+            }
+            
+            // Get public URL
+            const { data: urlData } = supabase.storage
+              .from(bucketId)
+              .getPublicUrl(uploadData.path);
+            
+            certificateUrl = urlData.publicUrl;
+            
+            // Step 3: Generate the final certificate with QR code pointing to storage URL
+            const finalImageData = await generateCertificatePDF(template, submission, certificateUrl);
+            
+            // Step 4: Replace the uploaded image with the final one (with QR code)
+            const finalBlob = await fetch(finalImageData).then(r => r.blob());
+            const finalFile = new File([finalBlob], `certificate-${Date.now()}.png`, { type: 'image/png' });
+            
+            await supabase.storage
+              .from(bucketId)
+              .update(uploadData.path, finalFile, {
+                cacheControl: '3600',
+                upsert: true
+              });
+            
+            // Step 5: Save certificate record in database
+            const certificateId = crypto.randomUUID();
+            await supabase
+              .from(TABLES.CERTIFICATES)
+              .insert({
+                id: certificateId,
+                user_id: currentUser.id,
+                event_id: selectedEventId,
+                template_id: selectedTemplateId,
+                participant_submission_id: submission.id,
+                certificate_image_url: certificateUrl,
+                certificate_url: `${window.location.origin}/certificate/${certificateId}`,
+                participant_name: participantName,
+                participant_email: participantEmail,
+                created_at: new Date().toISOString(),
+              });
+            
+            certificateImages.push(finalImageData);
+          } catch (err) {
+            console.error('Error saving certificate with QR code:', err);
+            // If saving fails, generate without QR code
+            const imageData = await generateCertificatePDF(template, submission);
+            certificateImages.push(imageData);
+          }
+        } else {
+          // No QR codes, generate certificate directly
+          const imageData = await generateCertificatePDF(template, submission);
+          certificateImages.push(imageData);
+          
+          // Optionally save certificate even without QR codes
+          try {
+            await saveCertificate(
+              currentUser.id,
+              selectedEventId,
+              selectedTemplateId,
+              submission.id,
+              imageData,
+              participantName,
+              participantEmail
+            );
+          } catch (err) {
+            console.error('Error saving certificate:', err);
+            // Continue even if saving fails
+          }
+        }
+        
         setGeneratedCount(i + 1);
       }
 
@@ -327,9 +538,62 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
         </div>
       )}
 
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Panel - Selection */}
-        <div className="space-y-6">
+      <div className="flex-1 flex flex-col gap-6">
+        {/* Top Row - Action Buttons (Horizontal) */}
+        {generating ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <div className="text-center py-12">
+              <Loader2 className="animate-spin text-indigo-600 mx-auto mb-4" size={48} />
+              <p className="text-lg font-semibold text-slate-900 mb-2">Generating Certificates</p>
+              <p className="text-3xl font-bold text-indigo-600 mb-1">
+                {generatedCount} / {totalCount}
+              </p>
+              <p className="text-sm text-slate-500">
+                {generatedCount === totalCount ? 'Combining PDFs...' : 'Creating certificate PDFs...'}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <GenerateCertificateAction
+              onClick={generateAllCertificates}
+              disabled={
+                !selectedEventId || 
+                !selectedTemplateId || 
+                selectedParticipants.size === 0 ||
+                generating
+              }
+              selectedCount={selectedParticipants.size}
+              generating={generating}
+            />
+            
+              <SendCertificateByEmailAction
+                onClick={() => setShowEmailModal(true)}
+                disabled={
+                  !selectedEventId || 
+                  !selectedTemplateId || 
+                  selectedParticipants.size === 0
+                }
+                selectedCount={selectedParticipants.size}
+              />
+            
+            <AddToAccountAction
+              onClick={() => {
+                // TODO: Implement add to account functionality
+                console.log('Add to account clicked');
+              }}
+              disabled={
+                !selectedEventId || 
+                !selectedTemplateId || 
+                selectedParticipants.size === 0
+              }
+              selectedCount={selectedParticipants.size}
+            />
+          </div>
+        )}
+
+        {/* Middle Row - Event and Template Selection (Horizontal) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Event Selection */}
           <div className="bg-white rounded-xl border border-slate-200 p-6">
             <label className="block text-sm font-semibold text-slate-700 mb-3">
@@ -393,118 +657,152 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
               </>
             )}
           </div>
+        </div>
 
-          {/* Participants List */}
-          {selectedEventId && (
-            <div className="bg-white rounded-xl border border-slate-200 p-6">
-              <div className="flex items-center justify-between mb-4">
+        {/* Bottom - Participants List (Full Width) */}
+        {selectedEventId && (
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-4">
                 <label className="block text-sm font-semibold text-slate-700">
                   Select Participants
                 </label>
-                {participants.length > 0 && (
-                  <button
-                    onClick={toggleSelectAll}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
-                  >
-                    {selectedParticipants.size === participants.length ? 'Deselect All' : 'Select All'}
-                  </button>
-                )}
-              </div>
-              {loadingParticipants ? (
-                <div className="flex items-center gap-2 text-slate-500 py-8">
-                  <Loader2 className="animate-spin" size={16} />
-                  <span className="text-sm">Loading participants...</span>
-                </div>
-              ) : participants.length === 0 ? (
-                <div className="text-center py-8 text-slate-400">
-                  <FileText size={32} className="mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No participants found for this event</p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {participants.map(participant => (
-                    <label
-                      key={participant.id}
-                      className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer"
+                {/* Registration Type Filter */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">Filter:</span>
+                  <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+                    <button
+                      onClick={() => setRegistrationFilter('all')}
+                      className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                        registrationFilter === 'all'
+                          ? 'bg-white text-indigo-600 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={selectedParticipants.has(participant.id)}
-                        onChange={() => toggleParticipant(participant.id)}
-                        className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
-                      />
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-slate-900">
-                          {getParticipantName(participant)}
-                        </p>
-                        {participant.generalInfo?.email && (
-                          <p className="text-xs text-slate-500">{participant.generalInfo.email}</p>
-                        )}
-                      </div>
-                    </label>
-                  ))}
+                      All
+                    </button>
+                    <button
+                      onClick={() => setRegistrationFilter('internal')}
+                      className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                        registrationFilter === 'internal'
+                          ? 'bg-white text-indigo-600 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Internal
+                    </button>
+                    <button
+                      onClick={() => setRegistrationFilter('external')}
+                      className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
+                        registrationFilter === 'external'
+                          ? 'bg-white text-indigo-600 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      External
+                    </button>
+                  </div>
                 </div>
-              )}
+              </div>
               {participants.length > 0 && (
-                <p className="text-xs text-slate-500 mt-3">
-                  {selectedParticipants.size} of {participants.length} participant(s) selected
-                </p>
+                <button
+                  onClick={toggleSelectAll}
+                  className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+                >
+                  {selectedParticipants.size === getFilteredParticipants().length ? 'Deselect All' : 'Select All'}
+                </button>
               )}
             </div>
-          )}
-        </div>
-
-        {/* Right Panel - Generate */}
-        <div className="space-y-6">
-          <div className="bg-white rounded-xl border border-slate-200 p-6">
-            <h3 className="text-lg font-semibold text-slate-900 mb-4">Generate Certificates</h3>
-            
-            {generating ? (
-              <div className="text-center py-12">
-                <Loader2 className="animate-spin text-indigo-600 mx-auto mb-4" size={48} />
-                <p className="text-lg font-semibold text-slate-900 mb-2">Generating Certificates</p>
-                <p className="text-3xl font-bold text-indigo-600 mb-1">
-                  {generatedCount} / {totalCount}
-                </p>
-                <p className="text-sm text-slate-500">
-                  {generatedCount === totalCount ? 'Combining PDFs...' : 'Creating certificate PDFs...'}
-                </p>
+            {loadingParticipants ? (
+              <div className="flex items-center gap-2 text-slate-500 py-8">
+                <Loader2 className="animate-spin" size={16} />
+                <span className="text-sm">Loading participants...</span>
+              </div>
+            ) : participants.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                <FileText size={32} className="mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No participants found for this event</p>
               </div>
             ) : (
-              <div className="space-y-4">
-                <div className="p-4 bg-slate-50 rounded-lg">
-                  <p className="text-sm text-slate-600 mb-2">
-                    <strong>Selected:</strong>
-                  </p>
-                  <ul className="text-sm text-slate-700 space-y-1">
-                    <li>• Event: {selectedEvent?.title || 'None'}</li>
-                    <li>• Template: {templates.find(t => t.id === selectedTemplateId)?.title || 'None'}</li>
-                    <li>• Participants: {selectedParticipants.size}</li>
-                  </ul>
+              <>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {getFilteredParticipants().map(participant => {
+                    const isInternal = isInternalRegistration(participant);
+                    return (
+                      <label
+                        key={participant.id}
+                        className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg hover:bg-slate-50 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedParticipants.has(participant.id)}
+                          onChange={() => toggleParticipant(participant.id)}
+                          className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                        />
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-slate-900">
+                              {getParticipantName(participant)}
+                            </p>
+                            <span
+                              className={`px-2 py-0.5 text-xs font-medium rounded ${
+                                isInternal
+                                  ? 'bg-indigo-100 text-indigo-700'
+                                  : 'bg-amber-100 text-amber-700'
+                              }`}
+                            >
+                              {isInternal ? 'Internal' : 'External'}
+                            </span>
+                          </div>
+                          {participant.generalInfo?.email && (
+                            <p className="text-xs text-slate-500">{participant.generalInfo.email}</p>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
                 </div>
-
-                <button
-                  onClick={generateAllCertificates}
-                  disabled={
-                    !selectedEventId || 
-                    !selectedTemplateId || 
-                    selectedParticipants.size === 0 ||
-                    generating
-                  }
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
-                >
-                  <Download size={20} />
-                  Generate {selectedParticipants.size > 0 ? `${selectedParticipants.size} ` : ''}Certificate{selectedParticipants.size !== 1 ? 's' : ''}
-                </button>
-
-                <p className="text-xs text-slate-500 text-center">
-                  All certificates will be combined into a single PDF file
+                {getFilteredParticipants().length === 0 && participants.length > 0 && (
+                  <div className="text-center py-8 text-slate-400">
+                    <p className="text-sm">No {registrationFilter === 'internal' ? 'internal' : 'external'} registrations found</p>
+                  </div>
+                )}
+              </>
+            )}
+            {participants.length > 0 && (
+              <div className="flex items-center justify-between mt-3">
+                <p className="text-xs text-slate-500">
+                  {selectedParticipants.size} of {getFilteredParticipants().length} participant(s) selected
+                  {registrationFilter !== 'all' && ` (${participants.length} total)`}
                 </p>
+                <div className="flex items-center gap-4 text-xs text-slate-500">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                    Internal: {participants.filter(p => isInternalRegistration(p)).length}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                    External: {participants.filter(p => !isInternalRegistration(p)).length}
+                  </span>
+                </div>
               </div>
             )}
           </div>
-        </div>
+        )}
       </div>
+
+      {/* Email Modal */}
+      {showEmailModal && (
+        <SendCertificateEmailModal
+          isOpen={showEmailModal}
+          onClose={() => setShowEmailModal(false)}
+          participants={participants}
+          selectedParticipantIds={selectedParticipants}
+          eventId={selectedEventId}
+          templateId={selectedTemplateId}
+          eventTitle={selectedEvent?.title}
+        />
+      )}
     </div>
   );
 };

@@ -8,6 +8,13 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        proxy: {
+          '/api/latex': {
+            target: 'http://localhost:3002',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/api\/latex/, ''),
+          },
+        },
       },
       plugins: [react()],
       define: {
@@ -20,6 +27,15 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
-      }
+      },
+      // Fix build error for ".keep" files from latex.js by telling esbuild how to load them.
+      // Use the "text" loader so esbuild can inline them without needing an output path.
+      optimizeDeps: {
+        esbuildOptions: {
+          loader: {
+            '.keep': 'text',
+          },
+        },
+      },
     };
 });

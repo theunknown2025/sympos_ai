@@ -28,9 +28,10 @@ import {
   Grid3x3,
   Users
 } from 'lucide-react';
-import { FormField, FormFieldType, RegistrationForm, FormSection, FormSubsection } from '../../../../types';
+import { FormField, FormFieldType, RegistrationForm, FormSection, FormSubsection, EvaluationForm } from '../../../../types';
 import { useAuth } from '../../../../hooks/useAuth';
 import { saveRegistrationForm, updateRegistrationForm, getRegistrationForm } from '../../../../services/registrationFormService';
+import { saveEvaluationForm, updateEvaluationForm, getEvaluationForm } from '../../../../services/evaluationFormService';
 import FormList from './FormList';
 
 interface FormBuilderProps {
@@ -67,7 +68,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showFormTypeSelection, setShowFormTypeSelection] = useState(false);
-  const [formType, setFormType] = useState<'registration' | 'submission' | null>(null);
+  const [formType, setFormType] = useState<'registration' | 'submission' | 'evaluation' | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -82,7 +83,16 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
   const loadForm = async (id: string) => {
     try {
       setIsLoading(true);
-      const form = await getRegistrationForm(id);
+      // Try to load as registration form first
+      let form = await getRegistrationForm(id);
+      let isEvaluationForm = false;
+      
+      // If not found, try evaluation form
+      if (!form) {
+        form = await getEvaluationForm(id);
+        isEvaluationForm = true;
+      }
+      
       if (form) {
         // Detect form type from title prefix
         const titleLower = form.title.toLowerCase();
@@ -96,12 +106,19 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
           // Remove prefix if present for editing
           const cleanTitle = form.title.replace(/^sub\s*-\s*/i, '');
           setTitle(cleanTitle);
+        } else if (titleLower.startsWith('eval - ') || titleLower.startsWith('eval-') || isEvaluationForm) {
+          setFormType('evaluation');
+          // Remove prefix if present for editing
+          const cleanTitle = form.title.replace(/^eval\s*-\s*/i, '');
+          setTitle(cleanTitle);
         } else {
           // If no prefix, try to detect from title
           if (titleLower.includes('registration') || titleLower.includes('register')) {
             setFormType('registration');
           } else if (titleLower.includes('submission') || titleLower.includes('submit')) {
             setFormType('submission');
+          } else if (titleLower.includes('evaluation') || titleLower.includes('evaluate')) {
+            setFormType('evaluation');
           }
           setTitle(form.title);
         }
@@ -109,9 +126,9 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
         setGeneralInfo(form.generalInfo);
         setFields(form.fields || []);
         setSections(form.sections || []);
-        setActions(form.actions || {
-          sendCopyOfAnswers: false,
-          sendConfirmationEmail: false,
+        setActions({
+          sendCopyOfAnswers: form.actions?.sendCopyOfAnswers || false,
+          sendConfirmationEmail: form.actions?.sendConfirmationEmail || false,
         });
         // Expand all sections by default
         if (form.sections) {
@@ -348,6 +365,21 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
                 </div>
                 <span className="text-xs text-slate-600">Multiple</span>
               </label>
+              {/* Filter toggle - only for checkbox and select fields */}
+              {(field.type === 'checkbox' || field.type === 'select') && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <div className="relative inline-flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={field.useAsFilter || false}
+                      onChange={(e) => updateField(field.id, { useAsFilter: e.target.checked }, sectionId, subsectionId)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                  </div>
+                  <span className="text-xs text-slate-600">Filter</span>
+                </label>
+              )}
             </div>
 
             {(field.type === 'text' || field.type === 'email' || field.type === 'phone' || field.type === 'url') && (
@@ -642,22 +674,67 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
       setSaveSuccess(false);
 
       // Add prefix based on form type
-      const prefix = formType === 'registration' ? 'Reg' : 'Sub';
+      const prefix = formType === 'registration' ? 'Reg' : formType === 'submission' ? 'Sub' : 'Eval';
       const finalTitle = title.trim().startsWith(prefix) ? title.trim() : `${prefix} - ${title.trim()}`;
 
-      const formData: Omit<RegistrationForm, 'id' | 'userId' | 'createdAt' | 'updatedAt'> = {
-        title: finalTitle,
-        description: description.trim() || '',
-        sections: sections || [],
-        fields: fields || [],
-        generalInfo,
-        actions: actions,
+      // Ensure all fields have labels before saving
+      const ensureFieldLabels = (fieldList: FormField[]): FormField[] => {
+        return fieldList.map(field => ({
+          ...field,
+          label: field.label?.trim() || `Field ${field.id}`,
+          // Ensure subFields also have labels
+          subFields: field.subFields?.map(subField => ({
+            ...subField,
+            label: subField.label?.trim() || `Sub-field ${subField.id}`,
+          })) || [],
+        }));
       };
 
-      if (formId) {
-        await updateRegistrationForm(formId, formData);
+      // Process sections to ensure all fields have labels
+      const processedSections = (sections || []).map(section => ({
+        ...section,
+        fields: ensureFieldLabels(section.fields || []),
+        subsections: (section.subsections || []).map(subsection => ({
+          ...subsection,
+          fields: ensureFieldLabels(subsection.fields || []),
+        })),
+      }));
+
+      // Process legacy fields
+      const processedFields = ensureFieldLabels(fields || []);
+
+      if (formType === 'evaluation') {
+        // Save as evaluation form
+        const formData: Omit<EvaluationForm, 'id' | 'userId' | 'createdAt' | 'updatedAt'> = {
+          title: finalTitle,
+          description: description.trim() || '',
+          sections: processedSections,
+          fields: processedFields,
+          generalInfo,
+          actions: actions,
+        };
+
+        if (formId) {
+          await updateEvaluationForm(formId, formData);
+        } else {
+          await saveEvaluationForm(currentUser.id, formData);
+        }
       } else {
-        await saveRegistrationForm(currentUser.id, formData);
+        // Save as registration form (for both registration and submission types)
+        const formData: Omit<RegistrationForm, 'id' | 'userId' | 'createdAt' | 'updatedAt'> = {
+          title: finalTitle,
+          description: description.trim() || '',
+          sections: processedSections,
+          fields: processedFields,
+          generalInfo,
+          actions: actions,
+        };
+
+        if (formId) {
+          await updateRegistrationForm(formId, formData);
+        } else {
+          await saveRegistrationForm(currentUser.id, formData);
+        }
       }
 
       setSaveSuccess(true);
@@ -1211,7 +1288,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
       {/* Form Type Selection Modal */}
       {showFormTypeSelection && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-slate-900">
                 Select Form Type
@@ -1227,48 +1304,69 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div>
               <p className="text-sm text-slate-600 mb-4">
                 Choose the type of form you want to create:
               </p>
 
-              <button
-                onClick={() => {
-                  setFormType('registration');
-                  setShowFormTypeSelection(false);
-                  setShowSaveDialog(true);
-                }}
-                className="w-full p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left group"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
-                    <FileText size={24} className="text-indigo-600" />
+              <div className="flex gap-4">
+                <button
+                  onClick={() => {
+                    setFormType('registration');
+                    setShowFormTypeSelection(false);
+                    setShowSaveDialog(true);
+                  }}
+                  className="flex-1 p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
+                >
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
+                      <FileText size={24} className="text-indigo-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 mb-1">Registration Form</h3>
+                      <p className="text-sm text-slate-500">For event registrations and attendee information</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 mb-1">Registration Form</h3>
-                    <p className="text-sm text-slate-500">For event registrations and attendee information</p>
-                  </div>
-                </div>
-              </button>
+                </button>
 
-              <button
-                onClick={() => {
-                  setFormType('submission');
-                  setShowFormTypeSelection(false);
-                  setShowSaveDialog(true);
-                }}
-                className="w-full p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left group"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
-                    <FileText size={24} className="text-indigo-600" />
+                <button
+                  onClick={() => {
+                    setFormType('submission');
+                    setShowFormTypeSelection(false);
+                    setShowSaveDialog(true);
+                  }}
+                  className="flex-1 p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
+                >
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
+                      <FileText size={24} className="text-indigo-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 mb-1">Submission Form</h3>
+                      <p className="text-sm text-slate-500">For paper submissions and research proposals</p>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 mb-1">Submission Form</h3>
-                    <p className="text-sm text-slate-500">For paper submissions and research proposals</p>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setFormType('evaluation');
+                    setShowFormTypeSelection(false);
+                    setShowSaveDialog(true);
+                  }}
+                  className="flex-1 p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
+                >
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
+                      <FileText size={24} className="text-indigo-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 mb-1">Evaluation Form</h3>
+                      <p className="text-sm text-slate-500">For evaluations and assessments</p>
+                    </div>
                   </div>
-                </div>
-              </button>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1301,11 +1399,15 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
               {formType && (
                 <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
                   <p className="text-sm font-medium text-indigo-900">
-                    Form Type: <span className="font-bold">{formType === 'registration' ? 'Registration Form' : 'Submission Form'}</span>
+                    Form Type: <span className="font-bold">
+                      {formType === 'registration' ? 'Registration Form' : 
+                       formType === 'submission' ? 'Submission Form' : 
+                       'Evaluation Form'}
+                    </span>
                   </p>
                   {!formId && (
                     <p className="text-xs text-indigo-700 mt-1">
-                      Form name will be prefixed with "{formType === 'registration' ? 'Reg' : 'Sub'}"
+                      Form name will be prefixed with "{formType === 'registration' ? 'Reg' : formType === 'submission' ? 'Sub' : 'Eval'}"
                     </p>
                   )}
                 </div>
@@ -1343,12 +1445,16 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
                 )}
                 {formType && !formId && !validationErrors.title && (
                   <p className="text-xs text-slate-500 mt-1">
-                    Will be saved as: <span className="font-medium">{formType === 'registration' ? 'Reg' : 'Sub'} - {title || 'Your Title'}</span>
+                    Will be saved as: <span className="font-medium">
+                      {formType === 'registration' ? 'Reg' : formType === 'submission' ? 'Sub' : 'Eval'} - {title || 'Your Title'}
+                    </span>
                   </p>
                 )}
                 {formType && formId && !validationErrors.title && (
                   <p className="text-xs text-slate-500 mt-1">
-                    Will be saved as: <span className="font-medium">{formType === 'registration' ? 'Reg' : 'Sub'} - {title || 'Your Title'}</span>
+                    Will be saved as: <span className="font-medium">
+                      {formType === 'registration' ? 'Reg' : formType === 'submission' ? 'Sub' : 'Eval'} - {title || 'Your Title'}
+                    </span>
                   </p>
                 )}
               </div>
@@ -1560,6 +1666,117 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
   );
 
   function renderPreviewField(field: FormField) {
+    // Helper function to render a single input based on field type
+    const renderInput = (subField: FormField, isSubField: boolean = false) => {
+      const baseClasses = isSubField 
+        ? "w-full px-3 py-2 border border-slate-300 rounded text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        : "w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500";
+
+      switch (subField.type) {
+        case 'text':
+          return (
+            <input
+              type="text"
+              placeholder={subField.placeholder}
+              className={baseClasses}
+            />
+          );
+        case 'email':
+          return (
+            <input
+              type="email"
+              placeholder={subField.placeholder}
+              className={baseClasses}
+            />
+          );
+        case 'phone':
+          return (
+            <input
+              type="tel"
+              placeholder={subField.placeholder}
+              className={baseClasses}
+            />
+          );
+        case 'number':
+          return (
+            <input
+              type="number"
+              placeholder={subField.placeholder}
+              className={baseClasses}
+            />
+          );
+        case 'textarea':
+          return (
+            <textarea
+              rows={3}
+              placeholder={subField.placeholder}
+              className={baseClasses}
+            />
+          );
+        case 'select':
+          return (
+            <select className={baseClasses}>
+              <option value="">Select an option</option>
+              {subField.options?.map((option, idx) => (
+                <option key={idx} value={option}>{option}</option>
+              ))}
+            </select>
+          );
+        case 'radio':
+          return (
+            <div className="space-y-2">
+              {subField.options?.map((option, idx) => (
+                <label key={idx} className="flex items-center gap-2">
+                  <input type="radio" name={subField.id} value={option} className="text-indigo-600" />
+                  <span className="text-sm text-slate-700">{option}</span>
+                </label>
+              ))}
+            </div>
+          );
+        case 'checkbox':
+          return (
+            <div className="space-y-2">
+              {subField.options?.map((option, idx) => (
+                <label key={idx} className="flex items-center gap-2">
+                  <input type="checkbox" value={option} className="text-indigo-600 rounded" />
+                  <span className="text-sm text-slate-700">{option}</span>
+                </label>
+              ))}
+            </div>
+          );
+        case 'date':
+          return (
+            <input
+              type="date"
+              className={baseClasses}
+            />
+          );
+        case 'file':
+          return (
+            <input
+              type="file"
+              className={baseClasses}
+            />
+          );
+        case 'url':
+          return (
+            <input
+              type="url"
+              placeholder={subField.placeholder}
+              className={baseClasses}
+            />
+          );
+        default:
+          return (
+            <input
+              type="text"
+              placeholder={subField.placeholder}
+              className={baseClasses}
+            />
+          );
+      }
+    };
+
     return (
       <div key={field.id} className="space-y-2">
         <label className="block text-sm font-medium text-slate-700">
@@ -1570,87 +1787,48 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
           <p className="text-xs text-slate-500">{field.helpText}</p>
         )}
         
-        {field.type === 'text' && (
-          <input
-            type="text"
-            placeholder={field.placeholder}
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        )}
-        {field.type === 'email' && (
-          <input
-            type="email"
-            placeholder={field.placeholder}
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        )}
-        {field.type === 'phone' && (
-          <input
-            type="tel"
-            placeholder={field.placeholder}
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        )}
-        {field.type === 'number' && (
-          <input
-            type="number"
-            placeholder={field.placeholder}
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        )}
-        {field.type === 'textarea' && (
-          <textarea
-            rows={4}
-            placeholder={field.placeholder}
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        )}
-        {field.type === 'select' && (
-          <select className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
-            <option value="">Select an option</option>
-            {field.options?.map((option, idx) => (
-              <option key={idx} value={option}>{option}</option>
-            ))}
-          </select>
-        )}
-        {field.type === 'radio' && (
-          <div className="space-y-2">
-            {field.options?.map((option, idx) => (
-              <label key={idx} className="flex items-center gap-2">
-                <input type="radio" name={field.id} value={option} className="text-indigo-600" />
-                <span className="text-sm text-slate-700">{option}</span>
-              </label>
-            ))}
+        {/* Render subfields if enabled */}
+        {field.hasSubFields && field.subFields && field.subFields.length > 0 ? (
+          <div className="space-y-3">
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              {/* Table Header */}
+              <div className="bg-slate-50 grid gap-2 p-3 border-b border-slate-200" style={{ gridTemplateColumns: `repeat(${field.subFields.length}, 1fr)` }}>
+                {field.subFields.map((subField, idx) => (
+                  <div key={subField.id || idx} className="text-xs font-semibold text-slate-700">
+                    {subField.label}
+                    {subField.required && <span className="text-red-500 ml-1">*</span>}
+                  </div>
+                ))}
+              </div>
+              
+              {/* Table Rows - Show at least one row in preview */}
+              <div className="p-3 space-y-2">
+                <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${field.subFields.length}, 1fr)` }}>
+                  {field.subFields.map((subField, idx) => (
+                    <div key={subField.id || idx}>
+                      {renderInput(subField, true)}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            
+            {/* Add Row Button (for preview demonstration) */}
+            <button
+              type="button"
+              className="w-full py-2 text-sm text-indigo-600 border border-dashed border-indigo-300 rounded-lg hover:bg-indigo-50 transition-colors flex items-center justify-center gap-2"
+              disabled
+            >
+              <Plus size={16} />
+              Add Row (Preview Mode)
+            </button>
+            <p className="text-xs text-slate-500 italic">
+              Users can add multiple rows with these fields
+            </p>
           </div>
-        )}
-        {field.type === 'checkbox' && (
-          <div className="space-y-2">
-            {field.options?.map((option, idx) => (
-              <label key={idx} className="flex items-center gap-2">
-                <input type="checkbox" value={option} className="text-indigo-600 rounded" />
-                <span className="text-sm text-slate-700">{option}</span>
-              </label>
-            ))}
-          </div>
-        )}
-        {field.type === 'date' && (
-          <input
-            type="date"
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        )}
-        {field.type === 'file' && (
-          <input
-            type="file"
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        )}
-        {field.type === 'url' && (
-          <input
-            type="url"
-            placeholder={field.placeholder}
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
+        ) : (
+          /* Render regular field input */
+          renderInput(field, false)
         )}
       </div>
     );

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Loader2, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
-import { RegistrationForm, FormField, FormFieldType, FormSubmission } from '../../../../types';
+import { RegistrationForm, FormField, FormFieldType, FormSubmission, SubscriptionType, SubscriptionRole } from '../../../../types';
 import { getRegistrationForm } from '../../../../services/registrationFormService';
 import { saveFormSubmission } from '../../../../services/registrationSubmissionService';
 import { uploadFileToStorage } from '../../../../services/storageService';
@@ -24,6 +24,10 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
   const { currentUser } = useAuth();
   const [uploadingFiles, setUploadingFiles] = useState<{ [fieldId: string]: boolean }>({});
 
+  // Subscription type and role state - default to 'self' (Subscription Details section removed)
+  const [subscriptionType] = useState<SubscriptionType>('self');
+  const [entityName] = useState('');
+
   // Form data state
   const [generalInfo, setGeneralInfo] = useState({
     name: '',
@@ -36,7 +40,7 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
 
   useEffect(() => {
     loadForm();
-  }, [formId]);
+  }, [formId, currentUser]);
 
   const loadForm = async () => {
     try {
@@ -246,12 +250,20 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
     try {
       setSubmitting(true);
       
+      // Default to 'self' subscription type (Subscription Details section removed)
+      const role: SubscriptionRole = 'Participant';
+      const subscriptionType: SubscriptionType = 'self';
+
       const submission = {
         formId: form!.id,
         eventId,
         eventTitle,
-        userId: currentUser.id,
+        userId: form!.userId, // Use form creator's ID (organizer), not submitter's ID
+        participantUserId: currentUser.id, // User ID of the participant who is submitting
         submittedBy: generalInfo.email || generalInfo.name || 'Anonymous',
+        subscriptionType,
+        entityName: undefined,
+        role,
         generalInfo: {
           ...(form!.generalInfo.collectName && { name: generalInfo.name }),
           ...(form!.generalInfo.collectEmail && { email: generalInfo.email }),

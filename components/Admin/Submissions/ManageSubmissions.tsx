@@ -1,7 +1,32 @@
-import React from 'react';
-import { FileText, Search, Filter } from 'lucide-react';
+import React, { useState } from 'react';
+import { FileText, Inbox, Send, CheckSquare } from 'lucide-react';
+import ReceivedSubmissions from './ManageSubmission/ReceivedSubmissions';
+import DispatchSubmissions from './ManageSubmission/DispatchSubmissions';
+import SubmissionsEvaluation from './ManageSubmission/SubmissionsEvaluation';
+
+type TabType = 'received' | 'dispatch' | 'evaluation';
 
 const ManageSubmissions: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<TabType>('received');
+
+  const tabs = [
+    {
+      id: 'received' as TabType,
+      label: 'Received Submission',
+      icon: Inbox,
+    },
+    {
+      id: 'dispatch' as TabType,
+      label: 'Dispatch Submissions',
+      icon: Send,
+    },
+    {
+      id: 'evaluation' as TabType,
+      label: 'Submissions Evaluation',
+      icon: CheckSquare,
+    },
+  ];
+
   return (
     <div className="h-full">
       <header className="flex justify-between items-center mb-6">
@@ -14,28 +39,34 @@ const ManageSubmissions: React.FC = () => {
         </div>
       </header>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-6">
-        <div className="flex gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-            <input
-              type="text"
-              placeholder="Search submissions..."
-              className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <button className="px-4 py-2 border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-2">
-            <Filter size={18} />
-            Filter
-          </button>
+      {/* Tabs */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 mb-6">
+        <div className="flex border-b border-slate-200">
+          {tabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 px-6 py-4 flex items-center justify-center gap-2 font-medium transition-colors ${
+                  isActive
+                    ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <Icon size={20} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
-      </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8">
-        <div className="text-center py-12 text-slate-400">
-          <FileText size={48} className="mx-auto mb-4 opacity-20" />
-          <p className="font-medium">No submissions found</p>
-          <p className="text-sm">Submission management content will appear here</p>
+        {/* Tab Content */}
+        <div className="p-6">
+          {activeTab === 'received' && <ReceivedSubmissions />}
+          {activeTab === 'dispatch' && <DispatchSubmissions />}
+          {activeTab === 'evaluation' && <SubmissionsEvaluation />}
         </div>
       </div>
     </div>

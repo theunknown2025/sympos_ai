@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Loader2, AlertCircle, Plus, X, Users, Search, GripVertical, UserCircle } from 'lucide-react';
+import { Save, Loader2, AlertCircle, Plus, X, Users, Search, GripVertical, UserCircle, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
 import { getCommitteeMembers } from '../../../../services/committeeMemberService';
-import { ReviewCommitteeMember } from '../../../../types';
+import { saveCommittee, updateCommittee } from '../../../../services/committeeService';
+import { ReviewCommitteeMember, Committee, FieldOfIntervention } from '../../../../types';
 
-interface FieldOfIntervention {
-  id: string;
-  name: string;
-  memberIds: string[];
+interface NewCommitteeProps {
+  committee?: Committee | null;
+  onSuccess?: () => void;
+  onClose?: () => void;
 }
 
-const NewCommittee: React.FC = () => {
+const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClose }) => {
   const { currentUser } = useAuth();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -21,8 +22,22 @@ const NewCommittee: React.FC = () => {
   const [loadingMembers, setLoadingMembers] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
   const [draggedMember, setDraggedMember] = useState<ReviewCommitteeMember | null>(null);
   const [dragOverField, setDragOverField] = useState<string | null>(null);
+
+  // Initialize form if editing
+  useEffect(() => {
+    if (committee) {
+      setName(committee.name);
+      setDescription(committee.description || '');
+      setFields(committee.fieldsOfIntervention.map(field => ({
+        id: field.id,
+        name: field.name,
+        memberIds: field.memberIds
+      })));
+    }
+  }, [committee]);
 
   // Load committee members when component mounts
   useEffect(() => {
@@ -171,29 +186,51 @@ const NewCommittee: React.FC = () => {
       return;
     }
 
+    if (!currentUser?.id) {
+      setError('You must be logged in to save committees');
+      return;
+    }
+
     try {
       setSaving(true);
-      // TODO: Implement committee creation with fields and members
+      setError('');
+      setSuccess(false);
+
       const committeeData = {
         name: name.trim(),
-        description: description.trim(),
+        description: description.trim() || undefined,
         fieldsOfIntervention: fields.map(f => ({
+          id: f.id,
           name: f.name.trim(),
           memberIds: f.memberIds
         }))
       };
-      
-      console.log('Creating committee:', committeeData);
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      alert('Committee created successfully!');
-      
-      // Reset form
-      setName('');
-      setDescription('');
-      setFields([]);
+
+      if (committee) {
+        // Update existing committee
+        await updateCommittee(committee.id, committeeData);
+        setSuccess(true);
+        setTimeout(() => {
+          if (onSuccess) onSuccess();
+          if (onClose) onClose();
+        }, 1500);
+      } else {
+        // Create new committee
+        await saveCommittee(currentUser.id, committeeData);
+        setSuccess(true);
+        
+        // Reset form
+        setName('');
+        setDescription('');
+        setFields([]);
+        
+        setTimeout(() => {
+          if (onSuccess) onSuccess();
+        }, 1500);
+      }
     } catch (err: any) {
-      setError(err.message || 'Failed to create committee. Please try again.');
+      console.error('Error saving committee:', err);
+      setError(err.message || 'Failed to save committee. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -201,7 +238,9 @@ const NewCommittee: React.FC = () => {
 
   return (
     <div className="w-full">
-      <h2 className="text-2xl font-bold text-slate-900 mb-6">Create New Committee</h2>
+      <h2 className="text-2xl font-bold text-slate-900 mb-6">
+        {committee ? 'Edit Committee' : 'Create New Committee'}
+      </h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column - Form */}
@@ -211,6 +250,13 @@ const NewCommittee: React.FC = () => {
           <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3 text-red-700">
             <AlertCircle size={20} />
             <span>{error}</span>
+          </div>
+        )}
+
+        {success && (
+          <div className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3 text-green-700">
+            <CheckCircle2 size={20} />
+            <span>Committee {committee ? 'updated' : 'created'} successfully!</span>
           </div>
         )}
 
@@ -351,20 +397,30 @@ const NewCommittee: React.FC = () => {
         </div>
 
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={saving}
+                  className="px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              )}
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || success}
                 className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? (
                   <>
                     <Loader2 className="animate-spin" size={18} />
-                    Creating...
+                    {committee ? 'Updating...' : 'Creating...'}
                   </>
                 ) : (
                   <>
                     <Save size={18} />
-                    Create Committee
+                    {committee ? 'Update Committee' : 'Create Committee'}
                   </>
                 )}
               </button>

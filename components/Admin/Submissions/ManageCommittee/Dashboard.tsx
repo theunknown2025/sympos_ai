@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
-import { Users, UserPlus, UserCheck, List, FilePlus } from 'lucide-react';
+import { Users, UserPlus, UserCheck, List, FilePlus, Search } from 'lucide-react';
 import NewCommittee from './NewCommittee';
 import CommitteesList from './CommitteesList';
 import MemberForm from './MemberForm';
 import MembersList from './MembersList';
+import { Committee } from '../../../types';
 
 const Dashboard: React.FC = () => {
   const [mainTab, setMainTab] = useState<'committees' | 'membres'>('committees');
   const [committeesSubTab, setCommitteesSubTab] = useState<'new' | 'list'>('new');
   const [membresSubTab, setMembresSubTab] = useState<'new' | 'list'>('new');
   const [showMemberForm, setShowMemberForm] = useState(false);
+  const [showParticipantSearch, setShowParticipantSearch] = useState(false);
   const [editingMember, setEditingMember] = useState<any>(null);
+  const [editingCommittee, setEditingCommittee] = useState<Committee | null>(null);
+  const [committeesRefreshTrigger, setCommitteesRefreshTrigger] = useState(0);
 
   const handleEditMember = (member: any) => {
     setEditingMember(member);
@@ -20,6 +24,22 @@ const Dashboard: React.FC = () => {
   const handleFormClose = () => {
     setShowMemberForm(false);
     setEditingMember(null);
+  };
+
+  const handleEditCommittee = (committee: Committee) => {
+    setEditingCommittee(committee);
+    setCommitteesSubTab('new');
+  };
+
+  const handleCommitteeSuccess = () => {
+    setEditingCommittee(null);
+    setCommitteesSubTab('list');
+    // Trigger refresh of committees list
+    setCommitteesRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleCommitteeClose = () => {
+    setEditingCommittee(null);
   };
 
   return (
@@ -91,9 +111,17 @@ const Dashboard: React.FC = () => {
             {/* Committees Sub-tab Content */}
             <div className="p-6">
               {committeesSubTab === 'new' ? (
-                <NewCommittee />
+                <NewCommittee 
+                  committee={editingCommittee}
+                  onSuccess={handleCommitteeSuccess}
+                  onClose={handleCommitteeClose}
+                />
               ) : (
-                <CommitteesList />
+                <CommitteesList 
+                  onEdit={handleEditCommittee}
+                  onDelete={() => setCommitteesRefreshTrigger(prev => prev + 1)}
+                  refreshTrigger={committeesRefreshTrigger}
+                />
               )}
             </div>
           </div>
@@ -139,35 +167,58 @@ const Dashboard: React.FC = () => {
             <div className="p-6">
               {membresSubTab === 'new' ? (
                 <div>
-                  {!showMemberForm ? (
+                  {!showMemberForm && !showParticipantSearch ? (
                     <div className="text-center py-12">
                       <UserPlus size={48} className="mx-auto mb-4 text-slate-300" />
                       <p className="text-slate-500 mb-4">Click the button below to add a new member</p>
-                      <button
-                        onClick={() => {
-                          setShowMemberForm(true);
-                          setEditingMember(null);
-                        }}
-                        className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors mx-auto"
-                      >
-                        <UserPlus size={18} />
-                        Add New Member
-                      </button>
+                      <div className="flex items-center justify-center gap-3">
+                        <button
+                          onClick={() => {
+                            setShowMemberForm(true);
+                            setEditingMember(null);
+                            setShowParticipantSearch(false);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                        >
+                          <UserPlus size={18} />
+                          Add New Member
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowParticipantSearch(true);
+                            setShowMemberForm(false);
+                            setEditingMember(null);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
+                        >
+                          <Search size={18} />
+                          Find in Database
+                        </button>
+                      </div>
                     </div>
                   ) : (
-                    <MemberForm
-                      member={editingMember}
-                      inline={true}
-                      onClose={() => {
-                        setShowMemberForm(false);
-                        setEditingMember(null);
-                      }}
-                      onSuccess={() => {
-                        setShowMemberForm(false);
-                        setEditingMember(null);
-                        setMembresSubTab('list');
-                      }}
-                    />
+                    <>
+                      <MemberForm
+                        member={editingMember}
+                        inline={true}
+                        showParticipantSearch={showParticipantSearch}
+                        onClose={() => {
+                          setShowMemberForm(false);
+                          setEditingMember(null);
+                          setShowParticipantSearch(false);
+                        }}
+                        onSuccess={() => {
+                          setShowMemberForm(false);
+                          setEditingMember(null);
+                          setShowParticipantSearch(false);
+                          setMembresSubTab('list');
+                        }}
+                        onParticipantSelect={() => {
+                          setShowParticipantSearch(false);
+                          setShowMemberForm(true);
+                        }}
+                      />
+                    </>
                   )}
                 </div>
               ) : (

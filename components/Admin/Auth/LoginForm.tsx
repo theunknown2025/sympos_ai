@@ -56,7 +56,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSuccess, onSwitchToRegister }) 
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in h-full flex flex-col justify-center">
       <div className="text-center">
         <h2 className="text-2xl font-bold text-slate-900">Welcome Back</h2>
         <p className="text-slate-500 mt-1">Manage your scientific conferences with ease.</p>

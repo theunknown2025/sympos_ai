@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Mail, Phone, Building, Globe, Edit, Trash2, Loader2, ExternalLink, ChevronDown, ChevronUp, MapPin, GraduationCap, Link as LinkIcon, User, Award, Send } from 'lucide-react';
-import { ReviewCommitteeMember } from '../../../../types';
+import { Users, Mail, Phone, Building, Globe, Edit, Trash2, Loader2, ExternalLink, ChevronDown, ChevronUp, MapPin, GraduationCap, Link as LinkIcon, User, Award, Send, CheckCircle2, XCircle, Clock } from 'lucide-react';
+import { ReviewCommitteeMember, InvitationStatus } from '../../../../types';
 import { deleteCommitteeMember, getCommitteeMembers } from '../../../../services/committeeMemberService';
 import { useAuth } from '../../../../hooks/useAuth';
 import InvitationEmailModal from './InvitationEmailModal';
+import { getMemberInvitations } from '../../../../services/committeeMemberService';
 
 interface MembersListProps {
   onEdit: (member: ReviewCommitteeMember) => void;
@@ -20,6 +21,7 @@ const MembersList: React.FC<MembersListProps> = ({ onEdit, onDelete }) => {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [bulkSelectionMode, setBulkSelectionMode] = useState(false);
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set());
+  const [invitationStatuses, setInvitationStatuses] = useState<Record<string, InvitationStatus>>({});
 
   useEffect(() => {
     if (currentUser) {
@@ -34,6 +36,27 @@ const MembersList: React.FC<MembersListProps> = ({ onEdit, onDelete }) => {
       setLoading(true);
       const membersList = await getCommitteeMembers(userId);
       setMembers(membersList);
+      
+      // Load invitation statuses for all members
+      const statuses: Record<string, InvitationStatus> = {};
+      for (const member of membersList) {
+        try {
+          const invitations = await getMemberInvitations(member.id);
+          if (invitations.length > 0) {
+            // Get the most recent invitation status
+            const latestInvitation = invitations.sort((a, b) => 
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )[0];
+            statuses[member.id] = latestInvitation.status;
+          } else {
+            statuses[member.id] = InvitationStatus.NOT_INVITED;
+          }
+        } catch (err) {
+          console.error(`Error loading invitation status for member ${member.id}:`, err);
+          statuses[member.id] = InvitationStatus.NOT_INVITED;
+        }
+      }
+      setInvitationStatuses(statuses);
     } catch (error) {
       console.error('Error loading members:', error);
     } finally {
@@ -49,8 +72,8 @@ const MembersList: React.FC<MembersListProps> = ({ onEdit, onDelete }) => {
     try {
       setDeletingId(member.id);
       await deleteCommitteeMember(member.id);
-      if (currentUser) {
-        await loadMembers(currentUser);
+      if (currentUser?.id) {
+        await loadMembers(currentUser.id);
       }
       onDelete();
     } catch (error) {
@@ -203,6 +226,38 @@ const MembersList: React.FC<MembersListProps> = ({ onEdit, onDelete }) => {
                         {member.gender && (
                           <span className="text-xs px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full">
                             {member.gender}
+                          </span>
+                        )}
+                        {/* Invitation Status Badge */}
+                        {invitationStatuses[member.id] && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                            invitationStatuses[member.id] === InvitationStatus.ACCEPTED
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : invitationStatuses[member.id] === InvitationStatus.REJECTED
+                              ? 'bg-red-100 text-red-700'
+                              : invitationStatuses[member.id] === InvitationStatus.PENDING
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {invitationStatuses[member.id] === InvitationStatus.ACCEPTED && (
+                              <span className="flex items-center gap-1">
+                                <CheckCircle2 size={12} />
+                                Accepted
+                              </span>
+                            )}
+                            {invitationStatuses[member.id] === InvitationStatus.REJECTED && (
+                              <span className="flex items-center gap-1">
+                                <XCircle size={12} />
+                                Rejected
+                              </span>
+                            )}
+                            {invitationStatuses[member.id] === InvitationStatus.PENDING && (
+                              <span className="flex items-center gap-1">
+                                <Clock size={12} />
+                                Pending
+                              </span>
+                            )}
+                            {invitationStatuses[member.id] === InvitationStatus.NOT_INVITED && 'Not Invited'}
                           </span>
                         )}
                       </div>
@@ -499,6 +554,10 @@ const MembersList: React.FC<MembersListProps> = ({ onEdit, onDelete }) => {
         setSelectedMemberIds([]);
         setBulkSelectionMode(false);
         setBulkSelectedIds(new Set());
+        // Refresh invitation statuses after sending
+        if (currentUser?.id) {
+          loadMembers(currentUser.id);
+        }
       }}
       members={Array.isArray(members) ? members : []}
       selectedMemberIds={Array.isArray(selectedMemberIds) ? selectedMemberIds : []}
