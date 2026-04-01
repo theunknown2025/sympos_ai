@@ -1,18 +1,42 @@
 import React, { useState, useEffect } from 'react';
-import { Trash2, Edit2, Calendar, Globe, Award, FileText, Loader2, AlertCircle, ArrowRight, FileCheck, Users, Eye, Send } from 'lucide-react';
+import { Trash2, Edit2, Calendar, Globe, Award, FileText, Loader2, AlertCircle, ArrowRight, FileCheck, Users, Eye, Send, Grid3x3, List, Settings2, MapPin, Tag, Clock, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../hooks/useAuth';
 import { getUserEvents, deleteEvent } from '../../../services/eventService';
-import { Event, ViewState, PublishStatus } from '../../../types';
+import { Event, ViewState, PublishStatus, EventDate } from '../../../types';
 import { getLandingPage } from '../../../services/landingPageService';
 import { getRegistrationForm } from '../../../services/registrationFormService';
 import { getCertificateTemplate } from '../../../services/certificateTemplateService';
+import { getEvaluationForm } from '../../../services/evaluationFormService';
+import { getCommittee } from '../../../services/committeeService';
 import { getEventSubmissions } from '../../../services/registrationSubmissionService';
 import { getRoutePath } from '../../../routes';
 import NewEvent from './NewEvent';
 import EditEvent from './EditEvent';
 import EventPreview from './EventPreview';
 import PublishHandler from './PublishHandler';
+
+type ViewMode = 'cards' | 'rows';
+
+interface ColumnConfig {
+  id: string;
+  label: string;
+  visible: boolean;
+  width?: string;
+}
+
+const defaultColumns: ColumnConfig[] = [
+  { id: 'name', label: 'Event Name', visible: true },
+  { id: 'eventType', label: 'Type', visible: true, width: 'w-32' },
+  { id: 'eventFormat', label: 'Format', visible: true, width: 'w-28' },
+  { id: 'location', label: 'Location', visible: true, width: 'w-40' },
+  { id: 'dates', label: 'Dates', visible: true, width: 'w-48' },
+  { id: 'status', label: 'Status', visible: true, width: 'w-24' },
+  { id: 'registrationForms', label: 'Registration Forms', visible: true, width: 'w-40' },
+  { id: 'created', label: 'Created', visible: false, width: 'w-32' },
+  { id: 'updated', label: 'Updated', visible: false, width: 'w-32' },
+  { id: 'actions', label: 'Actions', visible: true, width: 'w-32' },
+];
 
 const ListOfEvents: React.FC = () => {
   const { currentUser } = useAuth();
@@ -24,12 +48,41 @@ const ListOfEvents: React.FC = () => {
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [previewingEventId, setPreviewingEventId] = useState<string | null>(null);
   const [publishingEventId, setPublishingEventId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const [columns, setColumns] = useState<ColumnConfig[]>(() => {
+    // Load from localStorage or use defaults
+    const saved = localStorage.getItem('eventListColumns');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return defaultColumns;
+      }
+    }
+    return defaultColumns;
+  });
+  const [showColumnFilter, setShowColumnFilter] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
       loadEvents();
     }
   }, [currentUser]);
+
+  // Close column filter when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showColumnFilter && !target.closest('.column-filter-container')) {
+        setShowColumnFilter(false);
+      }
+    };
+
+    if (showColumnFilter) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showColumnFilter]);
 
   const loadEvents = async () => {
     try {
@@ -93,8 +146,6 @@ const ListOfEvents: React.FC = () => {
     );
   }
 
-  const selectedEvent = events.find(e => e.id === selectedEventId);
-
   const handleEdit = (eventId: string) => {
     setEditingEventId(eventId);
   };
@@ -123,6 +174,19 @@ const ListOfEvents: React.FC = () => {
   const handlePublishStatusChange = (eventId: string, newStatus: PublishStatus) => {
     setEvents(events.map(e => e.id === eventId ? { ...e, publishStatus: newStatus } : e));
     loadEvents(); // Reload to ensure consistency
+  };
+
+  const toggleColumnVisibility = (columnId: string) => {
+    const newColumns = columns.map(col =>
+      col.id === columnId ? { ...col, visible: !col.visible } : col
+    );
+    setColumns(newColumns);
+    localStorage.setItem('eventListColumns', JSON.stringify(newColumns));
+  };
+
+  const resetColumns = () => {
+    setColumns(defaultColumns);
+    localStorage.setItem('eventListColumns', JSON.stringify(defaultColumns));
   };
 
   // If editing, show the edit form
@@ -166,27 +230,130 @@ const ListOfEvents: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {events.map(event => (
-        <div key={event.id} className="space-y-4">
-          <EventCard
-            event={event}
-            onDelete={handleDelete}
-            onEdit={handleEdit}
-            onPreview={handlePreview}
-            onPublish={handlePublish}
-            isDeleting={deletingId === event.id}
-            isSelected={selectedEventId === event.id}
-            onSelect={() => setSelectedEventId(selectedEventId === event.id ? null : event.id)}
-          />
-          {event.certificateTemplateIds.length > 0 && (
-            <QuickAccessCards event={event} />
-          )}
-        </div>
-      ))}
+      {/* View Toggle Buttons and Column Filter */}
+      <div className="flex items-center justify-end gap-2">
+        {viewMode === 'rows' && (
+          <div className="relative column-filter-container">
+            <button
+              onClick={() => setShowColumnFilter(!showColumnFilter)}
+              className="p-2 rounded-lg transition-colors bg-slate-100 text-slate-600 hover:bg-slate-200"
+              title="Column settings"
+            >
+              <Settings2 size={20} />
+            </button>
+            {showColumnFilter && (
+              <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 rounded-lg shadow-lg z-10 p-4 min-w-[200px]">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-slate-900">Columns</h3>
+                  <button
+                    onClick={resetColumns}
+                    className="text-xs text-indigo-600 hover:text-indigo-700"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {columns.map(column => (
+                    <label
+                      key={column.id}
+                      className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={column.visible}
+                        onChange={() => toggleColumnVisibility(column.id)}
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm text-slate-700">{column.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        <button
+          onClick={() => setViewMode('cards')}
+          className={`p-2 rounded-lg transition-colors ${
+            viewMode === 'cards'
+              ? 'bg-indigo-100 text-indigo-600'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+          title="Card view"
+        >
+          <Grid3x3 size={20} />
+        </button>
+        <button
+          onClick={() => setViewMode('rows')}
+          className={`p-2 rounded-lg transition-colors ${
+            viewMode === 'rows'
+              ? 'bg-indigo-100 text-indigo-600'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+          title="Row view"
+        >
+          <List size={20} />
+        </button>
+      </div>
 
-      {/* General Quick Access Section - appears when event is selected */}
-      {selectedEvent && (
-        <GeneralQuickAccess event={selectedEvent} />
+      {viewMode === 'cards' ? (
+        events.map(event => {
+          const isSelected = selectedEventId === event.id;
+          return (
+            <div key={event.id} className="space-y-3">
+              <EventCard
+                event={event}
+                onDelete={handleDelete}
+                onEdit={handleEdit}
+                onPreview={handlePreview}
+                onPublish={handlePublish}
+                isDeleting={deletingId === event.id}
+                isSelected={isSelected}
+                onSelect={() => setSelectedEventId(isSelected ? null : event.id)}
+              />
+              {isSelected && (
+                <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                  <GeneralQuickAccess event={event} />
+                </div>
+              )}
+            </div>
+          );
+        })
+      ) : (
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  {columns.filter(col => col.visible).map(column => (
+                    <th
+                      key={column.id}
+                      className={`px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider ${column.width || ''}`}
+                    >
+                      {column.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {events.map(event => (
+                  <EventRow
+                    key={event.id}
+                    event={event}
+                    columns={columns}
+                    onDelete={handleDelete}
+                    onEdit={handleEdit}
+                    onPreview={handlePreview}
+                    onPublish={handlePublish}
+                    isDeleting={deletingId === event.id}
+                    isSelected={selectedEventId === event.id}
+                    onSelect={() => setSelectedEventId(selectedEventId === event.id ? null : event.id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {/* Publish Handler Modal */}
@@ -382,77 +549,224 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
   );
 };
 
-interface QuickAccessCardsProps {
+interface EventRowProps {
   event: Event;
+  columns: ColumnConfig[];
+  onDelete: (eventId: string) => void;
+  onEdit: (eventId: string) => void;
+  onPreview: (eventId: string) => void;
+  onPublish: (eventId: string) => void;
+  isDeleting: boolean;
+  isSelected: boolean;
+  onSelect: () => void;
 }
 
-const QuickAccessCards: React.FC<QuickAccessCardsProps> = ({ event }) => {
-  const [certificateTitles, setCertificateTitles] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
+const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, onPreview, onPublish, isDeleting, isSelected, onSelect }) => {
+  const [registrationFormTitles, setRegistrationFormTitles] = useState<string[]>([]);
 
   useEffect(() => {
-    loadCertificateData();
+    loadRegistrationForms();
   }, [event]);
 
-  const loadCertificateData = async () => {
+  const removePrefix = (title: string, prefix: string): string => {
+    if (title.startsWith(prefix)) {
+      return title.substring(prefix.length).trim();
+    }
+    return title;
+  };
+
+  const loadRegistrationForms = async () => {
     try {
-      setLoading(true);
-      
-      // Load certificate titles
-      if (event.certificateTemplateIds.length > 0) {
-        const certPromises = event.certificateTemplateIds.map(id => getCertificateTemplate(id));
-        const certs = await Promise.all(certPromises);
-        setCertificateTitles(certs.filter(c => c !== null).map(c => c!.title));
+      if (event.registrationFormIds && event.registrationFormIds.length > 0) {
+        const formPromises = event.registrationFormIds.map(id => getRegistrationForm(id));
+        const forms = await Promise.all(formPromises);
+        const titles = forms
+          .filter(f => f !== null)
+          .map(f => removePrefix(f!.title, 'Reg'));
+        setRegistrationFormTitles(titles);
+      } else {
+        setRegistrationFormTitles([]);
       }
     } catch (err) {
-      console.error('Error loading certificate data:', err);
-    } finally {
-      setLoading(false);
+      console.error('Error loading registration forms:', err);
+    }
+  };
+
+  const formatDates = (dates?: EventDate[]): string => {
+    if (!dates || dates.length === 0) return '-';
+    const firstDate = dates[0];
+    const start = new Date(firstDate.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const end = firstDate.endDate !== firstDate.startDate
+      ? new Date(firstDate.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : null;
+    return end ? `${start} - ${end}` : start;
+  };
+
+  const renderCell = (columnId: string) => {
+    switch (columnId) {
+      case 'name':
+        return (
+          <div className="min-w-0">
+            <div className="font-semibold text-slate-900 truncate">{event.name}</div>
+            {event.description && (
+              <div className="text-xs text-slate-500 truncate mt-0.5">
+                {truncateDescription(event.description, 20)}
+              </div>
+            )}
+          </div>
+        );
+      case 'eventType':
+        return (
+          <div className="flex items-center gap-1">
+            <Tag size={14} className="text-slate-400" />
+            <span className="text-sm text-slate-700">{event.eventType || '-'}</span>
+          </div>
+        );
+      case 'eventFormat':
+        return (
+          <div className="flex items-center gap-1">
+            <Globe size={14} className="text-slate-400" />
+            <span className="text-sm text-slate-700">{event.eventFormat || '-'}</span>
+          </div>
+        );
+      case 'location':
+        return (
+          <div className="flex items-center gap-1 min-w-0">
+            <MapPin size={14} className="text-slate-400 flex-shrink-0" />
+            <span className="text-sm text-slate-700 truncate">{event.location || '-'}</span>
+          </div>
+        );
+      case 'dates':
+        return (
+          <div className="flex items-center gap-1">
+            <Calendar size={14} className="text-slate-400" />
+            <span className="text-sm text-slate-700">{formatDates(event.dates)}</span>
+          </div>
+        );
+      case 'status':
+        return event.publishStatus ? (
+          <span
+            className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${
+              event.publishStatus === 'Published'
+                ? 'bg-green-100 text-green-700'
+                : event.publishStatus === 'Closed'
+                ? 'bg-orange-100 text-orange-700'
+                : 'bg-slate-100 text-slate-700'
+            }`}
+          >
+            {event.publishStatus}
+          </span>
+        ) : (
+          <span className="text-sm text-slate-400">-</span>
+        );
+      case 'registrationForms':
+        return registrationFormTitles.length > 0 ? (
+          <div className="flex items-center gap-1">
+            <FileText size={14} className="text-slate-400" />
+            <span className="text-sm text-slate-700">
+              {registrationFormTitles.length} form{registrationFormTitles.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        ) : (
+          <span className="text-sm text-slate-400">-</span>
+        );
+      case 'created':
+        return (
+          <span className="text-sm text-slate-600">
+            {new Date(event.createdAt).toLocaleDateString()}
+          </span>
+        );
+      case 'updated':
+        return (
+          <span className="text-sm text-slate-600">
+            {new Date(event.updatedAt).toLocaleDateString()}
+          </span>
+        );
+      case 'actions':
+        return (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onPreview(event.id);
+              }}
+              className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+              title="Preview event"
+            >
+              <Eye size={14} />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onPublish(event.id);
+              }}
+              className={`p-1.5 rounded transition-colors ${
+                event.publishStatus === 'Published'
+                  ? 'text-green-600 hover:bg-green-50'
+                  : event.publishStatus === 'Closed'
+                  ? 'text-orange-600 hover:bg-orange-50'
+                  : 'text-slate-600 hover:bg-slate-50'
+              }`}
+              title={
+                event.publishStatus === 'Published'
+                  ? 'Change publication status'
+                  : event.publishStatus === 'Closed'
+                  ? 'Reopen event'
+                  : 'Publish event'
+              }
+            >
+              <Send size={14} />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit(event.id);
+              }}
+              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+              title="Edit event"
+            >
+              <Edit2 size={14} />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(event.id);
+              }}
+              disabled={isDeleting}
+              className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+              title="Delete event"
+            >
+              {isDeleting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Trash2 size={14} />
+              )}
+            </button>
+          </div>
+        );
+      default:
+        return null;
     }
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {/* Certificates Quick Access Card */}
-      {event.certificateTemplateIds.length > 0 && (
-        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="p-2 bg-amber-50 rounded-lg">
-              <Award className="w-5 h-5 text-amber-600" />
-            </div>
-            <div className="flex-1">
-              <p className="text-xs font-medium text-slate-500 mb-0.5">
-                Certificates ({event.certificateTemplateIds.length})
-              </p>
-              {loading ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
-                  <span className="text-sm text-slate-400">Loading...</span>
-                </div>
-              ) : certificateTitles.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {certificateTitles.slice(0, 2).map((title, idx) => (
-                    <span
-                      key={idx}
-                      className="px-2 py-0.5 bg-amber-50 border border-amber-200 rounded text-xs font-medium text-amber-700"
-                    >
-                      {title}
-                    </span>
-                  ))}
-                  {certificateTitles.length > 2 && (
-                    <span className="px-2 py-0.5 text-xs text-slate-500">
-                      +{certificateTitles.length - 2} more
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <span className="text-sm text-slate-400">No certificates</span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <tr
+      className={`transition-colors cursor-pointer ${
+        isSelected
+          ? 'bg-indigo-50 hover:bg-indigo-100'
+          : 'hover:bg-slate-50'
+      }`}
+      onClick={onSelect}
+    >
+      {columns.filter(col => col.visible).map(column => (
+        <td
+          key={column.id}
+          className={`px-4 py-3 text-sm ${column.width || ''}`}
+        >
+          {renderCell(column.id)}
+        </td>
+      ))}
+    </tr>
   );
 };
 
@@ -468,6 +782,8 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
   const [firstCertificateId, setFirstCertificateId] = useState<string | null>(null);
   const [registrationFormTitles, setRegistrationFormTitles] = useState<string[]>([]);
   const [submissionFormTitles, setSubmissionFormTitles] = useState<string[]>([]);
+  const [evaluationFormTitles, setEvaluationFormTitles] = useState<string[]>([]);
+  const [committeeNames, setCommitteeNames] = useState<string[]>([]);
   const [submissionsCount, setSubmissionsCount] = useState<number>(0);
   const [registrationsCount, setRegistrationsCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -538,6 +854,27 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
         setSubmissionFormTitles([]);
       }
 
+      // Load evaluation form titles
+      if (event.evaluationFormIds && event.evaluationFormIds.length > 0) {
+        const evalPromises = event.evaluationFormIds.map(id => getEvaluationForm(id));
+        const evalForms = await Promise.all(evalPromises);
+        const validEvalForms = evalForms.filter(f => f !== null);
+        const titles = validEvalForms.map(f => removePrefix(f!.title, 'Eval'));
+        setEvaluationFormTitles(titles);
+      } else {
+        setEvaluationFormTitles([]);
+      }
+
+      // Load committee names
+      if (event.committeeIds && event.committeeIds.length > 0) {
+        const committeePromises = event.committeeIds.map(id => getCommittee(id));
+        const committees = await Promise.all(committeePromises);
+        const validCommittees = committees.filter(c => c !== null);
+        setCommitteeNames(validCommittees.map(c => c!.name));
+      } else {
+        setCommitteeNames([]);
+      }
+
       // Load submissions count
       try {
         const submissions = await getEventSubmissions(event.id);
@@ -561,8 +898,17 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
   };
 
   return (
-    <div className="mt-6">
-      <h2 className="text-xl font-semibold text-slate-900 mb-4">Quick Access</h2>
+    <div className="px-4 py-4 md:px-6 md:py-5">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
+            Quick Access
+          </p>
+          <p className="text-sm text-slate-500">
+            Open the main tools linked to this event in one click.
+          </p>
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Landing Pages Card */}
         <div 
@@ -573,7 +919,7 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
               navigate(getRoutePath(ViewState.LANDING_PAGES));
             }
           }}
-          className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
+          className="bg-white/90 backdrop-blur-sm p-5 rounded-xl shadow-sm border border-slate-200 hover:border-indigo-200 hover:shadow-md transition-all cursor-pointer group hover:-translate-y-0.5"
         >
           <div className="flex items-start justify-between mb-3">
             <div className="p-3 bg-indigo-50 rounded-lg">
@@ -624,7 +970,7 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
               navigate(getRoutePath(ViewState.CERTIFICATE_TEMPLATE_LIST));
             }
           }}
-          className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
+          className="bg-white/90 backdrop-blur-sm p-5 rounded-xl shadow-sm border border-slate-200 hover:border-amber-200 hover:shadow-md transition-all cursor-pointer group hover:-translate-y-0.5"
         >
           <div className="flex items-start justify-between mb-3">
             <div className="p-3 bg-amber-50 rounded-lg">
@@ -650,7 +996,7 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
         {/* Submissions Card */}
         <div 
           onClick={() => navigate(getRoutePath(ViewState.SUBMISSIONS_DASHBOARD))}
-          className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
+          className="bg-white/90 backdrop-blur-sm p-5 rounded-xl shadow-sm border border-slate-200 hover:border-blue-200 hover:shadow-md transition-all cursor-pointer group hover:-translate-y-0.5"
         >
           <div className="flex items-start justify-between mb-3">
             <div className="p-3 bg-blue-50 rounded-lg">
@@ -701,7 +1047,7 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
         {/* Registrations Card */}
         <div 
           onClick={() => navigate(getRoutePath(ViewState.REGISTRATION_LIST))}
-          className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow cursor-pointer group"
+          className="bg-white/90 backdrop-blur-sm p-5 rounded-xl shadow-sm border border-slate-200 hover:border-green-200 hover:shadow-md transition-all cursor-pointer group hover:-translate-y-0.5"
         >
           <div className="flex items-start justify-between mb-3">
             <div className="p-3 bg-green-50 rounded-lg">
@@ -746,6 +1092,92 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
                 {registrationsCount} registration{registrationsCount !== 1 ? 's' : ''} total
               </p>
             </div>
+          )}
+        </div>
+
+        {/* Evaluation Forms Card */}
+        <div 
+          onClick={() => navigate(getRoutePath(ViewState.FORM_BUILDER))}
+          className="bg-white/90 backdrop-blur-sm p-5 rounded-xl shadow-sm border border-slate-200 hover:border-orange-200 hover:shadow-md transition-all cursor-pointer group hover:-translate-y-0.5"
+        >
+          <div className="flex items-start justify-between mb-3">
+            <div className="p-3 bg-orange-50 rounded-lg">
+              <FileText className="w-6 h-6 text-orange-600" />
+            </div>
+            <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-orange-600 transition-colors" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900 mb-2">Evaluation Forms</h3>
+          {loading ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+              <span className="text-sm text-slate-400">Loading...</span>
+            </div>
+          ) : evaluationFormTitles.length > 0 ? (
+            <div>
+              <p className="text-sm text-slate-600 mb-1">
+                {evaluationFormTitles.length} form{evaluationFormTitles.length !== 1 ? 's' : ''} selected
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {evaluationFormTitles.slice(0, 2).map((title, idx) => (
+                  <span
+                    key={idx}
+                    className="px-2 py-0.5 bg-orange-50 border border-orange-200 rounded text-xs font-medium text-orange-700"
+                  >
+                    {title}
+                  </span>
+                ))}
+                {evaluationFormTitles.length > 2 && (
+                  <span className="px-2 py-0.5 text-xs text-slate-500">
+                    +{evaluationFormTitles.length - 2} more
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No evaluation forms</p>
+          )}
+        </div>
+
+        {/* Committees Card */}
+        <div 
+          onClick={() => navigate(getRoutePath(ViewState.SUBMISSIONS_MANAGE_COMMITTEE))}
+          className="bg-white/90 backdrop-blur-sm p-5 rounded-xl shadow-sm border border-slate-200 hover:border-teal-200 hover:shadow-md transition-all cursor-pointer group hover:-translate-y-0.5"
+        >
+          <div className="flex items-start justify-between mb-3">
+            <div className="p-3 bg-teal-50 rounded-lg">
+              <Users className="w-6 h-6 text-teal-600" />
+            </div>
+            <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-teal-600 transition-colors" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900 mb-2">Committees</h3>
+          {loading ? (
+            <div className="flex items-center gap-2">
+              <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+              <span className="text-sm text-slate-400">Loading...</span>
+            </div>
+          ) : committeeNames.length > 0 ? (
+            <div>
+              <p className="text-sm text-slate-600 mb-1">
+                {committeeNames.length} committee{committeeNames.length !== 1 ? 's' : ''} linked
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {committeeNames.slice(0, 2).map((name, idx) => (
+                  <span
+                    key={idx}
+                    className="px-2 py-0.5 bg-teal-50 border border-teal-200 rounded text-xs font-medium text-teal-700"
+                  >
+                    {name}
+                  </span>
+                ))}
+                {committeeNames.length > 2 && (
+                  <span className="px-2 py-0.5 text-xs text-slate-500">
+                    +{committeeNames.length - 2} more
+                  </span>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No committees</p>
           )}
         </div>
       </div>

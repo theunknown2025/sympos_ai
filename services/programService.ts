@@ -1,9 +1,10 @@
 import { supabase, TABLES } from '../supabase';
-import type { ProgramCard, Venue, ProgramBuilderConfig } from '../components/Admin/Tools/ProgramBuilder/ProgramBuilder';
+import type { ProgramCard, Venue, ProgramBuilderConfig } from '../components/Admin/Submissions/ProgramBuilder/ProgramBuilder';
 
 export interface SavedProgram {
   id: string;
   userId: string;
+  eventId?: string;
   title: string;
   description?: string;
   config: ProgramBuilderConfig;
@@ -24,7 +25,8 @@ export const saveProgram = async (
   description: string | undefined,
   config: ProgramBuilderConfig,
   venues: Venue[],
-  cards: ProgramCard[]
+  cards: ProgramCard[],
+  eventId?: string
 ): Promise<string> => {
   try {
     if (!title || !title.trim()) {
@@ -46,6 +48,10 @@ export const saveProgram = async (
 
     if (description) {
       insertData.description = description.trim();
+    }
+
+    if (eventId) {
+      insertData.event_id = eventId;
     }
 
     const { data, error } = await supabase
@@ -74,7 +80,8 @@ export const updateProgram = async (
   description: string | undefined,
   config: ProgramBuilderConfig,
   venues: Venue[],
-  cards: ProgramCard[]
+  cards: ProgramCard[],
+  eventId?: string
 ): Promise<void> => {
   try {
     if (!title || !title.trim()) {
@@ -91,6 +98,10 @@ export const updateProgram = async (
 
     if (description !== undefined) {
       updateData.description = description ? description.trim() : null;
+    }
+
+    if (eventId !== undefined) {
+      updateData.event_id = eventId || null;
     }
 
     const { error } = await supabase
@@ -130,6 +141,7 @@ export const getUserPrograms = async (userId: string): Promise<SavedProgram[]> =
     return data.map((row: any) => ({
       id: row.id,
       userId: row.user_id,
+      eventId: row.event_id || undefined,
       title: row.title,
       description: row.description,
       config: JSON.parse(row.config),
@@ -171,6 +183,7 @@ export const getProgramById = async (programId: string): Promise<SavedProgram | 
     return {
       id: data.id,
       userId: data.user_id,
+      eventId: data.event_id || undefined,
       title: data.title,
       description: data.description,
       config: JSON.parse(data.config),

@@ -60,6 +60,9 @@ export const saveEvent = async (
     // Serialize array fields to JSON strings (new columns)
     insertData.keywords = JSON.stringify(cleanedEvent.keywords || []);
     insertData.fields = JSON.stringify(cleanedEvent.fields || []);
+    insertData.subfields = JSON.stringify(cleanedEvent.subfields || []);
+    insertData.event_type = cleanedEvent.eventType || null;
+    insertData.event_format = cleanedEvent.eventFormat || null;
     insertData.partners = JSON.stringify(cleanedEvent.partners || []);
     insertData.dates = JSON.stringify(cleanedEvent.dates || []);
     insertData.links = JSON.stringify(cleanedEvent.links || []);
@@ -71,6 +74,8 @@ export const saveEvent = async (
     insertData.committee_ids = JSON.stringify(cleanedEvent.committeeIds || []);
     insertData.banner = cleanedEvent.banner ? JSON.stringify(cleanedEvent.banner) : null;
     insertData.publish_status = cleanedEvent.publishStatus || 'Draft';
+    insertData.registration_deadline = cleanedEvent.registrationDeadline || null;
+    insertData.submission_deadline = cleanedEvent.submissionDeadline || null;
     
     // Backward compatibility: Also populate old columns with first value from arrays
     // This ensures compatibility during migration period
@@ -124,9 +129,14 @@ export const updateEvent = async (
     if (cleanedEvent.location !== undefined) updateData.location = cleanedEvent.location;
     if (cleanedEvent.keywords !== undefined) updateData.keywords = JSON.stringify(cleanedEvent.keywords);
     if (cleanedEvent.fields !== undefined) updateData.fields = JSON.stringify(cleanedEvent.fields);
+    if (cleanedEvent.subfields !== undefined) updateData.subfields = JSON.stringify(cleanedEvent.subfields);
+    if (cleanedEvent.eventType !== undefined) updateData.event_type = cleanedEvent.eventType || null;
+    if (cleanedEvent.eventFormat !== undefined) updateData.event_format = cleanedEvent.eventFormat || null;
     if (cleanedEvent.partners !== undefined) updateData.partners = JSON.stringify(cleanedEvent.partners);
     if (cleanedEvent.dates !== undefined) updateData.dates = JSON.stringify(cleanedEvent.dates);
     if (cleanedEvent.links !== undefined) updateData.links = JSON.stringify(cleanedEvent.links);
+    if (cleanedEvent.registrationDeadline !== undefined) updateData.registration_deadline = cleanedEvent.registrationDeadline || null;
+    if (cleanedEvent.submissionDeadline !== undefined) updateData.submission_deadline = cleanedEvent.submissionDeadline || null;
     if (cleanedEvent.landingPageIds !== undefined) {
       updateData.landing_page_ids = JSON.stringify(cleanedEvent.landingPageIds);
       // Backward compatibility: Also update old column with first value
@@ -240,6 +250,9 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
       description: data.description,
       keywords: deserializeArray(data.keywords) as string[],
       fields: deserializeArray(data.fields) as string[],
+      subfields: deserializeArray(data.subfields) as string[],
+      eventType: data.event_type as 'Conference' | 'Seminar' | 'Workshop' | 'Webinar' | 'Continuing professional development event' | 'Online conference' | undefined,
+      eventFormat: data.event_format as 'Virtual' | 'In-Person' | 'Hybrid' | undefined,
       partners: deserializeArray(data.partners) as EventPartner[],
       dates: deserializeArray(data.dates) as EventDate[],
       location: data.location || undefined,
@@ -252,6 +265,8 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
       committeeIds: deserializeArray(data.committee_ids),
       banner: data.banner ? (typeof data.banner === 'string' ? JSON.parse(data.banner) : data.banner) : undefined,
       publishStatus: (data.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
+      registrationDeadline: data.registration_deadline || undefined,
+      submissionDeadline: data.submission_deadline || undefined,
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
     };
@@ -318,6 +333,9 @@ export const getUserEvents = async (userId: string): Promise<Event[]> => {
       description: doc.description,
       keywords: deserializeArray(doc.keywords) as string[],
       fields: deserializeArray(doc.fields) as string[],
+      subfields: deserializeArray(doc.subfields) as string[],
+      eventType: doc.event_type as 'Conference' | 'Seminar' | 'Workshop' | 'Webinar' | 'Continuing professional development event' | 'Online conference' | undefined,
+      eventFormat: doc.event_format as 'Virtual' | 'In-Person' | 'Hybrid' | undefined,
       partners: deserializeArray(doc.partners) as EventPartner[],
       dates: deserializeArray(doc.dates) as EventDate[],
       location: doc.location || undefined,
@@ -330,11 +348,84 @@ export const getUserEvents = async (userId: string): Promise<Event[]> => {
       committeeIds: deserializeArray(doc.committee_ids),
       banner: doc.banner ? (typeof doc.banner === 'string' ? JSON.parse(doc.banner) : doc.banner) : undefined,
       publishStatus: (doc.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
+      registrationDeadline: doc.registration_deadline || undefined,
+      submissionDeadline: doc.submission_deadline || undefined,
       createdAt: new Date(doc.created_at),
       updatedAt: new Date(doc.updated_at),
     }));
   } catch (error: any) {
     console.error('Error getting user events:', error);
+    throw new Error(error.message || 'Failed to load events');
+  }
+};
+
+/**
+ * Lightweight events for dashboard: no banner, partners, dates, or large JSON blobs.
+ */
+export const getUserEventsForDashboard = async (userId: string): Promise<Event[]> => {
+  try {
+    if (!userId) {
+      throw new Error('User ID is required');
+    }
+
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select(
+        'id, user_id, name, publish_status, registration_deadline, event_type, event_format, committee_ids, created_at, updated_at'
+      )
+      .eq('user_id', userId)
+      .order('updated_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return [];
+    }
+
+    const deserializeArray = (value: any): any[] => {
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      }
+      return [];
+    };
+
+    return data.map((doc) => ({
+      id: doc.id,
+      userId: doc.user_id,
+      name: doc.name,
+      description: undefined,
+      keywords: [],
+      fields: [],
+      subfields: [],
+      eventType: doc.event_type as Event['eventType'],
+      eventFormat: doc.event_format as Event['eventFormat'],
+      partners: [],
+      dates: [],
+      location: undefined,
+      links: [],
+      landingPageIds: [],
+      registrationFormIds: [],
+      submissionFormIds: [],
+      evaluationFormIds: [],
+      certificateTemplateIds: [],
+      committeeIds: deserializeArray(doc.committee_ids),
+      banner: undefined,
+      publishStatus: (doc.publish_status as Event['publishStatus']) || 'Draft',
+      registrationDeadline: doc.registration_deadline || undefined,
+      submissionDeadline: undefined,
+      createdAt: new Date(doc.created_at),
+      updatedAt: new Date(doc.updated_at),
+    }));
+  } catch (error: any) {
+    console.error('Error getting dashboard events:', error);
     throw new Error(error.message || 'Failed to load events');
   }
 };

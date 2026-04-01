@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader2, Edit2 } from 'lucide-react';
+import { X, Loader2, Edit2, CheckCircle2, XCircle, Clock, Users, AlertCircle } from 'lucide-react';
 import { RegistrationForm, FormField, FormSubmission } from '../../../types';
 import { getRegistrationForm } from '../../../services/registrationFormService';
+import { supabase, TABLES } from '../../../supabase';
+import { getCommitteeMembersByIds } from '../../../services/committeeMemberService';
 
 interface PreviewSubmissionProps {
   submission: FormSubmission;
@@ -13,10 +15,14 @@ const PreviewSubmission: React.FC<PreviewSubmissionProps> = ({ submission, onClo
   const [form, setForm] = useState<RegistrationForm | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [reviewers, setReviewers] = useState<Array<{ firstName: string; lastName: string; email: string }>>([]);
+  const [loadingReviewers, setLoadingReviewers] = useState(false);
+  const [isDispatched, setIsDispatched] = useState(false);
 
   useEffect(() => {
     loadForm();
-  }, [submission.formId]);
+    loadReviewers();
+  }, [submission.id, submission.formId]);
 
   const loadForm = async () => {
     try {
@@ -32,6 +38,68 @@ const PreviewSubmission: React.FC<PreviewSubmissionProps> = ({ submission, onClo
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadReviewers = async () => {
+    try {
+      setLoadingReviewers(true);
+      
+      // Get dispatch records for this submission
+      const { data: dispatchRecords, error: dispatchError } = await supabase
+        .from(TABLES.DISPATCH_SUBMISSIONS)
+        .select('*')
+        .eq('event_id', submission.eventId)
+        .eq('form_id', submission.formId);
+      
+      if (dispatchError) {
+        console.error('Error loading dispatch records:', dispatchError);
+        return;
+      }
+      
+      if (!dispatchRecords || dispatchRecords.length === 0) {
+        setReviewers([]);
+        setIsDispatched(false);
+        return;
+      }
+      
+      // Find the dispatch record that contains this submission
+      let reviewerIds: string[] = [];
+      for (const dispatchRecord of dispatchRecords) {
+        const dispatching = typeof dispatchRecord.dispatching === 'string'
+          ? JSON.parse(dispatchRecord.dispatching)
+          : (dispatchRecord.dispatching || {});
+        
+        if (dispatching[submission.id] && Array.isArray(dispatching[submission.id])) {
+          reviewerIds = dispatching[submission.id];
+          break;
+        }
+      }
+      
+      if (reviewerIds.length === 0) {
+        setReviewers([]);
+        setIsDispatched(false);
+        return;
+      }
+      
+      // Submission is dispatched if reviewers are assigned
+      setIsDispatched(true);
+      
+      // Get committee member details
+      const committeeMembers = await getCommitteeMembersByIds(reviewerIds);
+      const reviewerNames = committeeMembers.map(member => ({
+        firstName: member.firstName,
+        lastName: member.lastName,
+        email: member.email,
+      }));
+      
+      setReviewers(reviewerNames);
+    } catch (err: any) {
+      console.error('Error loading reviewers:', err);
+      setReviewers([]);
+      setIsDispatched(false);
+    } finally {
+      setLoadingReviewers(false);
     }
   };
 
@@ -120,13 +188,15 @@ const PreviewSubmission: React.FC<PreviewSubmissionProps> = ({ submission, onClo
             <p className="text-sm text-slate-500 mt-1">{submission.eventTitle}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={onEdit}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm"
-            >
-              <Edit2 size={16} />
-              Edit
-            </button>
+            {!submission.decisionStatus && (
+              <button
+                onClick={onEdit}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center gap-2 text-sm"
+              >
+                <Edit2 size={16} />
+                Edit
+              </button>
+            )}
             <button
               onClick={onClose}
               className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
@@ -143,8 +213,10 @@ const PreviewSubmission: React.FC<PreviewSubmissionProps> = ({ submission, onClo
           </div>
         )}
 
-        {/* Content */}
-        <div className="p-6 space-y-6">
+        {/* Content - Two Column Layout */}
+        <div className="p-6 flex gap-6">
+          {/* Left Section: Submission Information */}
+          <div className="flex-1 space-y-6">
           {/* General Info */}
           {(form.generalInfo.collectName || form.generalInfo.collectEmail || form.generalInfo.collectPhone || 
             form.generalInfo.collectOrganization || form.generalInfo.collectAddress) && (
@@ -249,21 +321,150 @@ const PreviewSubmission: React.FC<PreviewSubmissionProps> = ({ submission, onClo
             </div>
           ))}
 
-          {/* Submission Info */}
-          <div className="pt-4 border-t border-slate-200">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <label className="block text-sm font-medium text-slate-500 mb-1">Submitted On</label>
-                <p className="text-slate-900">
-                  {new Date(submission.submittedAt).toLocaleString()}
-                </p>
-              </div>
-              {submission.decisionStatus && (
+            {/* Submission Info */}
+            <div className="pt-4 border-t border-slate-200">
+              <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <label className="block text-sm font-medium text-slate-500 mb-1">Status</label>
-                  <p className="text-slate-900 capitalize">{submission.decisionStatus}</p>
+                  <label className="block text-sm font-medium text-slate-500 mb-1">Submitted On</label>
+                  <p className="text-slate-900">
+                    {new Date(submission.submittedAt).toLocaleString()}
+                  </p>
                 </div>
-              )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Section: Status Steps */}
+          <div className="w-80 flex-shrink-0">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-6">
+              <h3 className="text-lg font-semibold text-slate-900 mb-4">Review Status</h3>
+              
+              {/* Acceptance Step */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 mb-2">
+                  <h4 className="text-sm font-semibold text-slate-900">Acceptance Step</h4>
+                  {submission.decisionStatus ? (
+                    submission.decisionStatus === 'accepted' ? (
+                      <CheckCircle2 size={16} className="text-emerald-600" />
+                    ) : submission.decisionStatus === 'reserved' ? (
+                      <Clock size={16} className="text-amber-600" />
+                    ) : (
+                      <XCircle size={16} className="text-red-600" />
+                    )
+                  ) : (
+                    <AlertCircle size={16} className="text-slate-400" />
+                  )}
+                </div>
+                <div className="pl-4 space-y-1">
+                  <p className="text-sm text-slate-600">
+                    <span className="font-medium">Status: </span>
+                    {submission.decisionStatus ? (
+                      <span className={`capitalize ${
+                        submission.decisionStatus === 'accepted' ? 'text-emerald-700' :
+                        submission.decisionStatus === 'reserved' ? 'text-amber-700' :
+                        'text-red-700'
+                      }`}>
+                        {submission.decisionStatus === 'accepted' ? 'Accepted' :
+                         submission.decisionStatus === 'reserved' ? 'Accepted under Reserve' :
+                         'Not Accepted'}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">Pending</span>
+                    )}
+                  </p>
+                  {submission.decisionComment && (
+                    <div className="mt-2">
+                      <p className="text-xs font-medium text-slate-500 mb-1">Comment:</p>
+                      <p className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-200">
+                        {submission.decisionComment}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Dispatching Step */}
+              <div className="space-y-2 border-t border-slate-200 pt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <h4 className="text-sm font-semibold text-slate-900">Dispatching Step</h4>
+                  {isDispatched || submission.dispatchingStatus ? (
+                    <Users size={16} className="text-blue-600" />
+                  ) : (
+                    <AlertCircle size={16} className="text-slate-400" />
+                  )}
+                </div>
+                <div className="pl-4 space-y-1">
+                  <p className="text-sm text-slate-600">
+                    <span className="font-medium">Status: </span>
+                    {isDispatched || submission.dispatchingStatus ? (
+                      <span className="text-blue-700 capitalize">
+                        {submission.dispatchingStatus ? submission.dispatchingStatus.replace('_', ' ') : 'Dispatched'}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">Not Dispatched</span>
+                    )}
+                  </p>
+                  {loadingReviewers ? (
+                    <div className="mt-2 flex items-center gap-2">
+                      <Loader2 size={14} className="animate-spin text-slate-400" />
+                      <span className="text-xs text-slate-500">Loading reviewers...</span>
+                    </div>
+                  ) : reviewers.length > 0 ? (
+                    <div className="mt-2">
+                      <p className="text-xs font-medium text-slate-500 mb-1">Reviewers:</p>
+                      <div className="space-y-1">
+                        {reviewers.map((reviewer, index) => (
+                          <p key={index} className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-200">
+                            {reviewer.firstName} {reviewer.lastName}
+                            {reviewer.email && (
+                              <span className="text-xs text-slate-500 block mt-0.5">{reviewer.email}</span>
+                            )}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (isDispatched || submission.dispatchingStatus) ? (
+                    <p className="text-xs text-slate-400 italic mt-2">No reviewers assigned</p>
+                  ) : null}
+                </div>
+              </div>
+
+              {/* Approval Step */}
+              <div className="space-y-2 border-t border-slate-200 pt-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <h4 className="text-sm font-semibold text-slate-900">Approval Step</h4>
+                  {submission.approvalStatus ? (
+                    submission.approvalStatus === 'accepted' ? (
+                      <CheckCircle2 size={16} className="text-emerald-600" />
+                    ) : submission.approvalStatus === 'reserved' ? (
+                      <Clock size={16} className="text-amber-600" />
+                    ) : (
+                      <XCircle size={16} className="text-red-600" />
+                    )
+                  ) : (
+                    <AlertCircle size={16} className="text-slate-400" />
+                  )}
+                </div>
+                <div className="pl-4 space-y-1">
+                  <p className="text-sm text-slate-600">
+                    <span className="font-medium">Status: </span>
+                    {submission.approvalStatus ? (
+                      <span className={`capitalize ${
+                        submission.approvalStatus === 'accepted' ? 'text-emerald-700' :
+                        submission.approvalStatus === 'reserved' ? 'text-amber-700' :
+                        'text-red-700'
+                      }`}>
+                        {submission.approvalStatus === 'accepted' ? 'Approved' :
+                         submission.approvalStatus === 'reserved' ? 'Approved with Reserve' :
+                         'Rejected'}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">Pending</span>
+                    )}
+                  </p>
+                  {/* Note: Approval comment might not be in the current schema, but we can add it if needed */}
+                </div>
+              </div>
             </div>
           </div>
         </div>

@@ -26,6 +26,12 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
   const [keywordInput, setKeywordInput] = useState('');
   const [fields, setFields] = useState<string[]>([]);
   const [fieldInput, setFieldInput] = useState('');
+  const [subfields, setSubfields] = useState<string[]>([]);
+  const [subfieldInput, setSubfieldInput] = useState('');
+  const [eventType, setEventType] = useState<string>('');
+  const [eventFormat, setEventFormat] = useState<string>('');
+  const [registrationDeadline, setRegistrationDeadline] = useState<string>('');
+  const [submissionDeadline, setSubmissionDeadline] = useState<string>('');
   const [partners, setPartners] = useState<EventPartner[]>([]);
   const [dates, setDates] = useState<EventDate[]>([]);
   const [location, setLocation] = useState('');
@@ -90,6 +96,12 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
       setDescription(eventData.description || '');
       setKeywords(eventData.keywords || []);
       setFields(eventData.fields || []);
+      setSubfields(eventData.subfields || []);
+      setEventType(eventData.eventType || '');
+      setEventFormat(eventData.eventFormat || '');
+      // Format dates for date input (YYYY-MM-DD format)
+      setRegistrationDeadline(eventData.registrationDeadline ? eventData.registrationDeadline.split('T')[0] : '');
+      setSubmissionDeadline(eventData.submissionDeadline ? eventData.submissionDeadline.split('T')[0] : '');
       setPartners(eventData.partners || []);
       setDates(eventData.dates || []);
       setLocation(eventData.location || '');
@@ -236,6 +248,41 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
 
   const handleRemoveField = (field: string) => {
     setFields(fields.filter(f => f !== field));
+  };
+
+  const handleSubfieldInputChange = (value: string) => {
+    setSubfieldInput(value);
+    
+    // Check if comma was just typed
+    if (value.endsWith(',')) {
+      const subfieldToAdd = value.slice(0, -1).trim();
+      if (subfieldToAdd && !subfields.includes(subfieldToAdd)) {
+        setSubfields([...subfields, subfieldToAdd]);
+        setSubfieldInput('');
+      } else if (subfieldToAdd === '') {
+        setSubfieldInput('');
+      }
+    }
+  };
+
+  const handleAddSubfield = () => {
+    const input = subfieldInput.trim();
+    if (!input) return;
+
+    // Split by comma and process each subfield
+    const newSubfields = input
+      .split(',')
+      .map(f => f.trim())
+      .filter(f => f.length > 0 && !subfields.includes(f));
+
+    if (newSubfields.length > 0) {
+      setSubfields([...subfields, ...newSubfields]);
+      setSubfieldInput('');
+    }
+  };
+
+  const handleRemoveSubfield = (subfield: string) => {
+    setSubfields(subfields.filter(f => f !== subfield));
   };
 
   const handleAddPartner = (partner: { name: string; entityId?: string }) => {
@@ -407,6 +454,9 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
         description: description.trim() || undefined,
         keywords: keywords.length > 0 ? keywords : undefined,
         fields: fields.length > 0 ? fields : undefined,
+        subfields: subfields.length > 0 ? subfields : undefined,
+        eventType: eventType || undefined,
+        eventFormat: eventFormat || undefined,
         partners: partners.length > 0 ? partners : undefined,
         dates: dates.length > 0 ? dates.filter(d => d.startDate && d.endDate) : undefined,
         location: location.trim() || undefined,
@@ -418,6 +468,8 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
         certificateTemplateIds: selectedCertificateIds,
         committeeIds: selectedCommitteeIds,
         banner: banner,
+        registrationDeadline: registrationDeadline || undefined,
+        submissionDeadline: submissionDeadline || undefined,
       };
 
       await updateEvent(eventId, eventData);
@@ -834,44 +886,126 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
               />
             </div>
 
-            {/* Fields */}
+            {/* Fields and Subfields in same line */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Fields */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <Tag className="text-slate-500" size={16} />
+                  Fields
+                </label>
+                {fields.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {fields.map(field => (
+                      <span
+                        key={field}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-purple-50 text-purple-700 rounded-lg text-sm"
+                      >
+                        {field}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveField(field)}
+                          className="text-purple-600 hover:text-purple-800"
+                        >
+                          <X size={14} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  type="text"
+                  value={fieldInput}
+                  onChange={(e) => handleFieldInputChange(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddField();
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Add fields (type comma to add)"
+                />
+              </div>
+
+              {/* Subfields */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <Tag className="text-slate-500" size={16} />
+                  Subfields
+                </label>
+                {subfields.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {subfields.map(subfield => (
+                      <span
+                        key={subfield}
+                        className="inline-flex items-center gap-1 px-3 py-1 bg-violet-50 text-violet-700 rounded-lg text-sm"
+                      >
+                        {subfield}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSubfield(subfield)}
+                          className="text-violet-600 hover:text-violet-800"
+                        >
+                          <X size={14} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  type="text"
+                  value={subfieldInput}
+                  onChange={(e) => handleSubfieldInputChange(e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddSubfield();
+                    }
+                  }}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="Add subfields (type comma to add)"
+                />
+              </div>
+            </div>
+
+            {/* Event Type */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Tag className="text-slate-500" size={16} />
-                Fields
+                Event Type
               </label>
-              {fields.length > 0 && (
-                <div className="mb-3 flex flex-wrap gap-2">
-                  {fields.map(field => (
-                    <span
-                      key={field}
-                      className="inline-flex items-center gap-1 px-3 py-1 bg-purple-50 text-purple-700 rounded-lg text-sm"
-                    >
-                      {field}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveField(field)}
-                        className="text-purple-600 hover:text-purple-800"
-                      >
-                        <X size={14} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <input
-                type="text"
-                value={fieldInput}
-                onChange={(e) => handleFieldInputChange(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddField();
-                  }
-                }}
+              <select
+                value={eventType}
+                onChange={(e) => setEventType(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Add fields (type comma to add)"
-              />
+              >
+                <option value="">Select event type</option>
+                <option value="Conference">Conference</option>
+                <option value="Seminar">Seminar</option>
+                <option value="Workshop">Workshop</option>
+                <option value="Webinar">Webinar</option>
+                <option value="Continuing professional development event">Continuing professional development event</option>
+                <option value="Online conference">Online conference</option>
+              </select>
+            </div>
+
+            {/* Event Format */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                <Globe className="text-slate-500" size={16} />
+                Event Format
+              </label>
+              <select
+                value={eventFormat}
+                onChange={(e) => setEventFormat(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="">Select event format</option>
+                <option value="Virtual">Virtual</option>
+                <option value="In-Person">In-Person</option>
+                <option value="Hybrid">Hybrid</option>
+              </select>
             </div>
 
             {/* Partners */}
@@ -1542,6 +1676,38 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 </div>
               </div>
 
+              {/* Registration Deadline */}
+              {selectedRegistrationFormIds.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                    <Calendar className="text-slate-500" size={16} />
+                    Registration Deadline
+                  </label>
+                  <input
+                    type="date"
+                    value={registrationDeadline}
+                    onChange={(e) => setRegistrationDeadline(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+              )}
+
+              {/* Submission Deadline */}
+              {selectedSubmissionFormIds.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                    <Calendar className="text-slate-500" size={16} />
+                    Submission Deadline
+                  </label>
+                  <input
+                    type="date"
+                    value={submissionDeadline}
+                    onChange={(e) => setSubmissionDeadline(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+                </div>
+              )}
+
               {/* Evaluation Form Selection */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
@@ -1661,18 +1827,18 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
         )}
 
         {/* Action Buttons */}
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
+        <div className="flex items-center justify-center gap-3 pt-4 border-t border-slate-200">
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+            className="w-40 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handlePreview}
-            className="px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-2"
+            className="w-40 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
           >
             <Eye size={16} />
             Preview
@@ -1680,7 +1846,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
           <button
             type="submit"
             disabled={isSaving}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            className="w-40 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           >
             {isSaving ? (
               <>

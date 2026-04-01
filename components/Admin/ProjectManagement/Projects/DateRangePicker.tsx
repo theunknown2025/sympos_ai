@@ -6,6 +6,7 @@ interface DateRangePickerProps {
   endDate?: string;
   onChange: (startDate: string, endDate: string) => void;
   className?: string;
+  allowPastDates?: boolean; // Allow selecting past dates
 }
 
 const DateRangePicker: React.FC<DateRangePickerProps> = ({
@@ -13,6 +14,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   endDate,
   onChange,
   className = '',
+  allowPastDates = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -330,12 +332,14 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                       ? 'bg-indigo-100 text-indigo-700'
                       : isToday
                       ? 'bg-slate-100 text-slate-900 font-medium'
+                      : allowPastDates
+                      ? 'text-slate-700 hover:bg-slate-100'
                       : isPast
                       ? 'text-slate-300 cursor-not-allowed'
                       : 'text-slate-700 hover:bg-slate-100'
                     }
                   `}
-                  disabled={isPast && !isStart && !isEnd}
+                  disabled={!allowPastDates && isPast && !isStart && !isEnd}
                 >
                   {day}
                 </button>

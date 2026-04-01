@@ -144,6 +144,137 @@ export const getEventSubmissions = async (
 };
 
 /**
+ * Get form titles for multiple form IDs in one query (batch fetch)
+ */
+export const getFormTitlesByIds = async (formIds: string[]): Promise<Record<string, string>> => {
+  if (formIds.length === 0) return {};
+  const uniqueIds = [...new Set(formIds)];
+  
+  const { data, error } = await supabase
+    .from(TABLES.REGISTRATION_FORMS)
+    .select('id, title')
+    .in('id', uniqueIds);
+  
+  if (error) {
+    console.error('Error fetching form titles:', error);
+    return {};
+  }
+  
+  const map: Record<string, string> = {};
+  (data || []).forEach(row => { map[row.id] = row.title || ''; });
+  return map;
+};
+
+const mapSubmissionRowToFormSubmission = (doc: {
+  id: string;
+  form_id: string;
+  event_id: string;
+  event_title: string;
+  user_id: string;
+  submitted_by: string | null;
+  created_at: string;
+  decision_status: string | null;
+  accepted_event_id: string | null;
+}): FormSubmission => ({
+  id: doc.id,
+  formId: doc.form_id,
+  eventId: doc.event_id,
+  eventTitle: doc.event_title,
+  userId: doc.user_id,
+  participantUserId: undefined,
+  submittedBy: doc.submitted_by ?? undefined,
+  subscriptionType: 'self' as const,
+  entityName: undefined,
+  role: 'Participant' as const,
+  generalInfo: {},
+  answers: {},
+  submittedAt: new Date(doc.created_at),
+  decisionStatus: doc.decision_status || undefined,
+  decisionComment: undefined,
+  decisionDate: undefined,
+  decidedBy: undefined,
+  acceptedEventId: doc.accepted_event_id || undefined,
+  dispatchingStatus: undefined,
+  approvalStatus: undefined,
+});
+
+/**
+ * Get all submissions for multiple events in one query (batch fetch).
+ * Returns form titles when available (FK embed) so callers can avoid a separate forms query.
+ */
+export const getSubmissionsForEvents = async (
+  eventIds: string[]
+): Promise<{ submissions: FormSubmission[]; formTitlesByFormId: Record<string, string> }> => {
+  if (eventIds.length === 0) {
+    return { submissions: [], formTitlesByFormId: {} };
+  }
+
+  const idsList = eventIds.join(',');
+
+  try {
+    const { data: embedData, error: embedError } = await supabase
+      .from(TABLE_NAME)
+      .select(
+        `
+        id,
+        form_id,
+        event_id,
+        event_title,
+        user_id,
+        submitted_by,
+        created_at,
+        decision_status,
+        accepted_event_id,
+        registration_forms ( title )
+      `
+      )
+      .or(`event_id.in.(${idsList}),accepted_event_id.in.(${idsList})`)
+      .order('created_at', { ascending: false });
+
+    if (!embedError && embedData) {
+      const formTitlesByFormId: Record<string, string> = {};
+      for (const row of embedData as any[]) {
+        const t = row.registration_forms;
+        let title = '';
+        if (t && typeof t === 'object') {
+          title = Array.isArray(t) ? (t[0]?.title ?? '') : (t.title ?? '');
+        }
+        formTitlesByFormId[row.form_id] = title;
+      }
+      const submissions = embedData.map((doc: any) => mapSubmissionRowToFormSubmission(doc));
+      submissions.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+      return { submissions, formTitlesByFormId };
+    }
+
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select(
+        'id, form_id, event_id, event_title, user_id, submitted_by, created_at, decision_status, accepted_event_id'
+      )
+      .or(`event_id.in.(${idsList}),accepted_event_id.in.(${idsList})`)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+    if (!data) {
+      return { submissions: [], formTitlesByFormId: {} };
+    }
+
+    const submissions = data.map((doc) => mapSubmissionRowToFormSubmission(doc));
+    submissions.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+
+    const formIds = [...new Set(data.map((s) => s.form_id))];
+    formTitlesByFormId = await getFormTitlesByIds(formIds);
+
+    return { submissions, formTitlesByFormId };
+  } catch (error) {
+    console.error('Error getting submissions for events:', error);
+    throw error;
+  }
+};
+
+/**
  * Get all submissions for a user (all events they manage)
  * This gets submissions where user_id = form creator (organizer)
  */

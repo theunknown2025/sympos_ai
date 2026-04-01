@@ -43,6 +43,39 @@ export const TABLES = {
   BLOG_ARTICLES: 'blog_articles',
   PARTICIPANTS_BADGE: 'participants_badge',
   REGISTRATION_CHECKIN: 'registration_checkin',
+  PRESENTER_EVENTS: 'presenter_events',
+  PRESENTER_PANELS: 'presenter_panels',
+  PRESENTER_SPEAKERS: 'presenter_speakers',
+  PARTICIPANT_SAVED_EVENTS: 'participant_saved_events',
+  PARTICIPANT_SHARED_EVENTS: 'participant_shared_events',
+  CVS: 'cvs',
+  PROFESSOR_PROFILES: 'professor_profiles',
+  PAYMENT_METHODS: 'payment_methods',
+  PAYMENT_METHOD_FIELDS: 'payment_method_fields',
+  PAYMENTS: 'payments',
+  PAYMENT_METHOD_SELECTIONS: 'payment_method_selections',
+  PAYMENT_COMPONENTS: 'payment_components',
+  PAYMENT_TRANSACTIONS: 'payment_transactions',
+  PAYMENT_METHOD_FILES: 'payment_method_files',
+  MESSAGE_GROUPS: 'message_groups',
+  MESSAGE_GROUP_MEMBERS: 'message_group_members',
+  MESSAGES: 'messages',
+  MESSAGE_ATTACHMENTS: 'message_attachments',
+  MESSAGE_READ_STATUS: 'message_read_status',
+  ACADEMY_COURSES: 'academy_courses',
+  ACADEMY_MODULES: 'academy_modules',
+  ACADEMY_SECTIONS: 'academy_sections',
+  ACADEMY_LESSONS: 'academy_lessons',
+  ACADEMY_LESSON_CONTENT_BLOCKS: 'academy_lesson_content_blocks',
+  ACADEMY_SECTION_CONTENT_BLOCKS: 'academy_section_content_blocks',
+  ACADEMY_MODULE_CONTENT_BLOCKS: 'academy_module_content_blocks',
+  ACADEMY_ENROLLMENTS: 'academy_enrollments',
+  ACADEMY_LESSON_PROGRESS: 'academy_lesson_progress',
+  ACADEMY_QUIZZES: 'academy_quizzes',
+  ACADEMY_QUIZ_QUESTIONS: 'academy_quiz_questions',
+  ACADEMY_QUIZ_OPTIONS: 'academy_quiz_options',
+  ACADEMY_QUIZ_ATTEMPTS: 'academy_quiz_attempts',
+  ACADEMY_CERTIFICATES: 'academy_certificates',
 } as const;
 
 // Storage bucket names
@@ -59,5 +92,9 @@ export const STORAGE_BUCKETS = {
   EMAIL_ATTACHMENTS: 'email-attachments', // Bucket for email attachment files
   ORGANIZER_PROFILES: 'organizer-profiles', // Bucket for organizer profile images (logos and banners)
   PARTICIPANT_PROFILES: 'participant-profiles', // Bucket for participant profile images
+  CV_IMAGES: 'cv-images', // Bucket for CV profile images
+  PAYMENT_METHOD_FILES: 'payment-method-files', // Bucket for payment method documents
+  MESSAGE_ATTACHMENTS: 'message-attachments', // Bucket for message attachments
+  ACADEMY_COURSE_BANNERS: 'academy-course-banners', // Bucket for academy course banners
 } as const;
 

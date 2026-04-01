@@ -27,6 +27,12 @@ export const uploadImageToStorage = async (
       bucketId = STORAGE_BUCKETS.PARTICIPANT_PROFILES;
     } else if (folder === 'participant-badges' || folder === 'Participant_Badge') {
       bucketId = STORAGE_BUCKETS.PARTICIPANT_BADGE;
+    } else if (folder === 'cv-images') {
+      bucketId = STORAGE_BUCKETS.CV_IMAGES;
+    } else if (folder === 'academy-course-banners') {
+      bucketId = STORAGE_BUCKETS.ACADEMY_COURSE_BANNERS;
+    } else if (folder === 'profile-images') {
+      bucketId = STORAGE_BUCKETS.PARTICIPANT_PROFILES;
     } else {
       bucketId = STORAGE_BUCKETS.GENERAL;
     }
@@ -154,6 +160,8 @@ export const uploadFileToStorage = async (
       ? STORAGE_BUCKETS.BADGES
       : folder === 'email-attachments'
       ? STORAGE_BUCKETS.EMAIL_ATTACHMENTS
+      : folder === 'payment-method-files'
+      ? STORAGE_BUCKETS.PAYMENT_METHOD_FILES
       : STORAGE_BUCKETS.GENERAL;
     
     // Debug: Log the bucket being used

@@ -9,14 +9,17 @@ interface PreviewArticleProps {
 
 const PreviewArticle: React.FC<PreviewArticleProps> = ({ article, onClose }) => {
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | undefined) => {
+    if (!date) return 'N/A';
+    const dateObj = date instanceof Date ? date : new Date(date);
+    if (isNaN(dateObj.getTime())) return 'Invalid Date';
     return new Intl.DateTimeFormat('en-US', {
       year: 'numeric',
       month: 'long',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    }).format(date);
+    }).format(dateObj);
   };
 
   const getStatusColor = (status: string) => {

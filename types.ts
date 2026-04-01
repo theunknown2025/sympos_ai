@@ -281,16 +281,34 @@ export enum ViewState {
   EVENT_PREVIEW = 'eventPreview',
   ORGANIZER_PROFILE = 'organizerProfile',
   ACADEMY_LMS = 'academyLms',
+  ACADEMY_COURSE_MANAGER = 'academyCourseManager',
+  ACADEMY_ENROLLMENT_MANAGER = 'academyEnrollmentManager',
+  ACADEMY_PAYMENT_MANAGER = 'academyPaymentManager',
   FILES_MANAGER = 'filesManager',
   EMAILER = 'emailer',
   BLOGS = 'blogs',
+  PRESENTER = 'presenter',
   SETTINGS = 'settings',
   PROJECT_MANAGEMENT = 'projectManagement',
   PERSONNEL_MANAGEMENT = 'personnelManagement',
   PROJECTS = 'projects',
   FOLLOW_UP = 'followUp',
   PARTICIPANT_TOOLS = 'participantTools',
-  LATEX_EDITOR = 'latexEditor'
+  LATEX_EDITOR = 'latexEditor',
+  CV_BUILDER = 'cvBuilder',
+  PROFILE_BUILDER = 'profileBuilder',
+  PARTICIPANT_BLOG = 'participantBlog',
+  PARTICIPANT_ACADEMY = 'participantAcademy',
+  PARTICIPANT_ACADEMY_COURSES = 'participantAcademyCourses',
+  ENTITY_PROFILE = 'entityProfile',
+  PAIEMENT_MANAGEMENT = 'paiementManagement',
+  PAIEMENT_INFORMATION = 'paiementInformation',
+  NEW_PAIEMENT = 'newPaiement',
+  LISTE_OFFERS = 'listeOffers',
+  PAIEMENT_FOLLOW_UP = 'paiementFollowUp',
+  PAIEMENT_GENERATOR = 'paiementGenerator',
+  MESSAGING = 'messaging',
+  PARTICIPANT_MESSAGING = 'participantMessaging'
 }
 
 export type FormFieldType = 
@@ -304,7 +322,8 @@ export type FormFieldType =
   | 'radio' 
   | 'date' 
   | 'file' 
-  | 'url';
+  | 'url'
+  | 'paiement';
 
 export interface FormField {
   id: string;
@@ -328,6 +347,7 @@ export interface FormField {
   order: number;
   sectionId?: string; // Reference to parent section
   subsectionId?: string; // Reference to parent subsection
+  selectedOfferId?: string; // For paiement field type - stores the selected payment offer ID
 }
 
 export interface FormSubsection {
@@ -453,6 +473,8 @@ export interface FieldOfIntervention {
   id: string;
   name: string;
   memberIds: string[]; // Array of ReviewCommitteeMember IDs
+  /** At most one chair per sub-committee (field); must be one of memberIds when set */
+  chairMemberId?: string | null;
 }
 
 export interface Committee {
@@ -497,6 +519,9 @@ export interface EventBanner {
 
 export type PublishStatus = 'Draft' | 'Published' | 'Closed';
 
+export type EventType = 'Conference' | 'Seminar' | 'Workshop' | 'Webinar' | 'Continuing professional development event' | 'Online conference';
+export type EventFormat = 'Virtual' | 'In-Person' | 'Hybrid';
+
 export interface Event {
   id: string;
   userId: string;
@@ -504,6 +529,9 @@ export interface Event {
   description?: string;
   keywords?: string[]; // Array of keywords
   fields?: string[]; // Array of fields
+  subfields?: string[]; // Array of subfields
+  eventType?: EventType; // Type of event
+  eventFormat?: EventFormat; // Format of event
   partners?: EventPartner[]; // Array of partners
   dates?: EventDate[]; // Array of date ranges
   location?: string;
@@ -516,6 +544,8 @@ export interface Event {
   committeeIds: string[]; // Array of committee IDs
   banner?: EventBanner; // Banner configuration
   publishStatus?: PublishStatus; // Publication status: Draft, Published, or Closed
+  registrationDeadline?: string; // Deadline date for registration (ISO date string)
+  submissionDeadline?: string; // Deadline date for submission (ISO date string)
   createdAt: Date;
   updatedAt: Date;
 }
@@ -622,18 +652,34 @@ export interface OrganizerProfile {
   // Entity Information
   entityLogo?: string;
   entityBanner?: string;
-  entityName?: string;
-  entityEmail?: string;
-  entityPhone?: string;
+  entityName?: string; // Nom officiel de l'université / institution
+  entityCreationDate?: string; // Date de création
+  entityLegalStatus?: string; // Statut juridique (publique / privée / fondation / consortium académique)
+  entityCountry?: string; // Pays
+  entityCity?: string; // Ville
+  entityOfficialWebsite?: string; // Site web officiel
+  entityEmail?: string; // Email institutionnel
+  entityPhone?: string; // Téléphone
   entityAddress?: string;
   entityWebsites?: string[];
-  entityLinks?: OrganizerProfileLink[];
+  entityLinks?: OrganizerProfileLink[]; // Other links (name and link)
+  entityMission?: string; // Mission statement
+  entityVision?: string; // Vision statement
+  entityScientificDomains?: string[]; // Domaines scientifiques
   // Representative Information
-  representativeFullName?: string;
-  representativeEmail?: string;
-  representativePhone?: string;
-  representativeAddress?: string;
-  representativeFunction?: string;
+  representativePhoto?: string; // Photo
+  representativeFullName?: string; // Full Name
+  representativeEmail?: string; // Email
+  representativePhone?: string; // Phone number
+  representativeFunction?: string; // Function
+  // Publishing
+  isPublished?: boolean;
+  publicSlug?: string;
+  publishedUrl?: string;
+  // Display Toggles
+  showCommittees?: boolean;
+  showEvents?: boolean;
+  showBlogArticles?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -751,4 +797,321 @@ export interface BlogArticle {
   metaDescription?: string;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// ============================================
+// ACADEMY LMS TYPES
+// ============================================
+
+export type AcademyCourseVisibility = 'public' | 'organization' | 'event';
+export type AcademyCourseStatus = 'draft' | 'published' | 'archived';
+export type AcademyDifficulty = 'beginner' | 'intermediate' | 'advanced';
+
+export type AcademyLessonContentBlockType = 'text' | 'video' | 'image' | 'link' | 'document' | 'quiz';
+
+export interface AcademyLessonContentBlock {
+  id: string;
+  lessonId: string;
+  blockType: AcademyLessonContentBlockType;
+  content: Record<string, unknown>;
+  orderIndex: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademyLesson {
+  id: string;
+  moduleId: string;
+  sectionId?: string;
+  title: string;
+  orderIndex: number;
+  contentType: 'article' | 'video' | 'file' | 'link';
+  contentRichText?: any;
+  videoUrl?: string;
+  attachmentUrls?: string[];
+  externalLink?: string;
+  hasQuiz: boolean;
+  isRequired: boolean;
+  estimatedDurationMinutes?: number;
+  contentBlocks?: AcademyLessonContentBlock[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademySection {
+  id: string;
+  moduleId: string;
+  title: string;
+  description?: string;
+  orderIndex: number;
+  lessons?: AcademyLesson[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademyModule {
+  id: string;
+  courseId: string;
+  title: string;
+  description?: string;
+  orderIndex: number;
+  isRequired: boolean;
+  sections?: AcademySection[];
+  lessons?: AcademyLesson[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademyCourse {
+  id: string;
+  userId: string;
+  organizerProfileId?: string;
+  eventId?: string;
+  title: string;
+  slug: string;
+  shortDescription?: string;
+  longDescription?: string;
+  thumbnailUrl?: string;
+  bannerImageUrl?: string;
+  difficulty?: AcademyDifficulty;
+  estimatedDurationMinutes?: number;
+  tags?: string[];
+  visibility: AcademyCourseVisibility;
+  status: AcademyCourseStatus;
+  modules?: AcademyModule[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type AcademyEnrollmentStatus = 'in_progress' | 'completed' | 'failed' | 'withdrawn';
+export type AcademyEnrollmentSource = 'self' | 'assigned' | 'event-auto';
+
+export interface AcademyEnrollment {
+  id: string;
+  courseId: string;
+  participantUserId: string;
+  enrollmentSource: AcademyEnrollmentSource;
+  status: AcademyEnrollmentStatus;
+  finalScore?: number;
+  enrolledAt: Date;
+  completedAt?: Date;
+  lastAccessedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademyLessonProgress {
+  id: string;
+  enrollmentId: string;
+  lessonId: string;
+  isCompleted: boolean;
+  completedAt?: Date;
+  lastViewedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type AcademyQuestionType = 'single_choice' | 'multiple_choice' | 'true_false';
+
+export interface AcademyQuizOption {
+  id: string;
+  questionId: string;
+  optionText: string;
+  isCorrect: boolean;
+  orderIndex: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademyQuizQuestion {
+  id: string;
+  quizId: string;
+  questionText: string;
+  questionType: AcademyQuestionType;
+  orderIndex: number;
+  options?: AcademyQuizOption[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademyQuiz {
+  id: string;
+  lessonId: string;
+  title: string;
+  description?: string;
+  passingScore: number;
+  maxAttempts?: number;
+  isActive: boolean;
+  questions?: AcademyQuizQuestion[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademyQuizAttempt {
+  id: string;
+  quizId: string;
+  enrollmentId: string;
+  startedAt: Date;
+  submittedAt?: Date;
+  score?: number;
+  passed?: boolean;
+  // questionId -> selected option IDs (or boolean for true/false)
+  answers?: Record<string, string[] | boolean>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcademyCertificate {
+  id: string;
+  courseId: string;
+  participantUserId: string;
+  certificateTemplateId?: string;
+  issuedAt: Date;
+  verificationCode?: string;
+  metadata?: any;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Presenter Types
+export interface PresenterEvent {
+  id: string;
+  userId: string;
+  name: string;
+  place?: string;
+  date?: Date;
+  link?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PanelSpeaker {
+  name: string;
+  title?: string;
+  entity?: string;
+  picture?: string;
+}
+
+export interface PresenterPanel {
+  id: string;
+  userId: string;
+  eventId: string;
+  title: string;
+  moderatorName?: string;
+  moderatorTitle?: string;
+  moderatorEntity?: string;
+  moderatorPicture?: string;
+  speakers: PanelSpeaker[];
+  displayOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface PresenterSpeaker {
+  id: string;
+  userId: string;
+  eventId: string;
+  name: string;
+  title?: string;
+  entity?: string;
+  picture?: string;
+  interventionTitle?: string;
+  speakerInfo?: string;
+  displayOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ============================================
+// MESSAGING TYPES
+// ============================================
+
+export type MessageGroupMemberType = 'committee_member' | 'registration_participant' | 'submission_participant';
+export type MessageSenderType = 'admin' | 'participant';
+
+export interface MessageGroup {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  memberCount?: number;
+}
+
+export interface MessageGroupMember {
+  id: string;
+  groupId: string;
+  memberType: MessageGroupMemberType;
+  memberId: string;
+  memberEmail: string;
+  memberName?: string;
+  createdAt: Date;
+}
+
+export interface Message {
+  id: string;
+  groupId?: string;
+  senderId: string;
+  senderType: MessageSenderType;
+  senderName?: string;
+  senderEmail?: string;
+  recipientId?: string;
+  recipientEmail?: string;
+  subject?: string;
+  content: string;
+  parentMessageId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  attachments?: MessageAttachment[];
+  isRead?: boolean;
+  readAt?: Date;
+}
+
+export interface MessageAttachment {
+  id: string;
+  messageId: string;
+  fileName: string;
+  filePath: string;
+  fileSize?: number;
+  fileType?: string;
+  createdAt: Date;
+}
+
+export interface MessageReadStatus {
+  id: string;
+  messageId: string;
+  recipientId?: string;
+  recipientEmail?: string;
+  readAt: Date;
+}
+
+export interface Conversation {
+  id: string;
+  type: 'direct' | 'group';
+  name: string;
+  email?: string;
+  avatar?: string;
+  lastMessage?: string;
+  lastMessageTime?: Date;
+  unreadCount: number;
+  groupId?: string;
+  recipientId?: string;
+  recipientEmail?: string;
+}
+
+export interface Contact {
+  id: string;
+  name: string;
+  email: string;
+  type: 'committee' | 'participant' | 'group';
+  avatar?: string;
+}
+
+export interface ParticipantOption {
+  id: string;
+  email: string;
+  name: string;
+  type: MessageGroupMemberType;
+  sourceId: string; // ID of the source (committee_member.id, form_submission.id, etc.)
 }

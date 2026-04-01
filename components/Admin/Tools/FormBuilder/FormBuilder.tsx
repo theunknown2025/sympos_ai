@@ -26,12 +26,14 @@ import {
   Calendar,
   Link,
   Grid3x3,
-  Users
+  Users,
+  CreditCard
 } from 'lucide-react';
 import { FormField, FormFieldType, RegistrationForm, FormSection, FormSubsection, EvaluationForm } from '../../../../types';
 import { useAuth } from '../../../../hooks/useAuth';
 import { saveRegistrationForm, updateRegistrationForm, getRegistrationForm } from '../../../../services/registrationFormService';
 import { saveEvaluationForm, updateEvaluationForm, getEvaluationForm } from '../../../../services/evaluationFormService';
+import { getPayments, type Payment } from '../../../../services/paymentService';
 import FormList from './FormList';
 
 interface FormBuilderProps {
@@ -72,6 +74,8 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
   const [showPreview, setShowPreview] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [offers, setOffers] = useState<Payment[]>([]);
+  const [loadingOffers, setLoadingOffers] = useState(false);
 
 
   React.useEffect(() => {
@@ -79,6 +83,25 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
       loadForm(formId);
     }
   }, [formId]);
+
+  React.useEffect(() => {
+    if (currentUser) {
+      loadOffers();
+    }
+  }, [currentUser]);
+
+  const loadOffers = async () => {
+    if (!currentUser) return;
+    setLoadingOffers(true);
+    try {
+      const paymentOffers = await getPayments(currentUser.id);
+      setOffers(paymentOffers);
+    } catch (error: any) {
+      console.error('Error loading offers:', error);
+    } finally {
+      setLoadingOffers(false);
+    }
+  };
 
   const loadForm = async (id: string) => {
     try {
@@ -154,6 +177,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
     { value: 'date', label: 'Date', icon: Calendar },
     { value: 'file', label: 'File Upload', icon: FileText },
     { value: 'url', label: 'URL', icon: Link },
+    { value: 'paiement', label: 'Paiement', icon: CreditCard },
   ];
 
   const addSection = () => {
@@ -221,6 +245,28 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
   };
 
   const addField = (type: FormFieldType, sectionId?: string, subsectionId?: string) => {
+    // Check if paiement field already exists (can only add once)
+    if (type === 'paiement') {
+      // Check root fields
+      const hasPaiementInRoot = fields.some(f => f.type === 'paiement');
+      if (hasPaiementInRoot) {
+        alert('Paiement component can only be added once to the form.');
+        return;
+      }
+      
+      // Check all sections
+      const hasPaiementInSections = sections.some(section => 
+        section.fields.some(f => f.type === 'paiement') ||
+        section.subsections.some(subsection => 
+          subsection.fields.some(f => f.type === 'paiement')
+        )
+      );
+      if (hasPaiementInSections) {
+        alert('Paiement component can only be added once to the form.');
+        return;
+      }
+    }
+
     const newField: FormField = {
       id: `field-${Date.now()}`,
       type,
@@ -236,6 +282,10 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
 
     if (type === 'select' || type === 'radio' || type === 'checkbox') {
       newField.options = ['Option 1', 'Option 2'];
+    }
+
+    if (type === 'paiement') {
+      newField.label = 'Paiement';
     }
 
     if (sectionId && subsectionId) {
@@ -437,6 +487,40 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
                 >
                   <Plus size={14} /> Add Option
                 </button>
+              </div>
+            )}
+
+            {field.type === 'paiement' && (
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-600">Select Offer</label>
+                {loadingOffers ? (
+                  <div className="flex items-center gap-2 text-sm text-slate-500">
+                    <Loader2 size={14} className="animate-spin" />
+                    Loading offers...
+                  </div>
+                ) : offers.length === 0 ? (
+                  <p className="text-xs text-amber-600 bg-amber-50 p-2 rounded">
+                    No offers available. Please create offers in "Paiement Management" first.
+                  </p>
+                ) : (
+                  <select
+                    value={field.selectedOfferId || ''}
+                    onChange={(e) => updateField(field.id, { selectedOfferId: e.target.value }, sectionId, subsectionId)}
+                    className="w-full px-3 py-1.5 border border-slate-300 rounded text-sm bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  >
+                    <option value="">-- Select an offer --</option>
+                    {offers.map((offer) => (
+                      <option key={offer.id} value={offer.id}>
+                        {offer.name} {offer.description ? `- ${offer.description}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {field.selectedOfferId && (
+                  <p className="text-xs text-indigo-600">
+                    Selected offer will be included in the form
+                  </p>
+                )}
               </div>
             )}
 
@@ -1249,6 +1333,16 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
             <div className="grid grid-cols-2 gap-2">
               {fieldTypes.map((type) => {
                 const IconComponent = type.icon;
+                // Check if paiement field already exists
+                const hasPaiement = type.value === 'paiement' && (
+                  fields.some(f => f.type === 'paiement') ||
+                  sections.some(section => 
+                    section.fields.some(f => f.type === 'paiement') ||
+                    section.subsections.some(subsection => 
+                      subsection.fields.some(f => f.type === 'paiement')
+                    )
+                  )
+                );
                 return (
                   <button
                     key={type.value}
@@ -1273,10 +1367,18 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
                         addField(type.value);
                       }
                     }}
-                    className="flex flex-col items-center gap-2 p-4 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-colors"
+                    disabled={hasPaiement}
+                    className={`flex flex-col items-center gap-2 p-4 border border-slate-200 rounded-lg transition-colors ${
+                      hasPaiement 
+                        ? 'opacity-50 cursor-not-allowed bg-slate-100' 
+                        : 'hover:border-indigo-300 hover:bg-indigo-50'
+                    }`}
+                    title={hasPaiement ? 'Paiement component can only be added once' : ''}
                   >
-                    <IconComponent size={20} className="text-slate-600" />
-                    <span className="text-xs font-medium text-slate-700">{type.label}</span>
+                    <IconComponent size={20} className={hasPaiement ? 'text-slate-400' : 'text-slate-600'} />
+                    <span className={`text-xs font-medium ${hasPaiement ? 'text-slate-400' : 'text-slate-700'}`}>
+                      {type.label}
+                    </span>
                   </button>
                 );
               })}
@@ -1766,6 +1868,9 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
               className={baseClasses}
             />
           );
+        case 'paiement':
+          // Paiement fields are handled separately in the main render function
+          return null;
         default:
           return (
             <input
@@ -1787,8 +1892,39 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
           <p className="text-xs text-slate-500">{field.helpText}</p>
         )}
         
-        {/* Render subfields if enabled */}
-        {field.hasSubFields && field.subFields && field.subFields.length > 0 ? (
+        {/* Render paiement field */}
+        {field.type === 'paiement' ? (
+          <div className="border border-indigo-200 rounded-lg p-4 bg-indigo-50">
+            {loadingOffers ? (
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <Loader2 className="animate-spin" size={16} />
+                <span>Loading payment information...</span>
+              </div>
+            ) : offers.length > 0 ? (
+              <div className="space-y-3">
+                <select
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                  disabled
+                  defaultValue={field.selectedOfferId || ''}
+                >
+                  <option value="">Select an offer</option>
+                  {offers.map((offer) => (
+                    <option key={offer.id} value={offer.id}>
+                      {offer.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500 italic">
+                  In preview mode, users will select an offer from this dropdown
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-amber-600">
+                No offers available. Please create offers in Payment Management.
+              </p>
+            )}
+          </div>
+        ) : field.hasSubFields && field.subFields && field.subFields.length > 0 ? (
           <div className="space-y-3">
             <div className="border border-slate-200 rounded-lg overflow-hidden">
               {/* Table Header */}

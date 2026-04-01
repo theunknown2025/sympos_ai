@@ -341,6 +341,42 @@ export const getReviewsForSubmission = async (
 };
 
 /**
+ * Get all reviews for multiple events in one query (batch fetch)
+ * Uses lean select - only event_id and status for dashboard stats
+ */
+export const getReviewsForEvents = async (eventIds: string[]): Promise<ParticipantReview[]> => {
+  if (eventIds.length === 0) return [];
+  
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('id, event_id, status')
+      .in('event_id', eventIds)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    if (!data) return [];
+    
+    return data.map(doc => ({
+      id: doc.id,
+      participantId: '',
+      userId: '',
+      eventId: doc.event_id,
+      formId: '',
+      submissionId: '',
+      submissionType: 'submission' as const,
+      status: (doc.status as 'draft' | 'completed') || 'draft',
+      answers: {},
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+  } catch (error: any) {
+    console.error('Error getting reviews for events:', error);
+    throw new Error(error.message || 'Failed to get reviews for events');
+  }
+};
+
+/**
  * Get all reviews for an event
  */
 export const getReviewsForEvent = async (

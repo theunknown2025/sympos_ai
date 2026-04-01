@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import jsQR from 'jsqr';
-import { X, Camera, CheckCircle, AlertCircle, Loader2, Maximize2, Minimize2, User, Calendar, Info } from 'lucide-react';
+import { X, Camera, CheckCircle, AlertCircle, Loader2, Maximize2, Minimize2, User, Calendar, Info, ShieldCheck, Sparkles } from 'lucide-react';
 import { getBadgeByImageUrl } from '../../../../services/badgeGeneratorService';
 import { setCheckinStatus } from '../../../../services/checkinService';
 import { useAuth } from '../../../../hooks/useAuth';
@@ -34,10 +34,10 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
   const scanIntervalRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Load event data if eventId is provided
+  // Load event data if eventId is provided, or sync propEventName
   useEffect(() => {
     const loadEventData = async () => {
-      if (eventId && !propEventName) {
+      if (eventId) {
         try {
           const event = await getEvent(eventId);
           if (event) {
@@ -47,10 +47,12 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
         } catch (err) {
           console.error('Failed to load event data:', err);
         }
+      } else if (propEventName) {
+        setEventName(propEventName);
       }
     };
 
-    if (isOpen && eventId) {
+    if (isOpen) {
       loadEventData();
     }
   }, [isOpen, eventId, propEventName]);
@@ -409,25 +411,65 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
 
         {/* Right Side - Participant Information */}
         <div className="flex flex-col space-y-4">
+          {/* Event Display Card - Always shown at top */}
+          {eventName && (
+            <div className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-lg p-6 border border-slate-700">
+              <div className="flex items-center gap-3">
+                <div className="bg-indigo-500/20 rounded-lg p-2">
+                  <Calendar className="text-indigo-400" size={20} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">Current Event</p>
+                  <h3 className="text-xl font-bold text-white">{eventName}</h3>
+                </div>
+              </div>
+            </div>
+          )}
+
           {participantName ? (
             <>
-              {/* Welcome Message */}
-              <div className="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-lg p-6 shadow-lg">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="bg-white/20 rounded-full p-3">
-                    <CheckCircle className="text-white" size={24} />
+              {/* Welcome Message with Approved Symbol */}
+              <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-700 rounded-lg p-6 shadow-lg border border-indigo-500/30">
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="bg-white/20 rounded-full p-3 flex-shrink-0">
+                    {scanStatus === 'checked_in' ? (
+                      <ShieldCheck className="text-white" size={28} />
+                    ) : (
+                      <Loader2 className="text-white animate-spin" size={28} />
+                    )}
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-white">Welcome!</h2>
-                    <p className="text-sm text-indigo-100">Check-in successful</p>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h2 className="text-2xl font-bold text-white">Welcome!</h2>
+                      {scanStatus === 'checked_in' && (
+                        <div className="flex items-center gap-1 bg-green-500/20 px-2 py-1 rounded-full border border-green-400/30">
+                          <CheckCircle className="text-green-300" size={16} />
+                          <span className="text-xs font-semibold text-green-200">APPROVED</span>
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-sm text-indigo-100">
+                      {scanStatus === 'checked_in' 
+                        ? 'Check-in successful'
+                        : 'Processing check-in...'
+                      }
+                    </p>
                   </div>
                 </div>
-                <p className="text-lg text-white font-medium">
-                  {scanStatus === 'checked_in' 
-                    ? `Hello ${participantName}! You have been successfully checked in.`
-                    : `Processing check-in for ${participantName}...`
-                  }
-                </p>
+                <div className="bg-white/10 rounded-lg p-4 border border-white/20">
+                  <p className="text-lg text-white font-semibold mb-1">
+                    {scanStatus === 'checked_in' 
+                      ? `Hello, ${participantName}!`
+                      : `Processing for ${participantName}...`
+                    }
+                  </p>
+                  {scanStatus === 'checked_in' && (
+                    <p className="text-sm text-indigo-100 flex items-center gap-2">
+                      <Sparkles className="text-yellow-300" size={14} />
+                      You have been successfully checked in to this event.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Participant Details Card */}
@@ -441,16 +483,6 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
                   <div className="space-y-1">
                     <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Full Name</p>
                     <p className="text-lg font-semibold text-white">{participantName}</p>
-                  </div>
-
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-2">
-                      <Calendar className="text-slate-500" size={14} />
-                      Event
-                    </p>
-                    <p className="text-base text-slate-200">
-                      {eventName || <span className="text-slate-500 italic">Unknown event</span>}
-                    </p>
                   </div>
 
                   {badgeUrl && (
@@ -483,7 +515,7 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
               </div>
             </>
           ) : (
-            /* Empty State */
+            /* Empty State - Waiting for Scan */
             <div className="flex-1 flex items-center justify-center bg-slate-800/30 rounded-lg border-2 border-dashed border-slate-700">
               <div className="text-center p-8">
                 <div className="bg-slate-700/50 rounded-full p-6 w-24 h-24 mx-auto mb-4 flex items-center justify-center">

@@ -263,16 +263,18 @@ const Submissions: React.FC = () => {
                         >
                           <Eye size={16} />
                         </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedSubmission(submission);
-                          }}
-                          className="p-1.5 text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors"
-                          title="Edit submission"
-                        >
-                          <Edit2 size={16} />
-                        </button>
+                        {!submission.decisionStatus && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSubmission(submission);
+                            }}
+                            className="p-1.5 text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors"
+                            title="Edit submission"
+                          >
+                            <Edit2 size={16} />
+                          </button>
+                        )}
                         <button
                           onClick={(e) => {
                             e.stopPropagation();

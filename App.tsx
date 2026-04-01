@@ -11,6 +11,8 @@ import { Header } from './components/Admin/Layout/Header';
 import { AppRoutes } from './components/Admin/Layout/AppRoutes';
 import ViewCertificate from './components/Admin/Certificates/ViewCertificate';
 import PublicLandingPageViewer from './components/Admin/LPBuilder/Publisher/PublicLandingPageViewer';
+import PublicEntityProfileViewer from './components/Admin/EntityProfile/PublicEntityProfileViewer';
+import PublicProfileViewer from './components/Participant/Tools/ProfileBuilder/PublicProfileViewer';
 import { supabase } from './supabase';
 import { useAuth } from './hooks/useAuth';
 import { getViewStateFromPath, getRoutePath } from './routes';
@@ -30,6 +32,8 @@ const App: React.FC = () => {
   const [eventsExpanded, setEventsExpanded] = useState(false);
   const [projectManagementExpanded, setProjectManagementExpanded] = useState(false);
   const [participantToolsExpanded, setParticipantToolsExpanded] = useState(false);
+  const [paiementManagementExpanded, setPaiementManagementExpanded] = useState(false);
+  const [academyExpanded, setAcademyExpanded] = useState(false);
 
   // Get current view from URL
   const currentView = getViewStateFromPath(location.pathname) || ViewState.LANDING_PAGE;
@@ -38,6 +42,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (currentView === ViewState.PARTICIPANT_REGISTRATIONS || 
         currentView === ViewState.PARTICIPANT_SUBMISSIONS ||
+        currentView === ViewState.PARTICIPANT_MESSAGING ||
         currentView === ViewState.JURY_DASHBOARD ||
         currentView === ViewState.JURY_PROFILE ||
         currentView === ViewState.JURY_INVITATIONS ||
@@ -52,7 +57,10 @@ const App: React.FC = () => {
   // Auto-expand Participant Tools section when on tools pages
   useEffect(() => {
     if (currentView === ViewState.PARTICIPANT_TOOLS || 
-        currentView === ViewState.LATEX_EDITOR) {
+        currentView === ViewState.LATEX_EDITOR ||
+        currentView === ViewState.CV_BUILDER ||
+        currentView === ViewState.PROFILE_BUILDER ||
+        currentView === ViewState.PARTICIPANT_BLOG) {
       if (!participantToolsExpanded) {
         setParticipantToolsExpanded(true);
       }
@@ -68,6 +76,29 @@ const App: React.FC = () => {
       }
     }
   }, [currentView, registrationsExpanded]);
+
+  // Auto-expand Payment Management section when on payment pages
+  useEffect(() => {
+    if (currentView === ViewState.PAIEMENT_INFORMATION || 
+        currentView === ViewState.NEW_PAIEMENT ||
+        currentView === ViewState.PAIEMENT_FOLLOW_UP ||
+        currentView === ViewState.PAIEMENT_GENERATOR) {
+      if (!paiementManagementExpanded) {
+        setPaiementManagementExpanded(true);
+      }
+    }
+  }, [currentView, paiementManagementExpanded]);
+
+  // Auto-expand Academy section when on academy sub-pages
+  useEffect(() => {
+    if (currentView === ViewState.ACADEMY_COURSE_MANAGER ||
+        currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER ||
+        currentView === ViewState.ACADEMY_PAYMENT_MANAGER) {
+      if (!academyExpanded) {
+        setAcademyExpanded(true);
+      }
+    }
+  }, [currentView, academyExpanded]);
 
   // Initialize auth state and handle role-based redirects
   useEffect(() => {
@@ -143,6 +174,20 @@ const App: React.FC = () => {
       // Published landing page viewing is public, render directly without app layout
       return <PublicLandingPageViewer slug={slug} />;
     }
+    // Allow public access to published entity profiles
+    if (location.pathname.startsWith('/profile/')) {
+      // Extract slug from pathname (e.g., /profile/my-slug -> my-slug)
+      const slug = location.pathname.replace('/profile/', '').split('/')[0];
+      // Published profile viewing is public, render directly without app layout
+      return <PublicEntityProfileViewer slug={slug} />;
+    }
+    // Allow public access to published professor profiles
+    if (location.pathname.startsWith('/profiles/')) {
+      // Extract slug from pathname (e.g., /profiles/my-professor-profile -> my-professor-profile)
+      const slug = location.pathname.replace('/profiles/', '').split('/')[0];
+      // Published professor profile viewing is public, render directly without app layout
+      return <PublicProfileViewer slug={slug} />;
+    }
     if (location.pathname === '/' || currentViewFromPath === ViewState.LANDING_PAGE) {
       return <LandingPage />;
     }
@@ -178,6 +223,12 @@ const App: React.FC = () => {
     navigateToView(ViewState.FORM_BUILDER);
   };
 
+  // Handle public routes for authenticated users too
+  if (location.pathname.startsWith('/profiles/')) {
+    const slug = location.pathname.replace('/profiles/', '').split('/')[0];
+    return <PublicProfileViewer slug={slug} />;
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
       <Sidebar
@@ -193,6 +244,8 @@ const App: React.FC = () => {
         eventsExpanded={eventsExpanded}
         projectManagementExpanded={projectManagementExpanded}
         participantToolsExpanded={participantToolsExpanded}
+        paiementManagementExpanded={paiementManagementExpanded}
+        academyExpanded={academyExpanded}
         onNavigateToView={navigateToView}
         onToggleDashboard={() => setDashboardExpanded(!dashboardExpanded)}
         onToggleRegistrations={() => setRegistrationsExpanded(!registrationsExpanded)}
@@ -203,6 +256,8 @@ const App: React.FC = () => {
         onToggleEvents={() => setEventsExpanded(!eventsExpanded)}
         onToggleProjectManagement={() => setProjectManagementExpanded(!projectManagementExpanded)}
         onToggleParticipantTools={() => setParticipantToolsExpanded(!participantToolsExpanded)}
+        onTogglePaiementManagement={() => setPaiementManagementExpanded(!paiementManagementExpanded)}
+        onToggleAcademy={() => setAcademyExpanded(!academyExpanded)}
         onSignOut={handleSignOut}
       />
 

@@ -10,9 +10,11 @@ interface FormEditProps {
   onClose: () => void;
   onSave?: () => void;
   onCancel?: () => void;
+  /** When the user opens another form from inside the builder, update the open form id (avoids full page reload). */
+  onFormIdChange?: (newFormId: string) => void;
 }
 
-const FormEdit: React.FC<FormEditProps> = ({ formId, onClose, onSave, onCancel }) => {
+const FormEdit: React.FC<FormEditProps> = ({ formId, onClose, onSave, onCancel, onFormIdChange }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [form, setForm] = useState<RegistrationForm | EvaluationForm | null>(null);
@@ -177,9 +179,8 @@ const FormEdit: React.FC<FormEditProps> = ({ formId, onClose, onSave, onCancel }
             formId={formId}
             onSave={handleSave}
             onEdit={(id) => {
-              // If formId changes, reload
               if (id !== formId) {
-                window.location.reload();
+                onFormIdChange?.(id);
               }
             }}
             onNew={() => {

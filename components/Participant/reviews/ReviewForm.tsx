@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, AlertCircle, Save, ArrowLeft, CheckCircle2, FileText, Plus, Trash2 } from 'lucide-react';
+import { Loader2, AlertCircle, Save, ArrowLeft, CheckCircle2, FileText, Plus, Trash2, X, ChevronRight, ChevronLeft, File } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
 import { getEvaluationForm } from '../../../services/evaluationFormService';
 import { getEvent } from '../../../services/eventService';
@@ -7,7 +7,8 @@ import { getJuryMemberProfile } from '../../../services/juryMemberService';
 import { getReviewForSubmission, saveReview } from '../../../services/reviewService';
 import { DispatchedItem } from '../../../services/dispatchedItemsService';
 import { FormField, FormSection, EvaluationForm, ReviewStatus } from '../../../types';
-import { supabase, TABLES } from '../../../supabase';
+import { supabase, TABLES, STORAGE_BUCKETS } from '../../../supabase';
+import { getFileDownloadURL } from '../../../services/storageService';
 
 interface ReviewFormProps {
   item: DispatchedItem;
@@ -24,6 +25,12 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
   const [answers, setAnswers] = useState<{ [fieldId: string]: any }>({});
   const [participantId, setParticipantId] = useState<string>('');
   const [reviewStatus, setReviewStatus] = useState<ReviewStatus>('draft');
+  const [showPdfPreview, setShowPdfPreview] = useState(true);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+  const [formWidth, setFormWidth] = useState(30); // Percentage width for form (PDF will be 100 - formWidth)
+  const [isResizing, setIsResizing] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
@@ -113,11 +120,138 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
         setAnswers(existingReview.answers);
         setReviewStatus(existingReview.status || 'draft');
       }
+
+      // Find PDF file in submission answers
+      await findAndLoadPdf(item.submission);
     } catch (err: any) {
       console.error('Error loading review form:', err);
       setError(err.message || 'Failed to load review form');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const isPdfFile = (value: string): boolean => {
+    if (typeof value !== 'string') return false;
+    const lower = value.toLowerCase();
+    return lower.endsWith('.pdf') || (value.startsWith('http') && lower.includes('.pdf'));
+  };
+
+  const isUrl = (value: string): boolean => {
+    return typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'));
+  };
+
+  const extractFilePathFromUrl = (url: string, bucketId: string): string | null => {
+    try {
+      const urlObj = new URL(url);
+      const pathMatch = urlObj.pathname.match(new RegExp(`/object/public/${bucketId}/(.+)`));
+      if (pathMatch && pathMatch[1]) {
+        return pathMatch[1];
+      }
+      const signedPathMatch = urlObj.pathname.match(new RegExp(`/object/sign/${bucketId}/(.+)`));
+      if (signedPathMatch && signedPathMatch[1]) {
+        return signedPathMatch[1];
+      }
+      const directMatch = url.match(new RegExp(`${bucketId}/(.+)`));
+      if (directMatch && directMatch[1]) {
+        return directMatch[1].split('?')[0];
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Handle mouse move for resizing
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      const container = document.querySelector('.review-form-container') as HTMLElement;
+      if (!container) return;
+      
+      const containerRect = container.getBoundingClientRect();
+      const relativeX = e.clientX - containerRect.left;
+      const percentage = (relativeX / containerRect.width) * 100;
+      
+      // Constrain between 20% and 80%
+      const constrainedPercentage = Math.max(20, Math.min(80, percentage));
+      setFormWidth(constrainedPercentage);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
+  const findAndLoadPdf = async (submission: any) => {
+    try {
+      setPdfLoading(true);
+      setPdfError(null);
+
+      // Search through submission answers for PDF files
+      const answers = submission.answers || {};
+      let foundPdfUrl: string | null = null;
+
+      // Check all answer values for PDF files
+      for (const [fieldId, value] of Object.entries(answers)) {
+        if (typeof value === 'string' && isPdfFile(value)) {
+          foundPdfUrl = value;
+          break;
+        } else if (Array.isArray(value)) {
+          // Check array values
+          for (const item of value) {
+            if (typeof item === 'string' && isPdfFile(item)) {
+              foundPdfUrl = item;
+              break;
+            }
+          }
+          if (foundPdfUrl) break;
+        }
+      }
+
+      if (!foundPdfUrl) {
+        setPdfUrl(null);
+        setPdfLoading(false);
+        return;
+      }
+
+      // Get signed URL if needed
+      let finalUrl = foundPdfUrl;
+      if (isUrl(foundPdfUrl) && (foundPdfUrl.includes(STORAGE_BUCKETS.SUB_FILES) || foundPdfUrl.includes('Sub_Files'))) {
+        try {
+          const filePath = extractFilePathFromUrl(foundPdfUrl, STORAGE_BUCKETS.SUB_FILES);
+          if (filePath) {
+            finalUrl = await getFileDownloadURL(STORAGE_BUCKETS.SUB_FILES, filePath);
+          }
+        } catch (err) {
+          console.error('Error getting signed URL for PDF:', err);
+          setPdfError('Failed to load PDF. Please try again.');
+          setPdfLoading(false);
+          return;
+        }
+      }
+
+      setPdfUrl(finalUrl);
+    } catch (err: any) {
+      console.error('Error finding PDF:', err);
+      setPdfError(err.message || 'Failed to load PDF');
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -729,7 +863,15 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6">
+      {/* Two-column layout: Form and PDF Preview */}
+      <div className="review-form-container flex relative" style={{ height: 'calc(100vh - 280px)' }}>
+        {/* Left Section: Form */}
+        <div 
+          className={`transition-all duration-200 ${showPdfPreview && pdfUrl ? '' : 'w-full'}`}
+          style={showPdfPreview && pdfUrl ? { width: `${formWidth}%` } : {}}
+        >
+          <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-lg p-6 h-full flex flex-col mr-3">
+            <div className="flex-1 overflow-y-auto">
         {form.description && (
           <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg">
             <p className="text-sm text-slate-700">{form.description}</p>
@@ -769,68 +911,162 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
             getAllFields().map(field => renderField(field))
           )}
         </div>
+            </div>
 
-        <div className="mt-8 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            {reviewStatus === 'draft' && (
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-100 text-yellow-700 text-sm font-medium rounded-full">
-                <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                Draft
-              </span>
-            )}
-            {reviewStatus === 'completed' && (
-              <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full">
-                <CheckCircle2 className="h-4 w-4" />
-                Completed
-              </span>
-            )}
-          </div>
-          <div className="flex gap-4">
-            <button
-              type="button"
-              onClick={onBack}
-              className="px-6 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveDraft}
-              disabled={saving}
-              className="px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4" />
-                  Save Draft
-                </>
-              )}
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
-            >
-              {saving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Submitting...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="h-4 w-4" />
-                  Submit Review
-                </>
-              )}
-            </button>
-          </div>
+            <div className="mt-8 flex justify-between items-center pt-4 border-t border-slate-200 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                {reviewStatus === 'draft' && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 bg-yellow-100 text-yellow-700 text-sm font-medium rounded-full">
+                    <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
+                    Draft
+                  </span>
+                )}
+                {reviewStatus === 'completed' && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 bg-green-100 text-green-700 text-sm font-medium rounded-full">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Completed
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="px-6 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveDraft}
+                  disabled={saving}
+                  className="px-6 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4" />
+                      Save Draft
+                    </>
+                  )}
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" />
+                      Submit Review
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </form>
         </div>
-      </form>
+
+        {/* Resizable Divider */}
+        {pdfUrl && showPdfPreview && (
+          <div
+            className="w-1 bg-slate-300 hover:bg-indigo-500 cursor-col-resize transition-colors relative group flex-shrink-0"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setIsResizing(true);
+            }}
+            style={{ marginLeft: '-2px', marginRight: '-2px' }}
+          >
+            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-2 -ml-1"></div>
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 bg-indigo-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+              <div className="flex gap-0.5">
+                <div className="w-0.5 h-3 bg-white rounded"></div>
+                <div className="w-0.5 h-3 bg-white rounded"></div>
+                <div className="w-0.5 h-3 bg-white rounded"></div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Right Section: PDF Preview */}
+        {pdfUrl && (
+          <div 
+            className={`transition-all duration-200 ${showPdfPreview ? '' : 'w-0'} overflow-hidden flex-shrink-0`}
+            style={showPdfPreview ? { width: `${100 - formWidth}%` } : {}}
+          >
+            <div className="bg-white border border-slate-200 rounded-lg h-full flex flex-col">
+              {/* PDF Preview Header */}
+              <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <File className="h-5 w-5 text-indigo-600" />
+                  <h3 className="text-sm font-semibold text-slate-900">Document Preview</h3>
+                </div>
+                <button
+                  onClick={() => setShowPdfPreview(!showPdfPreview)}
+                  className="p-1.5 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                  title={showPdfPreview ? 'Hide preview' : 'Show preview'}
+                >
+                  {showPdfPreview ? (
+                    <ChevronRight className="h-5 w-5" />
+                  ) : (
+                    <ChevronLeft className="h-5 w-5" />
+                  )}
+                </button>
+              </div>
+
+              {/* PDF Preview Content */}
+              {showPdfPreview && (
+                <div className="flex-1 overflow-hidden relative min-h-0">
+                  {pdfLoading ? (
+                    <div className="flex flex-col items-center justify-center h-full">
+                      <Loader2 className="animate-spin text-indigo-600 mb-4" size={32} />
+                      <p className="text-slate-500">Loading PDF...</p>
+                    </div>
+                  ) : pdfError ? (
+                    <div className="flex flex-col items-center justify-center h-full p-6">
+                      <AlertCircle className="text-red-500 mb-4" size={32} />
+                      <p className="text-red-700 text-sm mb-2 text-center">{pdfError}</p>
+                      <button
+                        onClick={() => findAndLoadPdf(item.submission)}
+                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : (
+                    <iframe
+                      src={pdfUrl}
+                      className="w-full h-full border-0"
+                      title="PDF Preview"
+                      onError={() => setPdfError('Failed to load PDF. The file may be corrupted or inaccessible.')}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Toggle Button when PDF Preview is hidden */}
+        {pdfUrl && !showPdfPreview && (
+          <button
+            onClick={() => setShowPdfPreview(true)}
+            className="fixed right-4 top-1/2 -translate-y-1/2 bg-indigo-600 text-white p-3 rounded-l-lg shadow-lg hover:bg-indigo-700 transition-colors z-10"
+            title="Show PDF Preview"
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+        )}
+      </div>
     </div>
   );
 };

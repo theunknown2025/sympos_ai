@@ -21,9 +21,15 @@ import {
 import GenerateProgramModal from './GenerateProgramModal';
 import SaveProgramModal from './SaveProgramModal';
 import ProgramList from './ProgramList';
+import SubmissionsPrograms from './SubmissionsPrograms';
 import { useAuth } from '../../../../hooks/useAuth';
 import { updateProgram } from '../../../../services/programService';
 import type { SavedProgram } from '../../../../services/programService';
+import { getUserSubmissions, getEventSubmissions } from '../../../../services/registrationSubmissionService';
+import type { FormSubmission } from '../../../../types';
+import { CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
+import { getUserEvents } from '../../../../services/eventService';
+import type { Event } from '../../../../types';
 
 export interface Venue {
   id: string;
@@ -43,6 +49,8 @@ export interface ProgramCard {
   rowSpan: number; // Number of time slots to span
   colStart: number; // Grid column start (venue index)
   colSpan: number; // Number of venues to span (default 1)
+  submissionId?: string; // Optional: ID of the submission if this card represents a submission
+  submission?: FormSubmission; // Optional: Full submission data
 }
 
 export interface ProgramBuilderConfig {
@@ -97,6 +105,14 @@ const ProgramBuilder: React.FC = () => {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [currentProgramId, setCurrentProgramId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'new' | 'list'>('new');
+  const [settingsTab, setSettingsTab] = useState<'configuration' | 'submissions'>('configuration');
+  const [approvedSubmissions, setApprovedSubmissions] = useState<FormSubmission[]>([]);
+  const [loadingSubmissions, setLoadingSubmissions] = useState(false);
+  const [draggedSubmission, setDraggedSubmission] = useState<FormSubmission | null>(null);
+  const [isDraggingSubmission, setIsDraggingSubmission] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState<string>('');
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(false);
   const { currentUser: user } = useAuth();
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -140,6 +156,51 @@ const ProgramBuilder: React.FC = () => {
     }
     setVenues(newVenues);
   }, [config.numVenues]);
+
+  // Fetch events
+  useEffect(() => {
+    const loadEvents = async () => {
+      if (!user?.id) return;
+      
+      try {
+        setLoadingEvents(true);
+        const userEvents = await getUserEvents(user.id);
+        setEvents(userEvents);
+      } catch (error) {
+        console.error('Error loading events:', error);
+      } finally {
+        setLoadingEvents(false);
+      }
+    };
+
+    loadEvents();
+  }, [user?.id]);
+
+  // Fetch approved submissions for selected event
+  useEffect(() => {
+    const loadApprovedSubmissions = async () => {
+      if (!user?.id || !selectedEventId) {
+        setApprovedSubmissions([]);
+        return;
+      }
+      
+      try {
+        setLoadingSubmissions(true);
+        // Get submissions for the selected event
+        const eventSubmissions = await getEventSubmissions(selectedEventId);
+        // Filter for approved submissions only
+        const approved = eventSubmissions.filter(sub => sub.approvalStatus === 'accepted');
+        setApprovedSubmissions(approved);
+      } catch (error) {
+        console.error('Error loading approved submissions:', error);
+        setApprovedSubmissions([]);
+      } finally {
+        setLoadingSubmissions(false);
+      }
+    };
+
+    loadApprovedSubmissions();
+  }, [user?.id, selectedEventId]);
 
   // Calculate grid position from time
   // Grid has: row 1 = header, row 2+ = time slots
@@ -214,9 +275,80 @@ const ProgramBuilder: React.FC = () => {
     }
   };
 
+  // Convert submission to program card
+  const submissionToCard = (submission: FormSubmission, row: number, col: number): ProgramCard => {
+    const getSubmissionTitle = (sub: FormSubmission): string => {
+      if (sub.answers) {
+        const titleFields = ['title', 'paperTitle', 'paper_title', 'submissionTitle', 'submission_title', 'name'];
+        for (const field of titleFields) {
+          if (sub.answers[field] && typeof sub.answers[field] === 'string') {
+            return sub.answers[field] as string;
+          }
+        }
+      }
+      return sub.generalInfo?.name || sub.submittedBy || 'Untitled Submission';
+    };
+
+    const getSubmissionDescription = (sub: FormSubmission): string => {
+      if (sub.answers) {
+        const descFields = ['description', 'abstract', 'summary', 'paperDescription', 'paper_description'];
+        for (const field of descFields) {
+          if (sub.answers[field] && typeof sub.answers[field] === 'string') {
+            return sub.answers[field] as string;
+          }
+        }
+      }
+      return '';
+    };
+
+    const venueIndex = col - 2;
+    const venue = venues[venueIndex];
+    const startTime = rowToTime(row);
+    const endTime = rowToTime(row + 2); // Default 2 slots
+
+    return {
+      id: `submission-card-${submission.id}-${Date.now()}`,
+      title: getSubmissionTitle(submission),
+      description: getSubmissionDescription(submission),
+      startTime,
+      endTime,
+      venueId: venue?.id || venues[0]?.id || '',
+      dayIndex: selectedDay,
+      color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)],
+      rowStart: row,
+      rowSpan: 2,
+      colStart: col,
+      colSpan: 1,
+      submissionId: submission.id,
+      submission: submission,
+    };
+  };
+
+  const handleSubmissionDrag = (submission: FormSubmission) => {
+    setDraggedSubmission(submission);
+    setIsDraggingSubmission(true);
+  };
+
   const handleCellClick = (row: number, col: number) => {
     // Prevent clicks on time column (col 1)
     if (col === 1) return;
+    
+    // Handle dropping submission
+    if (isDraggingSubmission && draggedSubmission) {
+      const venueIndex = col - 2;
+      if (venueIndex < 0 || venueIndex >= venues.length) {
+        console.warn('Invalid venue column:', col, 'venues:', venues.length);
+        setIsDraggingSubmission(false);
+        setDraggedSubmission(null);
+        return;
+      }
+      
+      const newCard = submissionToCard(draggedSubmission, row, col);
+      setCards([...cards, newCard]);
+      setIsDraggingSubmission(false);
+      setDraggedSubmission(null);
+      return;
+    }
     
     if (isDragging && draggedCard) {
       // Place card at clicked position, preserving the original time
@@ -367,7 +499,10 @@ const ProgramBuilder: React.FC = () => {
     // Prevent hover on time column (col 1)
     if (col === 1) return;
     
-    if (isDragging && draggedCard) {
+    if (isDraggingSubmission && draggedSubmission) {
+      // Show hover feedback for submission drop
+      setHoveredCell({ row, col });
+    } else if (isDragging && draggedCard) {
       // Allow both horizontal (venue) and vertical (time) movement
       // Use the actual row being hovered, which allows time changes
       setHoveredCell({ row, col });
@@ -382,7 +517,20 @@ const ProgramBuilder: React.FC = () => {
   // Global mouse up handler to ensure drag ends properly even if mouse leaves card
   useEffect(() => {
     const handleGlobalMouseUp = (e: MouseEvent) => {
-      if (isDragging && draggedCard) {
+      if (isDraggingSubmission && draggedSubmission) {
+        // If we have a valid hover position (not time column), place the submission
+        if (hoveredCell && hoveredCell.col !== 1) {
+          const venueIndex = hoveredCell.col - 2;
+          if (venueIndex >= 0 && venueIndex < venues.length) {
+            const newCard = submissionToCard(draggedSubmission, hoveredCell.row, hoveredCell.col);
+            setCards([...cards, newCard]);
+          }
+        }
+        // Always reset submission drag state
+        setIsDraggingSubmission(false);
+        setDraggedSubmission(null);
+        setHoveredCell(null);
+      } else if (isDragging && draggedCard) {
         // If we have a valid hover position (not time column), place the card
         if (hoveredCell && hoveredCell.col !== 1) {
           const originalRow = timeToRow(draggedCard.startTime);
@@ -397,13 +545,13 @@ const ProgramBuilder: React.FC = () => {
       }
     };
 
-    if (isDragging) {
+    if (isDragging || isDraggingSubmission) {
       document.addEventListener('mouseup', handleGlobalMouseUp);
       return () => {
         document.removeEventListener('mouseup', handleGlobalMouseUp);
       };
     }
-  }, [isDragging, draggedCard, hoveredCell]);
+  }, [isDragging, draggedCard, isDraggingSubmission, draggedSubmission, hoveredCell, venues, cards]);
 
   // Resize handlers
   const handleResizeStart = (e: React.MouseEvent, card: ProgramCard, direction: 'horizontal' | 'vertical' | 'both') => {
@@ -577,6 +725,7 @@ const ProgramBuilder: React.FC = () => {
     setCards(program.cards);
     setProgramName(program.title);
     setProgramDescription(program.description || '');
+    setSelectedEventId(program.eventId || '');
     setCurrentProgramId(program.id);
     setSelectedDay(0);
     setActiveTab('new');
@@ -590,7 +739,7 @@ const ProgramBuilder: React.FC = () => {
   };
 
   const handleSaveChanges = async () => {
-    if (!user || !currentProgramId || !programName.trim()) {
+    if (!user || !currentProgramId || !programName.trim() || !selectedEventId) {
       return;
     }
 
@@ -601,7 +750,8 @@ const ProgramBuilder: React.FC = () => {
         programDescription.trim() || undefined,
         config,
         venues,
-        cards
+        cards,
+        selectedEventId
       );
       
       // Show success message (you could add a toast notification here)
@@ -671,18 +821,30 @@ const ProgramBuilder: React.FC = () => {
               <button
                 onClick={handleSaveChanges}
                 className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!user || !programName.trim()}
-                title={!programName.trim() ? 'Please enter a program name in settings' : 'Save Changes'}
+                disabled={!user || !programName.trim() || !selectedEventId}
+                title={!programName.trim() ? 'Please enter a program name in settings' : !selectedEventId ? 'Please select an event' : 'Save Changes'}
               >
                 <Save size={18} />
                 Save Changes
               </button>
             ) : (
               <button
-                onClick={() => setShowSaveModal(true)}
+                onClick={() => {
+                  if (!selectedEventId) {
+                    alert('Please select an event before saving');
+                    return;
+                  }
+                  setShowSaveModal(true);
+                }}
+                disabled={!selectedEventId || !user || !programName.trim()}
+                title={
+                  !selectedEventId 
+                    ? 'Please select an event first' 
+                    : !programName.trim() 
+                    ? 'Please enter a program name in settings' 
+                    : 'Save Program'
+                }
                 className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={!user || !programName.trim()}
-                title={!programName.trim() ? 'Please enter a program name in settings' : 'Save Program'}
               >
                 <Save size={18} />
                 Save Program
@@ -740,13 +902,68 @@ const ProgramBuilder: React.FC = () => {
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-6 overflow-hidden">
         {/* Configuration Panel */}
         {showConfig && (
-          <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 p-6 overflow-y-auto">
-            <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
-              <Settings size={20} />
-              Configuration
-            </h2>
-            
-            <div className="space-y-4">
+          <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+            {/* Tab Header */}
+            <div className="flex border-b border-slate-200">
+              <button
+                onClick={() => setSettingsTab('configuration')}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  settingsTab === 'configuration'
+                    ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <Settings size={16} />
+                  Configuration
+                </div>
+              </button>
+              <button
+                onClick={() => setSettingsTab('submissions')}
+                className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                  settingsTab === 'submissions'
+                    ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                  <FileText size={16} />
+                  Submissions
+                </div>
+              </button>
+            </div>
+
+            {/* Tab Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {settingsTab === 'configuration' ? (
+                <div className="space-y-4">
+              <div className="pb-4 border-b border-slate-200">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Select Event *
+                </label>
+                {loadingEvents ? (
+                  <div className="flex items-center gap-2 py-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                    <span className="text-xs text-slate-500">Loading events...</span>
+                  </div>
+                ) : (
+                  <select
+                    value={selectedEventId}
+                    onChange={(e) => setSelectedEventId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                    required
+                  >
+                    <option value="">-- Select an event --</option>
+                    {events.map((event) => (
+                      <option key={event.id} value={event.id}>
+                        {event.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <p className="text-xs text-slate-500 mt-1">Select the event this program belongs to</p>
+              </div>
+
               <div className="pb-4 border-b border-slate-200">
                 <label className="block text-sm font-medium text-slate-700 mb-2">
                   Program Name *
@@ -866,6 +1083,58 @@ const ProgramBuilder: React.FC = () => {
                 </div>
               </div>
             </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Event Selection in Submissions Tab */}
+                  <div className="pb-4 border-b border-slate-200">
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Select Event *
+                    </label>
+                    {loadingEvents ? (
+                      <div className="flex items-center gap-2 py-2">
+                        <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                        <span className="text-xs text-slate-500">Loading events...</span>
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedEventId}
+                        onChange={(e) => setSelectedEventId(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                        required
+                      >
+                        <option value="">-- Select an event --</option>
+                        {events.map((event) => (
+                          <option key={event.id} value={event.id}>
+                            {event.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <p className="text-xs text-slate-500 mt-1">Select an event to view its approved submissions</p>
+                  </div>
+
+                  {/* Submissions List */}
+                  {!selectedEventId ? (
+                    <div className="text-center py-8">
+                      <AlertCircle className="w-8 h-8 text-slate-400 mx-auto mb-2" />
+                      <p className="text-sm text-slate-500">Please select an event</p>
+                      <p className="text-xs text-slate-400 mt-1">Choose an event from the dropdown above to view approved submissions</p>
+                    </div>
+                  ) : loadingSubmissions ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-indigo-600" />
+                    </div>
+                  ) : (
+                    <SubmissionsPrograms
+                      submissions={approvedSubmissions}
+                      onDragSubmission={handleSubmissionDrag}
+                      isDraggingSubmission={isDraggingSubmission}
+                      draggedSubmission={draggedSubmission}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -965,11 +1234,20 @@ const ProgramBuilder: React.FC = () => {
                     {venues.map((venue, colIndex) => {
                       const cellCol = colIndex + 2; // +2 for time column
                       // Check if this cell is in the hovered position (allows vertical movement)
-                      const isHovered = isDragging && draggedCard && 
+                      const isHoveredCard = isDragging && draggedCard && 
                         hoveredCell?.col === cellCol && 
                         hoveredCell?.col !== 1 && // Never highlight time column
                         cellRow >= hoveredCell.row && 
                         cellRow < hoveredCell.row + draggedCard.rowSpan;
+                      
+                      // Check if this cell is hovered for submission drop
+                      const isHoveredSubmission = isDraggingSubmission && draggedSubmission && 
+                        hoveredCell?.col === cellCol && 
+                        hoveredCell?.col !== 1 &&
+                        cellRow >= hoveredCell.row && 
+                        cellRow < hoveredCell.row + 2; // Default 2 slots for submission
+                      
+                      const isHovered = isHoveredCard || isHoveredSubmission;
                       
                       return (
                         <div
@@ -987,6 +1265,7 @@ const ProgramBuilder: React.FC = () => {
                             min-h-[40px] border border-slate-200 bg-white cursor-pointer
                             hover:bg-indigo-50 hover:border-indigo-300 transition-colors duration-150
                             ${isHovered ? 'bg-indigo-100 border-indigo-400 border-2 ring-2 ring-indigo-300' : ''}
+                            ${isHoveredSubmission ? 'bg-emerald-100 border-emerald-400' : ''}
                           `}
                         />
                       );
@@ -1216,6 +1495,7 @@ const ProgramBuilder: React.FC = () => {
           userId={user.id}
           initialTitle={programName}
           initialDescription={programDescription}
+          eventId={selectedEventId || undefined}
         />
       )}
 

@@ -12,6 +12,7 @@ interface SaveProgramModalProps {
   userId: string;
   initialTitle?: string;
   initialDescription?: string;
+  eventId?: string;
 }
 
 const SaveProgramModal: React.FC<SaveProgramModalProps> = ({
@@ -23,6 +24,7 @@ const SaveProgramModal: React.FC<SaveProgramModalProps> = ({
   userId,
   initialTitle = '',
   initialDescription = '',
+  eventId,
 }) => {
   const [title, setTitle] = useState(initialTitle);
   const [description, setDescription] = useState(initialDescription);
@@ -44,7 +46,7 @@ const SaveProgramModal: React.FC<SaveProgramModalProps> = ({
     try {
       setSaving(true);
       setError(null);
-      await saveProgram(userId, title.trim(), description.trim() || undefined, config, venues, cards);
+      await saveProgram(userId, title.trim(), description.trim() || undefined, config, venues, cards, eventId);
       onSave();
     } catch (err: any) {
       setError(err.message || 'Failed to save program');

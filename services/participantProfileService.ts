@@ -162,6 +162,31 @@ export const getParticipantProfile = async (userId: string): Promise<Participant
   }
 };
 
+export const getParticipantNamesByUserIds = async (
+  userIds: string[]
+): Promise<Record<string, string>> => {
+  if (!userIds || userIds.length === 0) {
+    return {};
+  }
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select('user_id, full_name')
+    .in('user_id', userIds);
+
+  if (error) {
+    console.error('Error fetching participant names:', error);
+    throw error;
+  }
+
+  const map: Record<string, string> = {};
+  (data || []).forEach((row: any) => {
+    if (row.user_id) {
+      map[row.user_id] = row.full_name || '—';
+    }
+  });
+  return map;
+};
+
 /**
  * Delete participant profile
  */

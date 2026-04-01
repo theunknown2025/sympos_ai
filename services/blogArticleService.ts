@@ -95,7 +95,17 @@ export const saveBlogArticle = async (
       insertData.featured_image = cleanedArticle.featuredImage;
     }
     if (cleanedArticle.publishedAt !== undefined) {
-      insertData.published_at = cleanedArticle.publishedAt.toISOString();
+      // Convert to Date if it's not already a Date object
+      let publishedDate: Date | null = null;
+      if (cleanedArticle.publishedAt instanceof Date) {
+        publishedDate = cleanedArticle.publishedAt;
+      } else if (typeof cleanedArticle.publishedAt === 'string') {
+        publishedDate = new Date(cleanedArticle.publishedAt);
+      }
+      
+      if (publishedDate && !isNaN(publishedDate.getTime())) {
+        insertData.published_at = publishedDate.toISOString();
+      }
     }
     if (cleanedArticle.tags !== undefined) {
       insertData.tags = JSON.stringify(cleanedArticle.tags);
@@ -164,10 +174,30 @@ export const updateBlogArticle = async (
     if (cleanedArticle.status !== undefined) {
       updateData.status = cleanedArticle.status;
     }
+    
+    // Handle publishedAt field
     if (cleanedArticle.publishedAt !== undefined) {
-      updateData.published_at = cleanedArticle.publishedAt.toISOString();
-    } else if (cleanedArticle.status === 'published' && cleanedArticle.publishedAt === null) {
-      // Auto-set published_at when status changes to published
+      if (cleanedArticle.publishedAt === null) {
+        // Explicitly set to null to clear the published date
+        updateData.published_at = null;
+      } else {
+        // Convert to Date if it's not already a Date object
+        let publishedDate: Date | null = null;
+        if (cleanedArticle.publishedAt instanceof Date) {
+          publishedDate = cleanedArticle.publishedAt;
+        } else if (typeof cleanedArticle.publishedAt === 'string') {
+          publishedDate = new Date(cleanedArticle.publishedAt);
+        } else {
+          // Invalid type, skip
+          console.warn('Invalid publishedAt type:', typeof cleanedArticle.publishedAt);
+        }
+        
+        if (publishedDate && !isNaN(publishedDate.getTime())) {
+          updateData.published_at = publishedDate.toISOString();
+        }
+      }
+    } else if (cleanedArticle.status === 'published') {
+      // Auto-set published_at when status changes to published and publishedAt is not provided
       const { data: existing } = await supabase
         .from(TABLE_NAME)
         .select('published_at')

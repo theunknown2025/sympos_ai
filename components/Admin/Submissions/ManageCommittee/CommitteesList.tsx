@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Users, FileText, Edit, Trash2, Loader2, AlertCircle, X, UserCircle } from 'lucide-react';
+import { Users, FileText, Edit, Trash2, Loader2, AlertCircle, X, UserCircle, Crown } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
 import { getCommittees, deleteCommittee, updateCommittee } from '../../../../services/committeeService';
 import { getCommitteeMembers } from '../../../../services/committeeMemberService';
@@ -130,9 +130,12 @@ const CommitteesList: React.FC<CommitteesListProps> = ({ onEdit, onDelete, refre
       // Update the field to remove the member
       const updatedFields = committee.fieldsOfIntervention.map(field => {
         if (field.id === fieldId) {
+          const nextChair =
+            field.chairMemberId === memberId ? null : field.chairMemberId;
           return {
             ...field,
-            memberIds: field.memberIds.filter(id => id !== memberId)
+            memberIds: field.memberIds.filter(id => id !== memberId),
+            chairMemberId: nextChair
           };
         }
         return field;
@@ -261,7 +264,13 @@ const CommitteesList: React.FC<CommitteesListProps> = ({ onEdit, onDelete, refre
                         'grid-cols-4'
                       }`}>
                         {committee.fieldsOfIntervention.map((field, index) => {
-                          const fieldMembers = field.memberIds
+                          const chairMember = field.chairMemberId
+                            ? membersMap.get(field.chairMemberId)
+                            : undefined;
+                          const otherMemberIds = field.memberIds.filter(
+                            id => id !== field.chairMemberId
+                          );
+                          const fieldMembers = otherMemberIds
                             .map(id => membersMap.get(id))
                             .filter((m): m is ReviewCommitteeMember => m !== undefined);
                           
@@ -279,6 +288,50 @@ const CommitteesList: React.FC<CommitteesListProps> = ({ onEdit, onDelete, refre
                                   </span>
                                 </div>
                               </div>
+
+                              {field.chairMemberId && (
+                                <div className="mb-2 pb-2 border-b border-slate-200/80">
+                                  <p className="text-[10px] font-medium uppercase tracking-wide text-amber-700 mb-1 flex items-center gap-1">
+                                    <Crown size={12} />
+                                    Sub-committee chair
+                                  </p>
+                                  {chairMember ? (
+                                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-md text-xs">
+                                      <Crown size={14} className="text-amber-600 flex-shrink-0" />
+                                      <span className="font-medium text-slate-900">
+                                        {chairMember.title ? `${chairMember.title} ` : ''}
+                                        {chairMember.firstName} {chairMember.lastName}
+                                      </span>
+                                      <button
+                                        onClick={() =>
+                                          handleRemoveMemberFromField(
+                                            committee.id,
+                                            field.id,
+                                            chairMember.id
+                                          )
+                                        }
+                                        disabled={
+                                          removingMemberId?.committeeId === committee.id &&
+                                          removingMemberId?.fieldId === field.id &&
+                                          removingMemberId?.memberId === chairMember.id
+                                        }
+                                        className="ml-1 text-slate-400 hover:text-red-600 transition-colors disabled:opacity-50"
+                                        title="Remove chair from field"
+                                      >
+                                        {removingMemberId?.committeeId === committee.id &&
+                                        removingMemberId?.fieldId === field.id &&
+                                        removingMemberId?.memberId === chairMember.id ? (
+                                          <Loader2 className="animate-spin" size={12} />
+                                        ) : (
+                                          <X size={12} />
+                                        )}
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-amber-800 italic">Chair not found in members list</p>
+                                  )}
+                                </div>
+                              )}
                               
                               {/* Members in this field */}
                               {fieldMembers.length > 0 ? (

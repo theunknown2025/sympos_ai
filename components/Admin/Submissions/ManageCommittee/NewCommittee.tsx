@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Loader2, AlertCircle, Plus, X, Users, Search, GripVertical, UserCircle, CheckCircle2 } from 'lucide-react';
+import { Save, Loader2, AlertCircle, Plus, X, Users, Search, GripVertical, UserCircle, CheckCircle2, Crown } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
 import { getCommitteeMembers } from '../../../../services/committeeMemberService';
 import { saveCommittee, updateCommittee } from '../../../../services/committeeService';
@@ -24,7 +24,10 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [draggedMember, setDraggedMember] = useState<ReviewCommitteeMember | null>(null);
-  const [dragOverField, setDragOverField] = useState<string | null>(null);
+  const [dragOverTarget, setDragOverTarget] = useState<{
+    fieldId: string;
+    zone: 'chair' | 'members';
+  } | null>(null);
 
   // Initialize form if editing
   useEffect(() => {
@@ -34,7 +37,8 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
       setFields(committee.fieldsOfIntervention.map(field => ({
         id: field.id,
         name: field.name,
-        memberIds: field.memberIds
+        memberIds: field.memberIds,
+        chairMemberId: field.chairMemberId ?? null
       })));
     }
   }, [committee]);
@@ -88,7 +92,8 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
     const newField: FieldOfIntervention = {
       id: Date.now().toString(),
       name: '',
-      memberIds: []
+      memberIds: [],
+      chairMemberId: null
     };
     setFields([...fields, newField]);
   };
@@ -106,13 +111,17 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
   const toggleMemberInField = (fieldId: string, memberId: string) => {
     setFields(fields.map(f => {
       if (f.id !== fieldId) return f;
-      
+
       const isSelected = f.memberIds.includes(memberId);
+      const nextIds = isSelected
+        ? f.memberIds.filter(id => id !== memberId)
+        : [...f.memberIds, memberId];
+      const nextChair =
+        isSelected && f.chairMemberId === memberId ? null : f.chairMemberId;
       return {
         ...f,
-        memberIds: isSelected
-          ? f.memberIds.filter(id => id !== memberId)
-          : [...f.memberIds, memberId]
+        memberIds: nextIds,
+        chairMemberId: nextChair
       };
     }));
   };
@@ -124,44 +133,69 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
     e.dataTransfer.setData('text/plain', member.id);
   };
 
-  const handleDragOver = (e: React.DragEvent, fieldId: string) => {
+  const handleDragOver = (
+    e: React.DragEvent,
+    fieldId: string,
+    zone: 'chair' | 'members'
+  ) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    setDragOverField(fieldId);
+    setDragOverTarget({ fieldId, zone });
   };
 
-  const handleDragLeave = () => {
-    setDragOverField(null);
+  const handleDragLeave = (e: React.DragEvent) => {
+    const related = e.relatedTarget as Node | null;
+    if (related && e.currentTarget.contains(related)) return;
+    setDragOverTarget(null);
   };
 
-  const handleDrop = (e: React.DragEvent, fieldId: string) => {
+  const handleDrop = (
+    e: React.DragEvent,
+    fieldId: string,
+    zone: 'chair' | 'members'
+  ) => {
     e.preventDefault();
-    setDragOverField(null);
-    
+    setDragOverTarget(null);
+
     if (!draggedMember) return;
 
-    setFields(fields.map(f => {
-      if (f.id !== fieldId) return f;
-      
-      // Add member if not already in this field
-      if (!f.memberIds.includes(draggedMember.id)) {
-        return {
-          ...f,
-          memberIds: [...f.memberIds, draggedMember.id]
-        };
-      }
-      return f;
-    }));
-    
+    setFields(prev =>
+      prev.map(f => {
+        if (f.id !== fieldId) return f;
+
+        if (zone === 'chair') {
+          const id = draggedMember.id;
+          const memberIds = f.memberIds.includes(id)
+            ? f.memberIds
+            : [...f.memberIds, id];
+          return { ...f, chairMemberId: id, memberIds };
+        }
+
+        if (!f.memberIds.includes(draggedMember.id)) {
+          return {
+            ...f,
+            memberIds: [...f.memberIds, draggedMember.id]
+          };
+        }
+        return f;
+      })
+    );
+
     setDraggedMember(null);
+  };
+
+  const removeChairFromField = (fieldId: string) => {
+    setFields(fields.map(f => (f.id === fieldId ? { ...f, chairMemberId: null } : f)));
   };
 
   const removeMemberFromField = (fieldId: string, memberId: string) => {
     setFields(fields.map(f => {
       if (f.id !== fieldId) return f;
+      const nextChair = f.chairMemberId === memberId ? null : f.chairMemberId;
       return {
         ...f,
-        memberIds: f.memberIds.filter(id => id !== memberId)
+        memberIds: f.memberIds.filter(id => id !== memberId),
+        chairMemberId: nextChair
       };
     }));
   };
@@ -186,6 +220,16 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
       return;
     }
 
+    const fieldsMissingChair = fields.filter(
+      f => f.name.trim() && !f.chairMemberId
+    );
+    if (fieldsMissingChair.length > 0) {
+      setError(
+        'Each field of intervention must have a sub-committee chair. Drag a member from the list onto the chair slot.'
+      );
+      return;
+    }
+
     if (!currentUser?.id) {
       setError('You must be logged in to save committees');
       return;
@@ -199,11 +243,19 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
       const committeeData = {
         name: name.trim(),
         description: description.trim() || undefined,
-        fieldsOfIntervention: fields.map(f => ({
-          id: f.id,
-          name: f.name.trim(),
-          memberIds: f.memberIds
-        }))
+        fieldsOfIntervention: fields.map(f => {
+          const chairId = f.chairMemberId ?? null;
+          const memberIds =
+            chairId && !f.memberIds.includes(chairId)
+              ? [...f.memberIds, chairId]
+              : f.memberIds;
+          return {
+            id: f.id,
+            name: f.name.trim(),
+            memberIds,
+            chairMemberId: chairId
+          };
+        })
       };
 
       if (committee) {
@@ -340,52 +392,112 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
                     </button>
                   </div>
 
-                  {/* Drop Zone for Members */}
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      Members in this Field
+                  {/* Sub-committee chair: exactly one per field */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                      <Crown size={16} className="text-amber-600" />
+                      Sub-committee chair
+                      <span className="text-red-500">*</span>
                     </label>
                     <div
-                      onDragOver={(e) => handleDragOver(e, field.id)}
+                      onDragOver={(e) => handleDragOver(e, field.id, 'chair')}
                       onDragLeave={handleDragLeave}
-                      onDrop={(e) => handleDrop(e, field.id)}
+                      onDrop={(e) => handleDrop(e, field.id, 'chair')}
+                      className={`min-h-[88px] p-3 border-2 border-dashed rounded-lg transition-colors ${
+                        dragOverTarget?.fieldId === field.id &&
+                        dragOverTarget?.zone === 'chair'
+                          ? 'border-amber-500 bg-amber-50'
+                          : 'border-amber-200 bg-amber-50/40'
+                      }`}
+                    >
+                      {field.chairMemberId ? (
+                        (() => {
+                          const chair = getMemberById(field.chairMemberId);
+                          if (!chair) {
+                            return (
+                              <p className="text-sm text-amber-800">
+                                Unknown member — remove and assign another chair.
+                              </p>
+                            );
+                          }
+                          return (
+                            <div className="flex items-center gap-2 px-3 py-2 bg-white border border-amber-300 rounded-lg text-sm w-fit">
+                              <Crown size={16} className="text-amber-600 flex-shrink-0" />
+                              <span className="font-medium text-slate-900">
+                                {chair.title ? `${chair.title} ` : ''}
+                                {chair.firstName} {chair.lastName}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removeChairFromField(field.id)}
+                                className="ml-1 text-slate-400 hover:text-red-600 transition-colors"
+                                title="Remove chair (member stays in members list if added there)"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          );
+                        })()
+                      ) : (
+                        <div className="text-center py-4 text-slate-500">
+                          <Crown size={22} className="mx-auto mb-2 text-amber-500/70" />
+                          <p className="text-sm">Drag one member here to set the chair</p>
+                          <p className="text-xs text-slate-400 mt-1">Only one chair per sub-committee</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Drop zone: other members */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">
+                      Members in this field
+                    </label>
+                    <div
+                      onDragOver={(e) => handleDragOver(e, field.id, 'members')}
+                      onDragLeave={handleDragLeave}
+                      onDrop={(e) => handleDrop(e, field.id, 'members')}
                       className={`min-h-[120px] p-3 border-2 border-dashed rounded-lg transition-colors ${
-                        dragOverField === field.id
+                        dragOverTarget?.fieldId === field.id &&
+                        dragOverTarget?.zone === 'members'
                           ? 'border-indigo-500 bg-indigo-50'
                           : 'border-slate-300 bg-slate-50'
                       }`}
                     >
-                      {field.memberIds.length === 0 ? (
+                      {field.memberIds.filter((id) => id !== field.chairMemberId).length ===
+                      0 ? (
                         <div className="text-center py-6 text-slate-400">
                           <Users size={24} className="mx-auto mb-2 opacity-50" />
-                          <p className="text-sm">Drag members here or drop from the list</p>
+                          <p className="text-sm">Drag more members here (optional)</p>
                         </div>
                       ) : (
                         <div className="flex flex-wrap gap-2">
-                          {field.memberIds.map((memberId) => {
-                            const member = getMemberById(memberId);
-                            if (!member) return null;
-                            return (
-                              <div
-                                key={memberId}
-                                className="flex items-center gap-2 px-3 py-1.5 bg-white border border-indigo-200 rounded-lg text-sm"
-                              >
-                                <UserCircle size={16} className="text-indigo-600" />
-                                <span className="font-medium text-slate-900">
-                                  {member.title ? `${member.title} ` : ''}
-                                  {member.firstName} {member.lastName}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => removeMemberFromField(field.id, memberId)}
-                                  className="ml-1 text-slate-400 hover:text-red-600 transition-colors"
-                                  title="Remove member"
+                          {field.memberIds
+                            .filter((memberId) => memberId !== field.chairMemberId)
+                            .map((memberId) => {
+                              const member = getMemberById(memberId);
+                              if (!member) return null;
+                              return (
+                                <div
+                                  key={memberId}
+                                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-indigo-200 rounded-lg text-sm"
                                 >
-                                  <X size={14} />
-                                </button>
-                              </div>
-                            );
-                          })}
+                                  <UserCircle size={16} className="text-indigo-600" />
+                                  <span className="font-medium text-slate-900">
+                                    {member.title ? `${member.title} ` : ''}
+                                    {member.firstName} {member.lastName}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeMemberFromField(field.id, memberId)}
+                                    className="ml-1 text-slate-400 hover:text-red-600 transition-colors"
+                                    title="Remove member"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              );
+                            })}
                         </div>
                       )}
                     </div>
@@ -473,6 +585,10 @@ const NewCommittee: React.FC<NewCommitteeProps> = ({ committee, onSuccess, onClo
                       key={member.id}
                       draggable
                       onDragStart={(e) => handleDragStart(e, member)}
+                      onDragEnd={() => {
+                        setDraggedMember(null);
+                        setDragOverTarget(null);
+                      }}
                       className={`flex items-center gap-3 p-3 border rounded-lg cursor-move transition-all hover:shadow-md ${
                         draggedMember?.id === member.id
                           ? 'opacity-50 border-indigo-300 bg-indigo-50'

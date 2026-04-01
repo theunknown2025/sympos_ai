@@ -103,9 +103,22 @@ export const getCommittees = async (userId: string): Promise<Committee[]> => {
     
     return data.map(doc => {
       // Deserialize fields of intervention from Supabase storage
-      const fieldsOfIntervention: FieldOfIntervention[] = doc.fields_of_intervention 
-        ? JSON.parse(doc.fields_of_intervention as string) 
-        : [];
+      let fieldsOfIntervention: FieldOfIntervention[] = [];
+      try {
+        if (doc.fields_of_intervention) {
+          // Handle both string and already-parsed object cases
+          if (typeof doc.fields_of_intervention === 'string') {
+            fieldsOfIntervention = JSON.parse(doc.fields_of_intervention);
+          } else if (Array.isArray(doc.fields_of_intervention)) {
+            fieldsOfIntervention = doc.fields_of_intervention;
+          } else if (typeof doc.fields_of_intervention === 'object') {
+            fieldsOfIntervention = [doc.fields_of_intervention];
+          }
+        }
+      } catch (parseError) {
+        console.error('Error parsing fields_of_intervention for committee:', doc.id, parseError);
+        fieldsOfIntervention = [];
+      }
       
       return {
         id: doc.id,
@@ -119,6 +132,60 @@ export const getCommittees = async (userId: string): Promise<Committee[]> => {
     });
   } catch (error: any) {
     console.error('Error getting committees:', error);
+    throw new Error(error.message || 'Failed to get committees');
+  }
+};
+
+/**
+ * Minimal committee rows for dashboard stats (member counts only).
+ */
+export const getCommitteesForDashboard = async (userId: string): Promise<Committee[]> => {
+  try {
+    const { data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('id, fields_of_intervention')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data) {
+      return [];
+    }
+
+    const placeholder = new Date(0);
+
+    return data.map((doc) => {
+      let fieldsOfIntervention: FieldOfIntervention[] = [];
+      try {
+        if (doc.fields_of_intervention) {
+          if (typeof doc.fields_of_intervention === 'string') {
+            fieldsOfIntervention = JSON.parse(doc.fields_of_intervention);
+          } else if (Array.isArray(doc.fields_of_intervention)) {
+            fieldsOfIntervention = doc.fields_of_intervention;
+          } else if (typeof doc.fields_of_intervention === 'object') {
+            fieldsOfIntervention = [doc.fields_of_intervention];
+          }
+        }
+      } catch (parseError) {
+        console.error('Error parsing fields_of_intervention for committee:', doc.id, parseError);
+        fieldsOfIntervention = [];
+      }
+
+      return {
+        id: doc.id,
+        userId,
+        name: '',
+        description: undefined,
+        fieldsOfIntervention,
+        createdAt: placeholder,
+        updatedAt: placeholder,
+      } as Committee;
+    });
+  } catch (error: any) {
+    console.error('Error getting committees for dashboard:', error);
     throw new Error(error.message || 'Failed to get committees');
   }
 };
@@ -146,9 +213,22 @@ export const getCommittee = async (committeeId: string): Promise<Committee | nul
     }
     
     // Deserialize fields of intervention from Supabase storage
-    const fieldsOfIntervention: FieldOfIntervention[] = data.fields_of_intervention 
-      ? JSON.parse(data.fields_of_intervention as string) 
-      : [];
+    let fieldsOfIntervention: FieldOfIntervention[] = [];
+    try {
+      if (data.fields_of_intervention) {
+        // Handle both string and already-parsed object cases
+        if (typeof data.fields_of_intervention === 'string') {
+          fieldsOfIntervention = JSON.parse(data.fields_of_intervention);
+        } else if (Array.isArray(data.fields_of_intervention)) {
+          fieldsOfIntervention = data.fields_of_intervention;
+        } else if (typeof data.fields_of_intervention === 'object') {
+          fieldsOfIntervention = [data.fields_of_intervention];
+        }
+      }
+    } catch (parseError) {
+      console.error('Error parsing fields_of_intervention for committee:', data.id, parseError);
+      fieldsOfIntervention = [];
+    }
     
     return {
       id: data.id,

@@ -398,7 +398,13 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
         <button
           type="button"
           onClick={() => setBadgerOpen(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm transition-colors"
+          disabled={selectedEvent === 'all'}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${
+            selectedEvent === 'all'
+              ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
+              : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+          }`}
+          title={selectedEvent === 'all' ? 'Please select an event first' : 'Open QR scanner'}
         >
           <Camera size={16} />
           Use Badger

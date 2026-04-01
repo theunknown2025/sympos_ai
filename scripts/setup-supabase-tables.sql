@@ -247,7 +247,7 @@ CREATE TABLE IF NOT EXISTS committees (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   description TEXT,
-  fields_of_intervention TEXT NOT NULL DEFAULT '[]', -- JSON string: FieldOfIntervention[]
+  fields_of_intervention TEXT NOT NULL DEFAULT '[]', -- JSON: FieldOfIntervention[] (id, name, memberIds, chairMemberId?)
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

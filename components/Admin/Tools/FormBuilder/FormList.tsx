@@ -29,6 +29,7 @@ import {
   getEvaluationForm,
   EvaluationForm
 } from '../../../../services/evaluationFormService';
+import { getPayments, type Payment } from '../../../../services/paymentService';
 import FormFiltersComponent, { FormFilters } from './FormFilters';
 import FormEdit from './FormEdit';
 
@@ -305,14 +306,30 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
     minFields: '',
     maxFields: '',
   });
+  const [offers, setOffers] = useState<Payment[]>([]);
+  const [loadingOffers, setLoadingOffers] = useState(false);
 
   useEffect(() => {
     if (currentUser) {
       loadForms(currentUser.id);
+      loadOffers();
     } else {
       setLoading(false);
     }
   }, [currentUser]);
+
+  const loadOffers = async () => {
+    if (!currentUser) return;
+    setLoadingOffers(true);
+    try {
+      const paymentOffers = await getPayments(currentUser.id);
+      setOffers(paymentOffers);
+    } catch (error: any) {
+      console.error('Error loading offers:', error);
+    } finally {
+      setLoadingOffers(false);
+    }
+  };
 
   // Reload forms when refreshTrigger changes
   useEffect(() => {
@@ -647,6 +664,38 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
             disabled
           />
         )}
+        {field.type === 'paiement' && (
+          <div className="border border-indigo-200 rounded-lg p-4 bg-indigo-50">
+            {loadingOffers ? (
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <Loader2 className="animate-spin" size={16} />
+                <span>Loading payment information...</span>
+              </div>
+            ) : offers.length > 0 ? (
+              <div className="space-y-3">
+                <select
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                  disabled
+                  defaultValue={field.selectedOfferId || ''}
+                >
+                  <option value="">Select an offer</option>
+                  {offers.map((offer) => (
+                    <option key={offer.id} value={offer.id}>
+                      {offer.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-slate-500 italic">
+                  In preview mode, users will select an offer from this dropdown
+                </p>
+              </div>
+            ) : (
+              <p className="text-sm text-amber-600">
+                No offers available. Please create offers in Payment Management.
+              </p>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -958,6 +1007,7 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
       {editingFormId && (
         <FormEdit
           formId={editingFormId}
+          onFormIdChange={setEditingFormId}
           onClose={handleEditClose}
           onSave={handleEditSave}
           onCancel={handleEditClose}

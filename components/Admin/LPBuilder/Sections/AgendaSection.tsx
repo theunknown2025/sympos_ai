@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AgendaDay, Speaker } from '../../../../types';
 import { Clock, MapPin, User, Calendar, FileText, Download } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
-import { generateProgramPDF } from '../../Tools/ProgramBuilder/generateProgramPDF';
+import { generateProgramPDF } from '../../Submissions/ProgramBuilder/generateProgramPDF';
 import { getProgramById, type SavedProgram } from '../../../../services/programService';
 import { useAuth } from '../../../../hooks/useAuth';
 

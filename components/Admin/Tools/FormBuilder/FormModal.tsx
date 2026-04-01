@@ -5,6 +5,7 @@ import { getRegistrationForm } from '../../../../services/registrationFormServic
 import { saveFormSubmission } from '../../../../services/registrationSubmissionService';
 import { uploadFileToStorage } from '../../../../services/storageService';
 import { sendCopyOfAnswers, sendConfirmationEmail } from '../../../../services/emailService';
+import { getPayments, type Payment } from '../../../../services/paymentService';
 import { useAuth } from '../../../../hooks/useAuth';
 
 interface FormModalProps {
@@ -23,6 +24,8 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
   const [success, setSuccess] = useState(false);
   const { currentUser } = useAuth();
   const [uploadingFiles, setUploadingFiles] = useState<{ [fieldId: string]: boolean }>({});
+  const [offers, setOffers] = useState<Payment[]>([]);
+  const [loadingOffers, setLoadingOffers] = useState(false);
 
   // Subscription type and role state - default to 'self' (Subscription Details section removed)
   const [subscriptionType] = useState<SubscriptionType>('self');
@@ -40,7 +43,23 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
 
   useEffect(() => {
     loadForm();
+    if (currentUser) {
+      loadOffers();
+    }
   }, [formId, currentUser]);
+
+  const loadOffers = async () => {
+    if (!currentUser) return;
+    setLoadingOffers(true);
+    try {
+      const paymentOffers = await getPayments(currentUser.id);
+      setOffers(paymentOffers);
+    } catch (error: any) {
+      console.error('Error loading offers:', error);
+    } finally {
+      setLoadingOffers(false);
+    }
+  };
 
   const loadForm = async () => {
     try {
@@ -780,6 +799,79 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
             required={field.required}
             className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
+        )}
+        {field.type === 'paiement' && (
+          <div className="border border-indigo-200 rounded-lg p-4 bg-indigo-50 space-y-3">
+            {loadingOffers ? (
+              <div className="flex items-center gap-2 text-sm text-slate-600">
+                <Loader2 className="animate-spin" size={16} />
+                <span>Loading payment information...</span>
+              </div>
+            ) : field.selectedOfferId ? (
+              (() => {
+                const selectedOffer = offers.find(o => o.id === field.selectedOfferId);
+                if (selectedOffer) {
+                  const components = selectedOffer.components || [];
+                  return (
+                    <>
+                      <div className="mb-2">
+                        <p className="text-sm font-medium text-slate-700">Offer: {selectedOffer.name}</p>
+                        {selectedOffer.description && (
+                          <p className="text-xs text-slate-600 mt-1">{selectedOffer.description}</p>
+                        )}
+                      </div>
+                      {components.length > 0 ? (
+                        <select
+                          value={answers[field.id] || ''}
+                          onChange={(e) => handleFieldChange(field.id, e.target.value)}
+                          required={field.required}
+                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+                        >
+                          <option value="">Select a component</option>
+                          {components.map((component) => (
+                            <option key={component.id} value={component.id}>
+                              {component.label} {component.value ? `(${component.value})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <p className="text-sm text-amber-600">
+                          No components available for this offer.
+                        </p>
+                      )}
+                      {answers[field.id] && (() => {
+                        const selectedComponent = components.find(c => c.id === answers[field.id]);
+                        if (selectedComponent) {
+                          return (
+                            <div className="pt-2 border-t border-indigo-200">
+                              <p className="text-xs font-medium text-slate-600 mb-1">Selected Component:</p>
+                              <div className="p-2 bg-white rounded border border-slate-200">
+                                <p className="text-sm font-medium text-slate-900">{selectedComponent.label}</p>
+                                {selectedComponent.value && (
+                                  <p className="text-sm text-slate-700 mt-1">Value: {selectedComponent.value}</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+                    </>
+                  );
+                } else {
+                  return (
+                    <p className="text-sm text-amber-600">
+                      Selected offer not found. Please contact the administrator.
+                    </p>
+                  );
+                }
+              })()
+            ) : (
+              <p className="text-sm text-amber-600">
+                No offer selected. Please select an offer in the form builder.
+              </p>
+            )}
+          </div>
         )}
       </div>
     );

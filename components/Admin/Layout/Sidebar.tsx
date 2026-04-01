@@ -29,7 +29,11 @@ import {
   Mail,
   Send,
   Code,
-  BookOpen
+  BookOpen,
+  Presentation,
+  CreditCard,
+  Plus,
+  MessageSquare
 } from 'lucide-react';
 import { ViewState } from '../../../types';
 
@@ -133,6 +137,8 @@ interface SidebarProps {
   eventsExpanded: boolean;
   projectManagementExpanded: boolean;
   participantToolsExpanded: boolean;
+  paiementManagementExpanded: boolean;
+  academyExpanded: boolean;
   onNavigateToView: (viewState: ViewState, routeParams?: Record<string, string>) => void;
   onToggleDashboard: () => void;
   onToggleRegistrations: () => void;
@@ -143,6 +149,8 @@ interface SidebarProps {
   onToggleEvents: () => void;
   onToggleProjectManagement: () => void;
   onToggleParticipantTools: () => void;
+  onTogglePaiementManagement: () => void;
+  onToggleAcademy: () => void;
   onSignOut: () => void;
 }
 
@@ -159,6 +167,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   eventsExpanded,
   projectManagementExpanded,
   participantToolsExpanded,
+  paiementManagementExpanded,
+  academyExpanded,
   onNavigateToView,
   onToggleDashboard,
   onToggleRegistrations,
@@ -169,6 +179,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleEvents,
   onToggleProjectManagement,
   onToggleParticipantTools,
+  onTogglePaiementManagement,
+  onToggleAcademy,
   onSignOut,
 }) => {
   return (
@@ -197,7 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <ExpandableSidebarItem
                   icon={LayoutDashboard}
                   label="Dashboard"
-                  active={currentView === ViewState.DASHBOARD || currentView === ViewState.ORGANIZER_PROFILE}
+                  active={currentView === ViewState.DASHBOARD}
                   expanded={dashboardExpanded}
                   onToggle={onToggleDashboard}
                   subItems={[
@@ -207,12 +219,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       view: ViewState.DASHBOARD,
                       active: currentView === ViewState.DASHBOARD,
                     },
-                    {
-                      icon: User,
-                      label: 'Profile',
-                      view: ViewState.ORGANIZER_PROFILE,
-                      active: currentView === ViewState.ORGANIZER_PROFILE,
-                    },
                   ]}
                   onSubItemClick={onNavigateToView}
                 />
@@ -220,8 +226,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <SidebarItem 
                   icon={LayoutDashboard} 
                   label="" 
-                  active={currentView === ViewState.DASHBOARD || currentView === ViewState.ORGANIZER_PROFILE} 
+                  active={currentView === ViewState.DASHBOARD} 
                   onClick={onToggleDashboard} 
+                />
+              )}
+              {sidebarOpen ? (
+                <SidebarItem
+                  icon={FolderOpen}
+                  label="Profile Folder"
+                  active={currentView === ViewState.ENTITY_PROFILE}
+                  onClick={() => onNavigateToView(ViewState.ENTITY_PROFILE)}
+                />
+              ) : (
+                <SidebarItem 
+                  icon={FolderOpen} 
+                  label="" 
+                  active={currentView === ViewState.ENTITY_PROFILE} 
+                  onClick={() => onNavigateToView(ViewState.ENTITY_PROFILE)} 
                 />
               )}
               {sidebarOpen ? (
@@ -239,12 +260,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => onNavigateToView(ViewState.EVENT_MANAGEMENT)} 
                 />
               )}
-              <SidebarItem 
-                icon={GraduationCap} 
-                label={sidebarOpen ? "Academy - LMS" : ""} 
-                active={currentView === ViewState.ACADEMY_LMS} 
-                onClick={() => onNavigateToView(ViewState.ACADEMY_LMS)} 
-              />
+              {sidebarOpen ? (
+                <ExpandableSidebarItem
+                  icon={GraduationCap}
+                  label="Academy - LMS"
+                  active={currentView === ViewState.ACADEMY_COURSE_MANAGER ||
+                         currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER ||
+                         currentView === ViewState.ACADEMY_PAYMENT_MANAGER}
+                  expanded={academyExpanded}
+                  onToggle={onToggleAcademy}
+                  subItems={[
+                    {
+                      icon: BookOpen,
+                      label: 'Course Manager',
+                      view: ViewState.ACADEMY_COURSE_MANAGER,
+                      active: currentView === ViewState.ACADEMY_COURSE_MANAGER,
+                    },
+                    {
+                      icon: Users,
+                      label: 'Enrollment Manager',
+                      view: ViewState.ACADEMY_ENROLLMENT_MANAGER,
+                      active: currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER,
+                    },
+                    {
+                      icon: CreditCard,
+                      label: 'Payment Manager',
+                      view: ViewState.ACADEMY_PAYMENT_MANAGER,
+                      active: currentView === ViewState.ACADEMY_PAYMENT_MANAGER,
+                    },
+                  ]}
+                  onSubItemClick={onNavigateToView}
+                />
+              ) : (
+                <SidebarItem 
+                  icon={GraduationCap} 
+                  label="" 
+                  active={currentView === ViewState.ACADEMY_COURSE_MANAGER ||
+                         currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER ||
+                         currentView === ViewState.ACADEMY_PAYMENT_MANAGER} 
+                  onClick={onToggleAcademy} 
+                />
+              )}
             </>
           ) : (
             <>
@@ -255,6 +311,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 active={currentView === ViewState.JURY_DASHBOARD} 
                 onClick={() => onNavigateToView(ViewState.JURY_DASHBOARD)} 
               />
+              {sidebarOpen ? (
+                <ExpandableSidebarItem
+                  icon={GraduationCap}
+                  label="Academy"
+                  active={
+                    currentView === ViewState.PARTICIPANT_ACADEMY ||
+                    currentView === ViewState.PARTICIPANT_ACADEMY_COURSES
+                  }
+                  expanded={academyExpanded}
+                  onToggle={onToggleAcademy}
+                  subItems={[
+                    {
+                      icon: BookOpen,
+                      label: 'Courses',
+                      view: ViewState.PARTICIPANT_ACADEMY_COURSES,
+                      active: currentView === ViewState.PARTICIPANT_ACADEMY_COURSES,
+                    },
+                  ]}
+                  onSubItemClick={onNavigateToView}
+                />
+              ) : (
+                <SidebarItem
+                  icon={GraduationCap}
+                  label=""
+                  active={
+                    currentView === ViewState.PARTICIPANT_ACADEMY ||
+                    currentView === ViewState.PARTICIPANT_ACADEMY_COURSES
+                  }
+                  onClick={onToggleAcademy}
+                />
+              )}
             </>
           )}
           {/* Organizer-only sidebar items */}
@@ -269,7 +356,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                          currentView === ViewState.SUBMISSIONS_FOLLOW_UP ||
                          currentView === ViewState.SUBMISSIONS_MANAGE ||
                          currentView === ViewState.SUBMISSIONS_MANAGE_COMMITTEE ||
-                         currentView === ViewState.SUBMISSIONS_REPORTING}
+                         currentView === ViewState.SUBMISSIONS_REPORTING ||
+                         currentView === ViewState.PROGRAM_BUILDER}
                   expanded={submissionsExpanded}
                   onToggle={onToggleSubmissions}
                   subItems={[
@@ -303,6 +391,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       view: ViewState.SUBMISSIONS_REPORTING,
                       active: currentView === ViewState.SUBMISSIONS_REPORTING,
                     },
+                    {
+                      icon: Calendar,
+                      label: 'Program Builder',
+                      view: ViewState.PROGRAM_BUILDER,
+                      active: currentView === ViewState.PROGRAM_BUILDER,
+                    },
                   ]}
                   onSubItemClick={onNavigateToView}
                 />
@@ -315,7 +409,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                          currentView === ViewState.SUBMISSIONS_FOLLOW_UP ||
                          currentView === ViewState.SUBMISSIONS_MANAGE ||
                          currentView === ViewState.SUBMISSIONS_MANAGE_COMMITTEE ||
-                         currentView === ViewState.SUBMISSIONS_REPORTING} 
+                         currentView === ViewState.SUBMISSIONS_REPORTING ||
+                         currentView === ViewState.PROGRAM_BUILDER} 
                   onClick={onToggleSubmissions} 
                 />
               )}
@@ -354,7 +449,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <ExpandableSidebarItem
                   icon={Wrench}
                   label="Tools"
-                  active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.PROGRAM_BUILDER || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER}
+                  active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER}
                   expanded={toolsExpanded}
                   onToggle={onToggleTools}
                   subItems={[
@@ -369,12 +464,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       label: 'Form Builder',
                       view: ViewState.FORM_BUILDER,
                       active: currentView === ViewState.FORM_BUILDER,
-                    },
-                    {
-                      icon: Calendar,
-                      label: 'Program Builder',
-                      view: ViewState.PROGRAM_BUILDER,
-                      active: currentView === ViewState.PROGRAM_BUILDER,
                     },
                     {
                       icon: FolderOpen,
@@ -400,6 +489,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       view: ViewState.BLOGS,
                       active: currentView === ViewState.BLOGS,
                     },
+                    {
+                      icon: Presentation,
+                      label: 'Presenter',
+                      view: ViewState.PRESENTER,
+                      active: currentView === ViewState.PRESENTER,
+                    },
                   ]}
                   onSubItemClick={(viewState: ViewState) => {
                     if (viewState === ViewState.FORM_BUILDER) {
@@ -415,7 +510,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <SidebarItem 
                   icon={Wrench} 
                   label="" 
-                  active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.PROGRAM_BUILDER || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER || currentView === ViewState.EMAILER || currentView === ViewState.BLOGS} 
+                  active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER || currentView === ViewState.EMAILER || currentView === ViewState.BLOGS || currentView === ViewState.PRESENTER} 
                   onClick={onToggleTools} 
                 />
               )}
@@ -499,6 +594,72 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={onToggleProjectManagement} 
                 />
               )}
+              {sidebarOpen ? (
+                <ExpandableSidebarItem
+                  icon={CreditCard}
+                  label="Paiement Management"
+                  active={currentView === ViewState.PAIEMENT_MANAGEMENT || 
+                         currentView === ViewState.PAIEMENT_INFORMATION ||
+                         currentView === ViewState.NEW_PAIEMENT ||
+                         currentView === ViewState.PAIEMENT_FOLLOW_UP ||
+                         currentView === ViewState.PAIEMENT_GENERATOR}
+                  expanded={paiementManagementExpanded}
+                  onToggle={onTogglePaiementManagement}
+                  subItems={[
+                    {
+                      icon: FileText,
+                      label: 'Paiement Information',
+                      view: ViewState.PAIEMENT_INFORMATION,
+                      active: currentView === ViewState.PAIEMENT_INFORMATION,
+                    },
+                    {
+                      icon: Plus,
+                      label: 'New Offer',
+                      view: ViewState.NEW_PAIEMENT,
+                      active: currentView === ViewState.NEW_PAIEMENT,
+                    },
+                    {
+                      icon: Clock,
+                      label: 'Follow up',
+                      view: ViewState.PAIEMENT_FOLLOW_UP,
+                      active: currentView === ViewState.PAIEMENT_FOLLOW_UP,
+                    },
+                    {
+                      icon: FileEdit,
+                      label: 'Generator',
+                      view: ViewState.PAIEMENT_GENERATOR,
+                      active: currentView === ViewState.PAIEMENT_GENERATOR,
+                    },
+                  ]}
+                  onSubItemClick={onNavigateToView}
+                />
+              ) : (
+                <SidebarItem 
+                  icon={CreditCard} 
+                  label="" 
+                  active={currentView === ViewState.PAIEMENT_MANAGEMENT || 
+                         currentView === ViewState.PAIEMENT_INFORMATION ||
+                         currentView === ViewState.NEW_PAIEMENT ||
+                         currentView === ViewState.PAIEMENT_FOLLOW_UP ||
+                         currentView === ViewState.PAIEMENT_GENERATOR} 
+                  onClick={onTogglePaiementManagement} 
+                />
+              )}
+              {sidebarOpen ? (
+                <SidebarItem
+                  icon={MessageSquare}
+                  label="Messaging"
+                  active={currentView === ViewState.MESSAGING}
+                  onClick={() => onNavigateToView(ViewState.MESSAGING)}
+                />
+              ) : (
+                <SidebarItem 
+                  icon={MessageSquare} 
+                  label="" 
+                  active={currentView === ViewState.MESSAGING} 
+                  onClick={() => onNavigateToView(ViewState.MESSAGING)} 
+                />
+              )}
             </>
           )}
 
@@ -509,7 +670,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <ExpandableSidebarItem
                   icon={Award}
                   label="Participant"
-                  active={currentView === ViewState.JURY || currentView === ViewState.JURY_DASHBOARD || currentView === ViewState.JURY_PROFILE || currentView === ViewState.JURY_INVITATIONS || currentView === ViewState.JURY_EVENTS || currentView === ViewState.JURY_REVIEWS || currentView === ViewState.PARTICIPANT_REGISTRATIONS || currentView === ViewState.PARTICIPANT_SUBMISSIONS}
+                  active={currentView === ViewState.JURY || currentView === ViewState.JURY_DASHBOARD || currentView === ViewState.JURY_PROFILE || currentView === ViewState.JURY_INVITATIONS || currentView === ViewState.JURY_EVENTS || currentView === ViewState.JURY_REVIEWS || currentView === ViewState.PARTICIPANT_REGISTRATIONS || currentView === ViewState.PARTICIPANT_SUBMISSIONS || currentView === ViewState.PARTICIPANT_MESSAGING || currentView === ViewState.PARTICIPANT_ACADEMY}
                   expanded={juryExpanded}
                   onToggle={onToggleJury}
                   subItems={[
@@ -555,6 +716,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       view: ViewState.PARTICIPANT_SUBMISSIONS,
                       active: currentView === ViewState.PARTICIPANT_SUBMISSIONS,
                     },
+                    {
+                      icon: MessageSquare,
+                      label: 'Messages',
+                      view: ViewState.PARTICIPANT_MESSAGING,
+                      active: currentView === ViewState.PARTICIPANT_MESSAGING,
+                    },
+                    {
+                      icon: GraduationCap,
+                      label: 'Academy',
+                      view: ViewState.PARTICIPANT_ACADEMY,
+                      active: currentView === ViewState.PARTICIPANT_ACADEMY,
+                    },
                   ]}
                   onSubItemClick={onNavigateToView}
                 />
@@ -562,7 +735,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <SidebarItem 
                   icon={Award} 
                   label="" 
-                  active={currentView === ViewState.JURY || currentView === ViewState.JURY_DASHBOARD || currentView === ViewState.JURY_PROFILE || currentView === ViewState.JURY_INVITATIONS || currentView === ViewState.JURY_EVENTS || currentView === ViewState.JURY_REVIEWS || currentView === ViewState.PARTICIPANT_REGISTRATIONS || currentView === ViewState.PARTICIPANT_SUBMISSIONS} 
+                  active={currentView === ViewState.JURY || currentView === ViewState.JURY_DASHBOARD || currentView === ViewState.JURY_PROFILE || currentView === ViewState.JURY_INVITATIONS || currentView === ViewState.JURY_EVENTS || currentView === ViewState.JURY_REVIEWS || currentView === ViewState.PARTICIPANT_REGISTRATIONS || currentView === ViewState.PARTICIPANT_SUBMISSIONS || currentView === ViewState.PARTICIPANT_MESSAGING} 
                   onClick={() => onNavigateToView(ViewState.JURY_DASHBOARD)} 
                 />
               )}
@@ -572,7 +745,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <ExpandableSidebarItem
                   icon={Wrench}
                   label="Tools"
-                  active={currentView === ViewState.PARTICIPANT_TOOLS || currentView === ViewState.LATEX_EDITOR}
+                  active={currentView === ViewState.PARTICIPANT_TOOLS || currentView === ViewState.LATEX_EDITOR || currentView === ViewState.CV_BUILDER || currentView === ViewState.PROFILE_BUILDER || currentView === ViewState.PARTICIPANT_BLOG}
                   expanded={participantToolsExpanded}
                   onToggle={onToggleParticipantTools}
                   subItems={[
@@ -582,6 +755,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       view: ViewState.LATEX_EDITOR,
                       active: currentView === ViewState.LATEX_EDITOR,
                     },
+                    {
+                      icon: FileText,
+                      label: 'CV Builder',
+                      view: ViewState.CV_BUILDER,
+                      active: currentView === ViewState.CV_BUILDER,
+                    },
+                    {
+                      icon: User,
+                      label: 'Profile Builder',
+                      view: ViewState.PROFILE_BUILDER,
+                      active: currentView === ViewState.PROFILE_BUILDER,
+                    },
+                    {
+                      icon: BookOpen,
+                      label: 'Blog',
+                      view: ViewState.PARTICIPANT_BLOG,
+                      active: currentView === ViewState.PARTICIPANT_BLOG,
+                    },
                   ]}
                   onSubItemClick={onNavigateToView}
                 />
@@ -589,7 +780,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <SidebarItem 
                   icon={Wrench} 
                   label="" 
-                  active={currentView === ViewState.PARTICIPANT_TOOLS || currentView === ViewState.LATEX_EDITOR} 
+                  active={currentView === ViewState.PARTICIPANT_TOOLS || currentView === ViewState.LATEX_EDITOR || currentView === ViewState.CV_BUILDER || currentView === ViewState.PROFILE_BUILDER || currentView === ViewState.PARTICIPANT_BLOG} 
                   onClick={onToggleParticipantTools} 
                 />
               )}

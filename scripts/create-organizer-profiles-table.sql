@@ -11,19 +11,28 @@ CREATE TABLE IF NOT EXISTS organizer_profiles (
   -- Entity Information
   entity_logo TEXT,
   entity_banner TEXT,
-  entity_name TEXT,
-  entity_email TEXT,
-  entity_phone TEXT,
+  entity_name TEXT, -- Nom officiel de l'université / institution
+  entity_creation_date DATE, -- Date de création
+  entity_legal_status TEXT, -- Statut juridique (publique / privée / fondation / consortium académique)
+  entity_country TEXT, -- Pays
+  entity_city TEXT, -- Ville
+  entity_official_website TEXT, -- Site web officiel
+  entity_email TEXT, -- Email institutionnel
+  entity_phone TEXT, -- Téléphone
   entity_address TEXT,
   entity_websites TEXT DEFAULT '[]', -- JSON array of website URLs
   entity_links TEXT DEFAULT '[]', -- JSON array of link objects {id, name, url}
+  entity_mission TEXT, -- Mission statement
+  entity_vision TEXT, -- Vision statement
+  entity_scientific_domains TEXT DEFAULT '[]', -- JSON array of scientific domains
   
   -- Representative Information
-  representative_full_name TEXT,
-  representative_email TEXT,
-  representative_phone TEXT,
+  representative_photo TEXT, -- Photo
+  representative_full_name TEXT, -- Full Name
+  representative_email TEXT, -- Email
+  representative_phone TEXT, -- Phone number
+  representative_function TEXT, -- Function
   representative_address TEXT,
-  representative_function TEXT,
   
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),

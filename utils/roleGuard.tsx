@@ -78,6 +78,10 @@ export const isOrganizerOnlyView = (viewState: ViewState): boolean => {
     ViewState.PROGRAM_BUILDER,
     ViewState.EVENT_MANAGEMENT,
     ViewState.ACADEMY_LMS,
+    ViewState.ACADEMY_COURSE_MANAGER,
+    ViewState.ACADEMY_ENROLLMENT_MANAGER,
+    ViewState.ACADEMY_PAYMENT_MANAGER,
+    ViewState.ENTITY_PROFILE,
     ViewState.SETTINGS,
   ];
   
@@ -96,6 +100,8 @@ export const isParticipantOnlyView = (viewState: ViewState): boolean => {
     ViewState.JURY_REVIEWS,
     ViewState.PARTICIPANT_REGISTRATIONS,
     ViewState.PARTICIPANT_SUBMISSIONS,
+    ViewState.PARTICIPANT_ACADEMY,
+    ViewState.PARTICIPANT_ACADEMY_COURSES,
   ];
   
   return participantOnlyViews.includes(viewState);

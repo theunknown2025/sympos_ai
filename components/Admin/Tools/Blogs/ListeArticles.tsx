@@ -81,12 +81,12 @@ const ListeArticles: React.FC<ListeArticlesProps> = ({ onEdit, onNew, refreshTri
       const newStatus = article.status === 'published' ? 'draft' : 'published';
       await updateBlogArticle(article.id, {
         status: newStatus,
-        publishedAt: newStatus === 'published' ? new Date() : undefined,
+        publishedAt: newStatus === 'published' ? new Date() : null,
       });
       // Update local state
       setArticles(articles.map(a => 
         a.id === article.id 
-          ? { ...a, status: newStatus, publishedAt: newStatus === 'published' ? new Date() : a.publishedAt }
+          ? { ...a, status: newStatus, publishedAt: newStatus === 'published' ? new Date() : undefined }
           : a
       ));
     } catch (err: any) {
@@ -97,14 +97,17 @@ const ListeArticles: React.FC<ListeArticlesProps> = ({ onEdit, onNew, refreshTri
   };
 
 
-  const formatDate = (date: Date) => {
+  const formatDate = (date: Date | undefined) => {
+    if (!date) return 'N/A';
+    const dateObj = date instanceof Date ? date : new Date(date);
+    if (isNaN(dateObj.getTime())) return 'Invalid Date';
     return new Intl.DateTimeFormat('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    }).format(date);
+    }).format(dateObj);
   };
 
   const getStatusColor = (status: string) => {
