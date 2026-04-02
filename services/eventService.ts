@@ -1,7 +1,21 @@
 import { supabase, TABLES } from '../supabase';
-import { Event, EventPartner, EventDate, EventLink } from '../types';
+import { Event, EventPartner, EventDate, EventLink, SubscriptionRole } from '../types';
 
 const TABLE_NAME = TABLES.EVENTS;
+
+const getOrganizerCampusId = async (organizerUserId: string): Promise<string | null> => {
+  const { data, error } = await supabase
+    .from(TABLES.ORGANIZER_MEMBERSHIPS)
+    .select('campus_id')
+    .eq('organizer_user_id', organizerUserId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || 'Failed to fetch organizer campus');
+  }
+
+  return data?.campus_id ?? null;
+};
 
 /**
  * Remove undefined values from an object recursively
@@ -56,6 +70,9 @@ export const saveEvent = async (
       description: cleanedEvent.description || null,
       location: cleanedEvent.location || null,
     };
+
+    // Store campus_id for campus-scoped administration/subscription enforcement
+    insertData.campus_id = await getOrganizerCampusId(userId);
     
     // Serialize array fields to JSON strings (new columns)
     insertData.keywords = JSON.stringify(cleanedEvent.keywords || []);
@@ -123,6 +140,21 @@ export const updateEvent = async (
     const updateData: any = {
       updated_at: new Date().toISOString(),
     };
+
+    // Keep campus_id aligned with the owning organizer's campus membership
+    const { data: existingEvent, error: existingErr } = await supabase
+      .from(TABLE_NAME)
+      .select('user_id')
+      .eq('id', eventId)
+      .single();
+
+    if (existingErr) {
+      throw existingErr;
+    }
+
+    updateData.campus_id = existingEvent?.user_id
+      ? await getOrganizerCampusId(existingEvent.user_id)
+      : null;
     
     if (cleanedEvent.name !== undefined) updateData.name = cleanedEvent.name.trim();
     if (cleanedEvent.description !== undefined) updateData.description = cleanedEvent.description;
@@ -246,6 +278,7 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
     return {
       id: data.id,
       userId: data.user_id,
+      campusId: data.campus_id || undefined,
       name: data.name,
       description: data.description,
       keywords: deserializeArray(data.keywords) as string[],
@@ -279,17 +312,38 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
 /**
  * Get all events for a user
  */
-export const getUserEvents = async (userId: string): Promise<Event[]> => {
+export const getUserEvents = async (userId: string, userRole?: SubscriptionRole | null): Promise<Event[]> => {
   try {
     if (!userId) {
       throw new Error('User ID is required');
     }
-    
-    const { data, error } = await supabase
+
+    let query = supabase
       .from(TABLE_NAME)
-      .select('*')
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false });
+      .select('*');
+
+    if (userRole === 'SuperAdmin') {
+      // Root super admin can see all events; RLS handles the rest
+    } else if (userRole === 'SubSuperAdmin') {
+      const { data: sm, error: smErr } = await supabase
+        .from(TABLES.SUB_SUPER_ADMIN_MEMBERSHIPS)
+        .select('campus_id')
+        .eq('user_id', userId);
+
+      if (smErr) throw smErr;
+
+      const campusIds = (sm || []).map((r) => r.campus_id).filter(Boolean);
+      if (campusIds.length === 0) {
+        return [];
+      }
+
+      query = query.in('campus_id', campusIds);
+    } else {
+      // Default organizer behavior
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query.order('updated_at', { ascending: false });
     
     if (error) {
       throw error;
@@ -329,6 +383,7 @@ export const getUserEvents = async (userId: string): Promise<Event[]> => {
     return data.map(doc => ({
       id: doc.id,
       userId: doc.user_id,
+      campusId: doc.campus_id || undefined,
       name: doc.name,
       description: doc.description,
       keywords: deserializeArray(doc.keywords) as string[],
@@ -362,19 +417,43 @@ export const getUserEvents = async (userId: string): Promise<Event[]> => {
 /**
  * Lightweight events for dashboard: no banner, partners, dates, or large JSON blobs.
  */
-export const getUserEventsForDashboard = async (userId: string): Promise<Event[]> => {
+export const getUserEventsForDashboard = async (
+  userId: string,
+  userRole?: SubscriptionRole | null
+): Promise<Event[]> => {
   try {
     if (!userId) {
       throw new Error('User ID is required');
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from(TABLE_NAME)
       .select(
-        'id, user_id, name, publish_status, registration_deadline, event_type, event_format, committee_ids, created_at, updated_at'
-      )
-      .eq('user_id', userId)
-      .order('updated_at', { ascending: false });
+        'id, user_id, campus_id, name, publish_status, registration_deadline, event_type, event_format, committee_ids, created_at, updated_at'
+      );
+
+    if (userRole === 'SuperAdmin') {
+      // Root super admin can see all events; RLS handles the rest
+    } else if (userRole === 'SubSuperAdmin') {
+      const { data: sm, error: smErr } = await supabase
+        .from(TABLES.SUB_SUPER_ADMIN_MEMBERSHIPS)
+        .select('campus_id')
+        .eq('user_id', userId);
+
+      if (smErr) throw smErr;
+
+      const campusIds = (sm || []).map((r) => r.campus_id).filter(Boolean);
+      if (campusIds.length === 0) {
+        return [];
+      }
+
+      query = query.in('campus_id', campusIds);
+    } else {
+      // Default organizer behavior
+      query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query.order('updated_at', { ascending: false });
 
     if (error) {
       throw error;
@@ -400,6 +479,7 @@ export const getUserEventsForDashboard = async (userId: string): Promise<Event[]
     return data.map((doc) => ({
       id: doc.id,
       userId: doc.user_id,
+      campusId: doc.campus_id || undefined,
       name: doc.name,
       description: undefined,
       keywords: [],
@@ -440,6 +520,51 @@ export const updateEventPublishStatus = async (
   try {
     if (!eventId) {
       throw new Error('Event ID is required');
+    }
+
+    // Service-level safety check:
+    // - Organizer: can only update their own events
+    // - Sub-super admin: can only update events in their managed campus(es)
+    // - Root super admin: global access
+    const { data: authData, error: authErr } = await supabase.auth.getUser();
+    if (authErr) throw authErr;
+
+    const actorId = authData.user?.id;
+    const actorRole = authData.user?.user_metadata?.role as SubscriptionRole | undefined;
+
+    const { data: eventRow, error: eventErr } = await supabase
+      .from(TABLE_NAME)
+      .select('user_id, campus_id')
+      .eq('id', eventId)
+      .single();
+
+    if (eventErr) throw eventErr;
+    if (!eventRow) throw new Error('Event not found');
+
+    let canUpdate = false;
+    if (actorRole === 'SuperAdmin') {
+      canUpdate = true;
+    } else if (actorRole === 'Organizer') {
+      canUpdate = actorId === eventRow.user_id;
+    } else if (actorRole === 'SubSuperAdmin') {
+      if (actorId && eventRow.campus_id) {
+        const { data: smRow, error: smErr } = await supabase
+          .from(TABLES.SUB_SUPER_ADMIN_MEMBERSHIPS)
+          .select('id')
+          .eq('user_id', actorId)
+          .eq('campus_id', eventRow.campus_id)
+          .maybeSingle();
+
+        if (smErr) throw smErr;
+        canUpdate = !!smRow;
+      }
+    } else {
+      // Fallback: allow only if the actor owns the event
+      canUpdate = actorId === eventRow.user_id;
+    }
+
+    if (!canUpdate) {
+      throw new Error('Not authorized to update this event publish status');
     }
     
     const { error } = await supabase

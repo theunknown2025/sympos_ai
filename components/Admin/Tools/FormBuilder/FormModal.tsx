@@ -7,6 +7,7 @@ import { uploadFileToStorage } from '../../../../services/storageService';
 import { sendCopyOfAnswers, sendConfirmationEmail } from '../../../../services/emailService';
 import { getPayments, type Payment } from '../../../../services/paymentService';
 import { useAuth } from '../../../../hooks/useAuth';
+import { supabase, TABLES } from '../../../../supabase';
 
 interface FormModalProps {
   formId: string;
@@ -292,6 +293,33 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
         },
         answers,
       };
+
+      // Last-mile subscription blocking enforcement:
+      // If the participant's subscription_status is 'blocked' for the event campus, abort submission.
+      if (currentUser?.id) {
+        const { data: eventRow } = await supabase
+          .from(TABLES.EVENTS)
+          .select('campus_id')
+          .eq('id', eventId)
+          .maybeSingle();
+
+        const campusId = eventRow?.campus_id as string | null | undefined;
+        if (campusId) {
+          const { data: membershipRow } = await supabase
+            .from(TABLES.PARTICIPANT_MEMBERSHIPS)
+            .select('subscription_status')
+            .eq('participant_user_id', currentUser.id)
+            .eq('campus_id', campusId)
+            .maybeSingle();
+
+          if (membershipRow?.subscription_status === 'blocked') {
+            const msg = 'Your subscription is blocked for this campus. You cannot submit for this event.';
+            setError(msg);
+            alert(msg);
+            return;
+          }
+        }
+      }
 
       const submissionId = await saveFormSubmission(submission);
       

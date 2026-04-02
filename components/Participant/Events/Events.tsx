@@ -5,6 +5,7 @@ import {
   Clock, X, Edit2
 } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
+import { supabase, TABLES } from '../../../supabase';
 import {
   getJuryMemberProfile,
   getAvailableEvents,
@@ -114,7 +115,7 @@ const Events: React.FC = () => {
       
       // Load events and attendance
       const [eventsData, myEventsData] = await Promise.all([
-        getAvailableEvents(),
+        getAvailableEvents(currentUser.id),
         profile ? getJuryMemberEvents(profile.id) : Promise.resolve([]),
       ]);
       setAvailableEvents(eventsData);
@@ -209,56 +210,86 @@ const Events: React.FC = () => {
     }
   };
 
+  const isParticipantSubscriptionBlockedForCampus = async (campusId?: string): Promise<boolean> => {
+    if (!campusId || !currentUser?.id) return false;
+
+    const { data, error } = await supabase
+      .from(TABLES.PARTICIPANT_MEMBERSHIPS)
+      .select('subscription_status')
+      .eq('participant_user_id', currentUser.id)
+      .eq('campus_id', campusId)
+      .maybeSingle();
+
+    if (error) {
+      // Fail-open to avoid breaking older flows when membership rows aren't present.
+      return false;
+    }
+
+    return data?.subscription_status === 'blocked';
+  };
+
   const handleSubmitPaper = (event: Event) => {
-    if (!event.submissionFormIds || event.submissionFormIds.length === 0) {
-      alert('No submission form available for this event');
-      return;
-    }
+    void (async () => {
+      if (await isParticipantSubscriptionBlockedForCampus(event.campusId)) {
+        alert('Your subscription is blocked for this campus. You cannot submit papers for this event.');
+        return;
+      }
 
-    // Check if user has already submitted for this event
-    const existingSubmission = mySubmissions.find(
-      sub => sub.eventId === event.id && 
-      event.submissionFormIds.includes(sub.formId)
-    );
+      if (!event.submissionFormIds || event.submissionFormIds.length === 0) {
+        alert('No submission form available for this event');
+        return;
+      }
 
-    if (existingSubmission) {
-      // User has already submitted - show modal
+      // Check if user has already submitted for this event
+      const existingSubmission = mySubmissions.find(
+        sub => sub.eventId === event.id && event.submissionFormIds.includes(sub.formId)
+      );
+
+      if (existingSubmission) {
+        // User has already submitted - show modal
+        setSelectedEvent(event);
+        setSelectedSubmission(existingSubmission);
+        setShowAlreadySubmittedModal(true);
+        return;
+      }
+
+      // New submission
       setSelectedEvent(event);
-      setSelectedSubmission(existingSubmission);
-      setShowAlreadySubmittedModal(true);
-      return;
-    }
-
-    // New submission
-    setSelectedEvent(event);
-    setSelectedFormId(event.submissionFormIds[0]);
-    setShowSubmitModal(true);
+      setSelectedFormId(event.submissionFormIds[0]);
+      setShowSubmitModal(true);
+    })();
   };
 
   const handleSubscribe = (event: Event) => {
-    if (!event.registrationFormIds || event.registrationFormIds.length === 0) {
-      alert('No registration form available for this event');
-      return;
-    }
+    void (async () => {
+      if (await isParticipantSubscriptionBlockedForCampus(event.campusId)) {
+        alert('Your subscription is blocked for this campus. You cannot register for this event.');
+        return;
+      }
 
-    // Check if user has already registered for this event
-    const existingRegistration = myRegistrations.find(
-      reg => reg.eventId === event.id && 
-      event.registrationFormIds.includes(reg.formId)
-    );
+      if (!event.registrationFormIds || event.registrationFormIds.length === 0) {
+        alert('No registration form available for this event');
+        return;
+      }
 
-    if (existingRegistration) {
-      // User has already registered - show modal
+      // Check if user has already registered for this event
+      const existingRegistration = myRegistrations.find(
+        reg => reg.eventId === event.id && event.registrationFormIds.includes(reg.formId)
+      );
+
+      if (existingRegistration) {
+        // User has already registered - show modal
+        setSelectedEvent(event);
+        setSelectedRegistration(existingRegistration);
+        setShowAlreadyRegisteredModal(true);
+        return;
+      }
+
+      // New registration
       setSelectedEvent(event);
-      setSelectedRegistration(existingRegistration);
-      setShowAlreadyRegisteredModal(true);
-      return;
-    }
-
-    // New registration
-    setSelectedEvent(event);
-    setSelectedFormId(event.registrationFormIds[0]);
-    setShowSubscribeModal(true);
+      setSelectedFormId(event.registrationFormIds[0]);
+      setShowSubscribeModal(true);
+    })();
   };
 
   const isEventRegistered = (event: Event): boolean => {

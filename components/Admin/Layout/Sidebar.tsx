@@ -35,7 +35,7 @@ import {
   Plus,
   MessageSquare
 } from 'lucide-react';
-import { ViewState } from '../../../types';
+import { SubscriptionRole, ViewState } from '../../../types';
 
 interface SidebarItemProps {
   icon: React.ComponentType<{ size?: number }>;
@@ -127,6 +127,7 @@ const ExpandableSidebarItem: React.FC<ExpandableSidebarItemProps> = ({
 interface SidebarProps {
   sidebarOpen: boolean;
   currentView: ViewState;
+  userRole: SubscriptionRole | null;
   isOrganizer: boolean;
   dashboardExpanded: boolean;
   registrationsExpanded: boolean;
@@ -157,6 +158,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   sidebarOpen,
   currentView,
+  userRole,
   isOrganizer,
   dashboardExpanded,
   registrationsExpanded,
@@ -347,6 +349,45 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Organizer-only sidebar items */}
           {isOrganizer && (
             <>
+              {(userRole === 'SuperAdmin' || userRole === 'SubSuperAdmin') && (
+                sidebarOpen ? (
+                  <ExpandableSidebarItem
+                    icon={Briefcase}
+                    label="Super Admin"
+                    active={
+                      currentView === ViewState.SUPERADMIN_DASHBOARD ||
+                      currentView === ViewState.SUPERADMIN_SUBSCRIPTIONS
+                    }
+                    expanded={dashboardExpanded}
+                    onToggle={onToggleDashboard}
+                    subItems={[
+                      {
+                        icon: LayoutDashboard,
+                        label: 'Dashboard',
+                        view: ViewState.SUPERADMIN_DASHBOARD,
+                        active: currentView === ViewState.SUPERADMIN_DASHBOARD,
+                      },
+                      {
+                        icon: Users,
+                        label: 'Subscriptions',
+                        view: ViewState.SUPERADMIN_SUBSCRIPTIONS,
+                        active: currentView === ViewState.SUPERADMIN_SUBSCRIPTIONS,
+                      },
+                    ]}
+                    onSubItemClick={onNavigateToView}
+                  />
+                ) : (
+                  <SidebarItem
+                    icon={Briefcase}
+                    label=""
+                    active={
+                      currentView === ViewState.SUPERADMIN_DASHBOARD ||
+                      currentView === ViewState.SUPERADMIN_SUBSCRIPTIONS
+                    }
+                    onClick={() => onNavigateToView(ViewState.SUPERADMIN_SUBSCRIPTIONS)}
+                  />
+                )
+              )}
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={FileStack}

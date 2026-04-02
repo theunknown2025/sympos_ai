@@ -288,6 +288,8 @@ export enum ViewState {
   EMAILER = 'emailer',
   BLOGS = 'blogs',
   PRESENTER = 'presenter',
+  SUPERADMIN_DASHBOARD = 'superAdminDashboard',
+  SUPERADMIN_SUBSCRIPTIONS = 'superAdminSubscriptions',
   SETTINGS = 'settings',
   PROJECT_MANAGEMENT = 'projectManagement',
   PERSONNEL_MANAGEMENT = 'personnelManagement',
@@ -391,7 +393,7 @@ export interface RegistrationForm {
 }
 
 export type SubscriptionType = 'self' | 'entity';
-export type SubscriptionRole = 'Organizer' | 'Participant';
+export type SubscriptionRole = 'Organizer' | 'Participant' | 'SuperAdmin' | 'SubSuperAdmin';
 
 export type DecisionStatus = 'accepted' | 'reserved' | 'rejected';
 export type DispatchingStatus = 'pending' | 'dispatched' | 'in_review' | 'completed';
@@ -525,6 +527,7 @@ export type EventFormat = 'Virtual' | 'In-Person' | 'Hybrid';
 export interface Event {
   id: string;
   userId: string;
+  campusId?: string;
   name: string;
   description?: string;
   keywords?: string[]; // Array of keywords

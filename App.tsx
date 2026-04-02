@@ -13,7 +13,7 @@ import ViewCertificate from './components/Admin/Certificates/ViewCertificate';
 import PublicLandingPageViewer from './components/Admin/LPBuilder/Publisher/PublicLandingPageViewer';
 import PublicEntityProfileViewer from './components/Admin/EntityProfile/PublicEntityProfileViewer';
 import PublicProfileViewer from './components/Participant/Tools/ProfileBuilder/PublicProfileViewer';
-import { supabase } from './supabase';
+import { supabase, TABLES } from './supabase';
 import { useAuth } from './hooks/useAuth';
 import { getViewStateFromPath, getRoutePath } from './routes';
 
@@ -22,6 +22,7 @@ const App: React.FC = () => {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { currentUser, userRole, isOrganizer, isParticipant, isLoading: authLoading } = useAuth();
+  const [isOrganizerSubscriptionBlocked, setIsOrganizerSubscriptionBlocked] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const [registrationsExpanded, setRegistrationsExpanded] = useState(false);
@@ -37,6 +38,9 @@ const App: React.FC = () => {
 
   // Get current view from URL
   const currentView = getViewStateFromPath(location.pathname) || ViewState.LANDING_PAGE;
+
+  const effectiveIsOrganizer = isOrganizer && !isOrganizerSubscriptionBlocked;
+  const effectiveIsParticipant = isParticipant || isOrganizerSubscriptionBlocked;
 
   // Auto-expand Participant section when on participant pages
   useEffect(() => {
@@ -103,32 +107,58 @@ const App: React.FC = () => {
   // Initialize auth state and handle role-based redirects
   useEffect(() => {
     if (!authLoading && currentUser && userRole) {
-      setIsInitializing(false);
-      
-      // Get current view
-      const currentView = getViewStateFromPath(location.pathname);
-      
-      // If user is Participant and trying to access Organizer routes, redirect
-      if (isParticipant && currentView && isOrganizerOnlyView(currentView)) {
-        navigate(getRoutePath(ViewState.JURY_DASHBOARD), { replace: true });
-        return;
-      }
-      
-      // If user is Organizer and trying to access Participant-only routes, redirect
-      if (isOrganizer && currentView && isParticipantOnlyView(currentView)) {
-        navigate(getRoutePath(ViewState.DASHBOARD), { replace: true });
-        return;
-      }
-      
-      // If on root and authenticated, redirect based on role
-      if (location.pathname === '/' && currentView === ViewState.LANDING_PAGE) {
-        if (isParticipant) {
-          navigate(getRoutePath(ViewState.JURY_DASHBOARD), { replace: true });
-        } else if (isOrganizer) {
-          navigate(getRoutePath(ViewState.DASHBOARD), { replace: true });
+      const init = async () => {
+        // Organizer route denial when organizer membership is blocked.
+        // We treat blocked organizers as participants for routing purposes.
+        let organizerBlocked = false;
+        if (userRole === 'Organizer') {
+          const { data, error } = await supabase
+            .from(TABLES.ORGANIZER_MEMBERSHIPS)
+            .select('subscription_status')
+            .eq('organizer_user_id', currentUser.id)
+            .maybeSingle();
+
+          if (!error) {
+            organizerBlocked = data?.subscription_status === 'blocked';
+          }
         }
-      }
+
+        setIsOrganizerSubscriptionBlocked(organizerBlocked);
+        
+        // Get current view
+        const currentView = getViewStateFromPath(location.pathname);
+        const effectiveIsOrganizer = isOrganizer && !organizerBlocked;
+        const effectiveIsParticipant = isParticipant || organizerBlocked;
+      
+        // If user is Participant and trying to access Organizer routes, redirect
+        if (effectiveIsParticipant && currentView && isOrganizerOnlyView(currentView)) {
+          navigate(getRoutePath(ViewState.JURY_DASHBOARD), { replace: true });
+          setIsInitializing(false);
+          return;
+        }
+        
+        // If user is Organizer and trying to access Participant-only routes, redirect
+        if (effectiveIsOrganizer && currentView && isParticipantOnlyView(currentView)) {
+          navigate(getRoutePath(ViewState.DASHBOARD), { replace: true });
+          setIsInitializing(false);
+          return;
+        }
+        
+        // If on root and authenticated, redirect based on role
+        if (location.pathname === '/' && currentView === ViewState.LANDING_PAGE) {
+          if (effectiveIsParticipant) {
+            navigate(getRoutePath(ViewState.JURY_DASHBOARD), { replace: true });
+          } else if (effectiveIsOrganizer) {
+            navigate(getRoutePath(ViewState.DASHBOARD), { replace: true });
+          }
+        }
+
+        setIsInitializing(false);
+      };
+
+      init();
     } else if (!authLoading && !currentUser) {
+      setIsOrganizerSubscriptionBlocked(false);
       setIsInitializing(false);
     }
   }, [authLoading, currentUser, userRole, location.pathname, isOrganizer, isParticipant, navigate]);
@@ -234,7 +264,8 @@ const App: React.FC = () => {
       <Sidebar
         sidebarOpen={sidebarOpen}
         currentView={currentView}
-        isOrganizer={isOrganizer}
+        userRole={userRole}
+        isOrganizer={effectiveIsOrganizer}
         dashboardExpanded={dashboardExpanded}
         registrationsExpanded={registrationsExpanded}
         certificatesExpanded={certificatesExpanded}
@@ -273,7 +304,8 @@ const App: React.FC = () => {
         {/* View Content */}
         <div className="flex-1 p-8 overflow-auto">
           <AppRoutes
-            isOrganizer={isOrganizer}
+            isOrganizer={effectiveIsOrganizer}
+            userRole={userRole}
             onNavigateToView={navigateToView}
             onEditPage={handleEditPage}
             onNewPage={handleNewPage}

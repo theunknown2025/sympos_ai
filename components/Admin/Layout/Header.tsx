@@ -16,6 +16,17 @@ export const Header: React.FC<HeaderProps> = ({
   userRole,
   onToggleSidebar,
 }) => {
+  const roleLabel =
+    userRole === 'Organizer'
+      ? 'Organizer'
+      : userRole === 'Participant'
+        ? 'Participant'
+        : userRole === 'SuperAdmin'
+          ? 'Super Admin'
+          : userRole === 'SubSuperAdmin'
+            ? 'Sub-Super Admin'
+            : 'User';
+
   return (
     <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between sticky top-0 z-10">
       <button 
@@ -36,7 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
               {currentUser?.email?.split('@')[0] || 'User'}
             </p>
             <p className="text-xs text-slate-500">
-              {userRole === 'Organizer' ? 'Organizer' : userRole === 'Participant' ? 'Participant' : 'User'}
+              {roleLabel}
             </p>
           </div>
           <div className="w-9 h-9 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-700 font-bold border border-indigo-200 uppercase">

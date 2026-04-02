@@ -39,9 +39,14 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({
     return <>{children}</>;
   }
 
-  if (requiredRole === 'Organizer' && userRole !== 'Organizer') {
-    // Participant trying to access Organizer route - redirect to jury dashboard
-    return <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />;
+  if (requiredRole === 'Organizer') {
+    const isAllowedOrganizerLike =
+      userRole === 'Organizer' || userRole === 'SuperAdmin' || userRole === 'SubSuperAdmin';
+
+    if (!isAllowedOrganizerLike) {
+      // Participant trying to access organizer route - redirect to jury dashboard
+      return <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />;
+    }
   }
 
   if (requiredRole === 'Participant' && userRole !== 'Participant') {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Event } from '../../../types';
 import { getAvailableEvents } from '../../../services/juryMemberService';
+import { useAuth } from '../../../hooks/useAuth';
 import EventFilters from './EventFilters';
 import EventCard from './EventCard';
 import { Loader2, AlertCircle } from 'lucide-react';
@@ -32,6 +33,7 @@ const AllEvents: React.FC<AllEventsProps> = ({
   myRegistrations,
   mySubmissions,
 }) => {
+  const { currentUser } = useAuth();
   const [events, setEvents] = useState<Event[]>([]);
   const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,13 +41,14 @@ const AllEvents: React.FC<AllEventsProps> = ({
 
   useEffect(() => {
     loadEvents();
-  }, []);
+  }, [currentUser?.id]);
 
   const loadEvents = async () => {
     try {
       setLoading(true);
       setError('');
-      const eventsData = await getAvailableEvents();
+      if (!currentUser?.id) return;
+      const eventsData = await getAvailableEvents(currentUser.id);
       setEvents(eventsData);
       setFilteredEvents(eventsData);
     } catch (err: any) {

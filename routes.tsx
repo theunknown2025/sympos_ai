@@ -64,6 +64,8 @@ export const routes: Record<ViewState, string> = {
   [ViewState.PAIEMENT_GENERATOR]: '/paiement-management/generator',
   [ViewState.MESSAGING]: '/messaging',
   [ViewState.PARTICIPANT_MESSAGING]: '/jury/messaging',
+  [ViewState.SUPERADMIN_DASHBOARD]: '/superadmin',
+  [ViewState.SUPERADMIN_SUBSCRIPTIONS]: '/superadmin/subscriptions',
 };
 
 // Helper function to get route path from ViewState

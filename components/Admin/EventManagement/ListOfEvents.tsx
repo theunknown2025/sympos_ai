@@ -39,7 +39,7 @@ const defaultColumns: ColumnConfig[] = [
 ];
 
 const ListOfEvents: React.FC = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, userRole } = useAuth();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -90,7 +90,7 @@ const ListOfEvents: React.FC = () => {
       setError('');
       if (!currentUser?.id) return;
       
-      const userEvents = await getUserEvents(currentUser.id);
+      const userEvents = await getUserEvents(currentUser.id, userRole);
       setEvents(userEvents);
     } catch (err: any) {
       console.error('Error loading events:', err);

@@ -286,13 +286,37 @@ export const confirmEventAttendance = async (
  * Only returns events with publish_status = 'Published' or 'Closed'
  * Draft events are excluded
  */
-export const getAvailableEvents = async (): Promise<any[]> => {
+export const getAvailableEvents = async (participantUserId: string): Promise<any[]> => {
   try {
-    const { data, error } = await supabase
+    // Determine whether the user already has explicit campus memberships.
+    // Backward compatibility: if they have no membership rows yet, fall back to returning
+    // all Published/Closed events (as in the pre-campus model).
+    const { data: memberships, error: membershipErr } = await supabase
+      .from(TABLES.PARTICIPANT_MEMBERSHIPS)
+      .select('campus_id, subscription_status')
+      .eq('participant_user_id', participantUserId);
+
+    if (membershipErr) throw membershipErr;
+
+    const hasAnyMembership = (memberships || []).length > 0;
+    const activeCampusIds = (memberships || [])
+      .filter(m => m.subscription_status === 'active' && !!m.campus_id)
+      .map(m => m.campus_id);
+
+    if (hasAnyMembership && activeCampusIds.length === 0) {
+      return [];
+    }
+
+    let eventsQuery = supabase
       .from(TABLES.EVENTS)
       .select('*')
-      .in('publish_status', ['Published', 'Closed'])
-      .order('created_at', { ascending: false });
+      .in('publish_status', ['Published', 'Closed']);
+
+    if (hasAnyMembership && activeCampusIds.length > 0) {
+      eventsQuery = eventsQuery.in('campus_id', activeCampusIds);
+    }
+
+    const { data, error } = await eventsQuery.order('created_at', { ascending: false });
 
     if (error) {
       throw error;
@@ -332,6 +356,7 @@ export const getAvailableEvents = async (): Promise<any[]> => {
     return data.map((event) => ({
       id: event.id,
       userId: event.user_id,
+      campusId: event.campus_id || undefined,
       name: event.name,
       description: event.description || undefined,
       keywords: deserializeArray(event.keywords) as string[],

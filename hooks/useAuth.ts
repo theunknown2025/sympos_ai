@@ -15,7 +15,7 @@ export const useAuth = () => {
     const role = user.user_metadata?.role as SubscriptionRole;
     
     // Validate role
-    if (role === 'Organizer' || role === 'Participant') {
+    if (role === 'Organizer' || role === 'Participant' || role === 'SuperAdmin' || role === 'SubSuperAdmin') {
       return role;
     }
     
@@ -57,7 +57,10 @@ export const useAuth = () => {
     };
   }, []);
 
-  const isOrganizer = userRole === 'Organizer';
+  const isOrganizer =
+    userRole === 'Organizer' ||
+    userRole === 'SuperAdmin' ||
+    userRole === 'SubSuperAdmin';
   const isParticipant = userRole === 'Participant';
 
   return { currentUser, userRole, isOrganizer, isParticipant, isLoading };

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
-import { ViewState } from '../../../types';
+import { SubscriptionRole, ViewState } from '../../../types';
 import { getRoutePath } from '../../../routes';
 import Dashboard from '../Dashboard/Dashboard';
 import PageBuilder from '../LPBuilder/Builder/PageBuilder';
@@ -18,6 +18,8 @@ import CertificateTemplateList from '../Certificates/CertificateTemplateList';
 import GenerateCertificates from '../Certificates/GenerateCertificates';
 import ViewCertificate from '../Certificates/ViewCertificate';
 import CanvaButton from '../Tools/Designer/CanvaButton';
+import CampusDashboard from '../SuperAdmin/CampusDashboard';
+import SubscriptionManager from '../SuperAdmin/SubscriptionManager';
 import ProgramBuilder from '../Submissions/ProgramBuilder/ProgramBuilder';
 import FilesManager from '../Tools/FilesManager/FilesManager';
 import Emailer from '../Tools/Emailer';
@@ -60,6 +62,7 @@ import { CheckSquare, Settings, GraduationCap } from 'lucide-react';
 
 interface AppRoutesProps {
   isOrganizer: boolean;
+  userRole: SubscriptionRole | null;
   onNavigateToView: (viewState: ViewState, routeParams?: Record<string, string>) => void;
   onEditPage: (pageId: string) => void;
   onNewPage: () => void;
@@ -71,6 +74,7 @@ interface AppRoutesProps {
 
 export const AppRoutes: React.FC<AppRoutesProps> = ({
   isOrganizer,
+  userRole,
   onNavigateToView,
   onEditPage,
   onNewPage,
@@ -322,25 +326,47 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       } />
 
       {/* Jury Member routes - accessible to all authenticated users */}
-      <Route path="/jury" element={<JuryDashboard />} />
-      <Route path="/jury/dashboard" element={<JuryDashboard />} />
-      <Route path="/jury/profile" element={<ParticipantProfile />} />
-      <Route path="/jury/invitations" element={<JuryInvitations />} />
-      <Route path="/jury/events" element={<JuryEvents />} />
-      <Route path="/jury/events/preview/:eventId" element={<ParticipantEventPreview />} />
-      <Route path="/jury/reviews" element={<ReviewsList />} />
-      <Route path="/jury/registrations" element={<ParticipantRegistrations />} />
-      <Route path="/jury/submissions" element={<ParticipantSubmissions />} />
-      <Route path="/jury/tools/latex-editor" element={<LaTeXEditor />} />
-      <Route path="/jury/tools/cv-builder" element={<CVBuilder />} />
-      <Route path="/jury/tools/profile-builder" element={<ProfileBuilder />} />
-      <Route path="/jury/tools/profile-builder/preview/:profileId" element={<ProfilePreviewPage />} />
-      <Route path="/jury/tools/blog" element={<ParticipantBlogs />} />
-      <Route path="/jury/messaging" element={<ParticipantMessaging />} />
-      <Route path="/jury/academy" element={<Navigate to="/jury/academy/courses" replace />} />
-      <Route path="/jury/academy/courses" element={<ParticipantCoursesList />} />
-      <Route path="/jury/academy/courses/:courseId" element={<ParticipantCourseDetail />} />
-      <Route path="/jury/academy/courses/:courseId/learn" element={<CoursePlayer />} />
+      <Route path="/jury" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <JuryDashboard />} />
+      <Route path="/jury/dashboard" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <JuryDashboard />} />
+      <Route path="/jury/profile" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantProfile />} />
+      <Route path="/jury/invitations" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <JuryInvitations />} />
+      <Route path="/jury/events" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <JuryEvents />} />
+      <Route path="/jury/events/preview/:eventId" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantEventPreview />} />
+      <Route path="/jury/reviews" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ReviewsList />} />
+      <Route path="/jury/registrations" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantRegistrations />} />
+      <Route path="/jury/submissions" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantSubmissions />} />
+      <Route path="/jury/tools/latex-editor" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <LaTeXEditor />} />
+      <Route path="/jury/tools/cv-builder" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <CVBuilder />} />
+      <Route path="/jury/tools/profile-builder" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ProfileBuilder />} />
+      <Route path="/jury/tools/profile-builder/preview/:profileId" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ProfilePreviewPage />} />
+      <Route path="/jury/tools/blog" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantBlogs />} />
+      <Route path="/jury/messaging" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantMessaging />} />
+      <Route path="/jury/academy" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <Navigate to="/jury/academy/courses" replace />} />
+      <Route path="/jury/academy/courses" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantCoursesList />} />
+      <Route path="/jury/academy/courses/:courseId" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantCourseDetail />} />
+      <Route path="/jury/academy/courses/:courseId/learn" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <CoursePlayer />} />
+
+      {/* Super Admin routes (MVP placeholders) */}
+      <Route
+        path="/superadmin"
+        element={
+          userRole === 'SuperAdmin' || userRole === 'SubSuperAdmin' ? (
+            <CampusDashboard />
+          ) : (
+            <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
+          )
+        }
+      />
+      <Route
+        path="/superadmin/subscriptions"
+        element={
+          userRole === 'SuperAdmin' || userRole === 'SubSuperAdmin' ? (
+            <SubscriptionManager />
+          ) : (
+            <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
+          )
+        }
+      />
 
       {/* Fallback redirect based on role */}
       <Route path="*" element={
