@@ -11,7 +11,8 @@
     "json-server": "json-server --watch db.json --port 3000",
     "email-server": "node server/email-api.js",
     "latex-server": "node server/latex-compilation-api.js",
-    "dev:all": "concurrently \"npm run dev\" \"npm run email-server\" \"npm run latex-server\""
+    "admin-display-server": "node server/admin-display-config-api.js",
+    "dev:all": "concurrently \"npm run dev\" \"npm run email-server\" \"npm run latex-server\" \"npm run admin-display-server\""
   },
   "dependencies": {
     "@duyank/icons": "^0.1.2",

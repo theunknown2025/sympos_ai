@@ -2,6 +2,7 @@ import React from 'react';
 import { Speaker } from '../../../../types';
 import { User, Linkedin, Twitter, Globe, Users } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface SpeakersSectionProps {
   speakers: Speaker[];
@@ -10,6 +11,7 @@ interface SpeakersSectionProps {
 }
 
 const SpeakersSection: React.FC<SpeakersSectionProps> = ({ speakers, title = "Keynote Speakers", titleAlignment = 'center' }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
   const containerAlignClass = titleAlignment === 'left' ? 'items-start' : titleAlignment === 'right' ? 'items-end' : 'items-center';
   const isTitleArabic = isArabic(title);
@@ -33,7 +35,7 @@ const SpeakersSection: React.FC<SpeakersSectionProps> = ({ speakers, title = "Ke
           </h2>
           <div className="w-24 h-1 bg-indigo-600 mx-auto rounded-full mb-6"></div>
           <p className="text-slate-500 max-w-2xl mx-auto">
-            Meet the visionaries and world-class experts who will be sharing their insights at the forefront of innovation.
+            {t('edSecSpeakersIntro')}
           </p>
         </div>
         
@@ -72,7 +74,7 @@ const SpeakersSection: React.FC<SpeakersSectionProps> = ({ speakers, title = "Ke
                          </a>
                        ))
                      ) : (
-                       <span className="text-xs text-slate-300 italic">No social links provided</span>
+                       <span className="text-xs text-slate-300 italic">{t('edSecSpeakersNoSocial')}</span>
                      )}
                    </div>
                  </div>
@@ -82,8 +84,8 @@ const SpeakersSection: React.FC<SpeakersSectionProps> = ({ speakers, title = "Ke
         ) : (
           <div className="h-64 rounded-3xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 bg-white shadow-inner">
              <User size={48} className="mb-4 opacity-20"/>
-             <p className="font-medium">No speakers added yet.</p>
-             <p className="text-sm">Use the Speakers Editor to populate this list.</p>
+             <p className="font-medium">{t('edSecSpeakersEmpty')}</p>
+             <p className="text-sm">{t('edSecSpeakersEmptyHint')}</p>
           </div>
         )}
       </div>

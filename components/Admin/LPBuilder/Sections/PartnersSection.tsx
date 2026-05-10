@@ -2,6 +2,7 @@ import React from 'react';
 import { PartnerGroup } from '../../../../types';
 import { ArrowRight, Users } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface PartnersSectionProps {
   groups: PartnerGroup[];
@@ -10,6 +11,7 @@ interface PartnersSectionProps {
 }
 
 const PartnersSection: React.FC<PartnersSectionProps> = ({ groups, title = "Our Partners & Sponsors", titleAlignment = 'center' }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
   const containerAlignClass = titleAlignment === 'left' ? 'items-start' : titleAlignment === 'right' ? 'items-end' : 'items-center';
   const isTitleArabic = isArabic(title);
@@ -32,7 +34,7 @@ const PartnersSection: React.FC<PartnersSectionProps> = ({ groups, title = "Our 
             )}
           </h2>
           <p className="text-slate-500 max-w-2xl mx-auto">
-            Supported by world-leading organizations committed to the advancement of science and technology.
+            {t('edSecPartnersIntro')}
           </p>
         </div>
 
@@ -47,7 +49,7 @@ const PartnersSection: React.FC<PartnersSectionProps> = ({ groups, title = "Our 
                     href={group.actionButtonUrl}
                     className="inline-flex items-center gap-2 text-indigo-600 font-semibold hover:text-indigo-700 transition-colors group"
                   >
-                    {group.actionButtonText || 'Learn More'}
+                    {group.actionButtonText || t('edSecPartnersLearnMore')}
                     <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
                   </a>
                 )}

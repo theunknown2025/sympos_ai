@@ -15,6 +15,8 @@ import {
   EyeOff
 } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
+import { useAdminDisplaySettings } from '../../../../contexts/AdminDisplaySettingsContext';
 import { 
   getUserLandingPages, 
   deleteLandingPage, 
@@ -22,6 +24,8 @@ import {
   publishLandingPage,
   unpublishLandingPage
 } from '../../../../services/landingPageService';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
+import { getEvent } from '../../../../services/eventService';
 
 interface LandingPageManagerProps {
   onEdit: (pageId: string) => void;
@@ -36,6 +40,11 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const { currentUser, isLoading: authLoading } = useAuth();
+  const { t } = useAdminTranslation('landingPages');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const isEventScopeLocked = !!organizerScopedEventId;
 
   useEffect(() => {
     if (currentUser && !authLoading) {
@@ -43,18 +52,23 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
     } else if (!authLoading && !currentUser) {
       setLoading(false);
     }
-  }, [currentUser, authLoading]);
+  }, [currentUser, authLoading, organizerScopedEventId]);
 
   const loadPages = async (userId: string) => {
     try {
       setLoading(true);
       setError('');
-      const userPages = await getUserLandingPages(userId);
+      let userPages = await getUserLandingPages(userId);
+      if (organizerScopedEventId) {
+        const ev = await getEvent(organizerScopedEventId);
+        const linkedIds = new Set(ev?.landingPageIds ?? []);
+        userPages = userPages.filter((p) => linkedIds.has(p.id));
+      }
       // Sort by updatedAt descending (most recent first)
       userPages.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
       setPages(userPages);
     } catch (err: any) {
-      setError('Failed to load landing pages. Please try again.');
+      setError(t('loadFailed'));
       console.error(err);
     } finally {
       setLoading(false);
@@ -62,7 +76,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
   };
 
   const handleDelete = async (pageId: string) => {
-    if (!window.confirm('Are you sure you want to delete this landing page? This action cannot be undone.')) {
+    if (!window.confirm(t('deleteConfirm'))) {
       return;
     }
 
@@ -71,7 +85,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
       await deleteLandingPage(pageId);
       setPages(pages.filter(p => p.id !== pageId));
     } catch (err: any) {
-      setError('Failed to delete landing page. Please try again.');
+      setError(t('deleteFailed'));
       console.error(err);
     } finally {
       setDeletingId(null);
@@ -88,7 +102,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
         await loadPages(currentUser.id);
       }
     } catch (err: any) {
-      setError('Failed to publish landing page. Please try again.');
+      setError(t('publishFailed'));
       console.error(err);
     } finally {
       setPublishingId(null);
@@ -105,7 +119,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
         await loadPages(currentUser.id);
       }
     } catch (err: any) {
-      setError('Failed to unpublish landing page. Please try again.');
+      setError(t('unpublishFailed'));
       console.error(err);
     } finally {
       setPublishingId(null);
@@ -127,7 +141,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
   };
 
   const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('en-US', {
+    return new Intl.DateTimeFormat(localeTag, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -140,7 +154,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
         <Loader2 className="animate-spin text-indigo-600" size={40} />
-        <p className="text-slate-500 mt-4">Loading landing pages...</p>
+        <p className="text-slate-500 mt-4">{t('loading')}</p>
       </div>
     );
   }
@@ -149,14 +163,14 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
     <div className="h-full">
       <header className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Landing Pages</h1>
-          <p className="text-slate-500 mt-1 text-sm">Manage your saved landing pages</p>
+          <h1 className="text-3xl font-bold text-slate-900">{t('pageTitle')}</h1>
+          <p className="text-slate-500 mt-1 text-sm">{t('subtitle')}</p>
         </div>
         <button
           onClick={onNew}
           className="flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm shadow-indigo-200"
         >
-          <Plus size={18} /> New Landing Page
+          <Plus size={18} /> {t('newLandingPage')}
         </button>
       </header>
 
@@ -167,16 +181,24 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
         </div>
       )}
 
+      {isEventScopeLocked && (
+        <div className="mb-6 p-4 bg-indigo-50 border border-indigo-100 rounded-lg text-sm text-indigo-900">
+          {t('scopedFilterNote')}
+        </div>
+      )}
+
       {pages.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
           <FileText className="mx-auto text-slate-300 mb-4" size={48} />
-          <h3 className="text-lg font-semibold text-slate-700 mb-2">No landing pages yet</h3>
-          <p className="text-slate-500 mb-6">Create your first landing page to get started</p>
+          <h3 className="text-lg font-semibold text-slate-700 mb-2">{t('emptyTitle')}</h3>
+          <p className="text-slate-500 mb-6">
+            {isEventScopeLocked ? t('emptySubtitleScoped') : t('emptySubtitle')}
+          </p>
           <button
             onClick={onNew}
             className="inline-flex items-center gap-2 px-6 py-3 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
           >
-            <Plus size={18} /> Create Landing Page
+            <Plus size={18} /> {t('createLandingPage')}
           </button>
         </div>
       ) : (
@@ -194,20 +216,20 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
                 <div className="space-y-2 mb-4">
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <Calendar size={16} />
-                    <span>{page.config.date || 'No date set'}</span>
+                    <span>{page.config.date || t('noDateSet')}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-slate-600">
                     <MapPin size={16} />
-                    <span className="truncate">{page.config.location || 'No location set'}</span>
+                    <span className="truncate">{page.config.location || t('noLocationSet')}</span>
                   </div>
                 </div>
 
                 <div className="pt-4 border-t border-slate-100">
                   <p className="text-xs text-slate-500 mb-1">
-                    Created: {formatDate(page.createdAt)}
+                    {t('created')} {formatDate(page.createdAt)}
                   </p>
                   <p className="text-xs text-slate-500">
-                    Updated: {formatDate(page.updatedAt)}
+                    {t('updated')} {formatDate(page.updatedAt)}
                   </p>
                 </div>
 
@@ -216,7 +238,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
                   <div className="mt-4 pt-4 border-t border-slate-100">
                     <div className="flex items-center gap-2 text-sm text-green-600 mb-2">
                       <Globe size={16} />
-                      <span className="font-medium">Published</span>
+                      <span className="font-medium">{t('published')}</span>
                     </div>
                     <div className="flex items-center gap-2 bg-slate-50 rounded-lg p-2">
                       <input
@@ -228,7 +250,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
                       <button
                         onClick={() => handleCopyUrl(page.publishedUrl!)}
                         className="p-1.5 text-slate-500 hover:text-indigo-600 transition-colors"
-                        title="Copy URL"
+                        title={copiedUrl === page.publishedUrl ? t('copied') : t('copyUrl')}
                       >
                         {copiedUrl === page.publishedUrl ? (
                           <Check size={14} className="text-green-600" />
@@ -239,7 +261,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
                       <button
                         onClick={() => handleOpenUrl(page.publishedUrl!)}
                         className="p-1.5 text-slate-500 hover:text-indigo-600 transition-colors"
-                        title="Open in new tab"
+                        title={t('openNewTab')}
                       >
                         <Globe size={14} />
                       </button>
@@ -255,28 +277,28 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
                       onClick={() => handleUnpublish(page.id)}
                       disabled={publishingId === page.id}
                       className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Unpublish"
+                      title={t('unpublish')}
                     >
                       {publishingId === page.id ? (
                         <Loader2 className="animate-spin" size={14} />
                       ) : (
                         <EyeOff size={14} />
                       )}
-                      <span className="hidden sm:inline">Unpublish</span>
+                      <span className="hidden sm:inline">{t('unpublish')}</span>
                     </button>
                   ) : (
                     <button
                       onClick={() => handlePublish(page.id)}
                       disabled={publishingId === page.id}
                       className="flex items-center gap-2 px-3 py-1.5 text-sm text-indigo-600 bg-white border border-indigo-200 rounded-lg hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title="Publish"
+                      title={t('publish')}
                     >
                       {publishingId === page.id ? (
                         <Loader2 className="animate-spin" size={14} />
                       ) : (
                         <Eye size={14} />
                       )}
-                      <span className="hidden sm:inline">Publish</span>
+                      <span className="hidden sm:inline">{t('publish')}</span>
                     </button>
                   )}
                 </div>
@@ -285,7 +307,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
                     onClick={() => onEdit(page.id)}
                     className="flex items-center gap-2 px-4 py-2 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
                   >
-                    <Edit2 size={16} /> <span className="hidden sm:inline">Edit</span>
+                    <Edit2 size={16} /> <span className="hidden sm:inline">{t('edit')}</span>
                   </button>
                   <button
                     onClick={() => handleDelete(page.id)}
@@ -297,7 +319,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
                     ) : (
                       <Trash2 size={16} />
                     )}
-                    <span className="hidden sm:inline">Delete</span>
+                    <span className="hidden sm:inline">{t('delete')}</span>
                   </button>
                 </div>
               </div>

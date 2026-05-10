@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
 
 interface TextEditorModalProps {
   isOpen: boolean;
@@ -16,6 +17,8 @@ const TextEditorModal: React.FC<TextEditorModalProps> = ({
   onInsert,
   initialContent = ''
 }) => {
+  const { t } = useAdminTranslation('eventForm');
+  const { t: tc } = useAdminTranslation('common');
   const editorRef = useRef<HTMLDivElement>(null);
   const quillRef = useRef<Quill | null>(null);
 
@@ -96,7 +99,7 @@ const TextEditorModal: React.FC<TextEditorModalProps> = ({
         {/* Header */}
         <div className="p-6 border-b border-slate-200">
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-900">Text Editor</h3>
+            <h3 className="text-lg font-semibold text-slate-900">{t('textEditorTitle')}</h3>
             <button
               type="button"
               onClick={onClose}
@@ -121,14 +124,14 @@ const TextEditorModal: React.FC<TextEditorModalProps> = ({
             onClick={onClose}
             className="px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
           >
-            Cancel
+            {tc('cancel')}
           </button>
           <button
             type="button"
             onClick={handleInsert}
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
           >
-            Insert
+            {t('textEditorInsert')}
           </button>
         </div>
       </div>

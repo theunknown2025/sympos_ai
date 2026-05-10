@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Trash2, Edit2, Download, Calendar, Clock, MapPin } from 'lucide-react';
 import { getUserPrograms, deleteProgram, type SavedProgram } from '../../../../services/programService';
 import { useAuth } from '../../../../hooks/useAuth';
-import { generateProgramPNG } from './generateProgramPNG';
+import { captureSavedProgramAsPNG } from './captureProgramLayoutPNG';
+import { buildProgramPdfParams } from './programExportMeta';
 import { generateProgramPDF } from './generateProgramPDF';
 
 const ProgramList: React.FC<{
@@ -56,13 +57,7 @@ const ProgramList: React.FC<{
 
   const handleGeneratePNG = async (program: SavedProgram) => {
     try {
-      await generateProgramPNG(
-        program.cards,
-        program.venues,
-        generateTimeSlots(program.config),
-        program.config,
-        0 // Default to day 0, could be enhanced to support multiple days
-      );
+      await captureSavedProgramAsPNG(program, 0);
     } catch (err: any) {
       alert('Failed to generate PNG: ' + (err.message || 'Unknown error'));
     }
@@ -70,41 +65,10 @@ const ProgramList: React.FC<{
 
   const handleGeneratePDF = async (program: SavedProgram) => {
     try {
-      await generateProgramPDF(
-        program.cards,
-        program.venues,
-        generateTimeSlots(program.config),
-        program.config,
-        0 // Default to day 0
-      );
+      await generateProgramPDF(buildProgramPdfParams(program, 0));
     } catch (err: any) {
       alert('Failed to generate PDF: ' + (err.message || 'Unknown error'));
     }
-  };
-
-  const generateTimeSlots = (config: SavedProgram['config']): string[] => {
-    const slots: string[] = [];
-    const [startHour, startMin] = config.startTime.split(':').map(Number);
-    const [endHour, endMin] = config.endTime.split(':').map(Number);
-    
-    let currentHour = startHour;
-    let currentMin = startMin;
-    
-    while (
-      currentHour < endHour ||
-      (currentHour === endHour && currentMin <= endMin)
-    ) {
-      const timeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
-      slots.push(timeStr);
-      
-      currentMin += config.timeSlotWidth;
-      if (currentMin >= 60) {
-        currentMin = 0;
-        currentHour++;
-      }
-    }
-    
-    return slots;
   };
 
   if (loading) {

@@ -10,7 +10,11 @@ import {
 } from 'lucide-react';
 import { generateDescription } from '../../../../services/geminiService';
 import { useAuth } from '../../../../hooks/useAuth';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
+import { useAdminDisplaySettings } from '../../../../contexts/AdminDisplaySettingsContext';
 import { saveLandingPage, updateLandingPage, getLandingPage } from '../../../../services/landingPageService';
+import { getEvent, updateEvent } from '../../../../services/eventService';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
 import FormModal from '../../Tools/FormBuilder/FormModal';
 import { isArabic } from '../../../../utils/languageDetection';
 import TemplateSelector from '../Designs/TemplateSelector';
@@ -58,6 +62,10 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
   const [activePreviewDay, setActivePreviewDay] = useState<string>(config.agenda[0]?.id || '');
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const { t } = useAdminTranslation('pageBuilder');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
   const [isLoading, setIsLoading] = useState(!!pageId);
   const [isSaving, setIsSaving] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -108,6 +116,22 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
     }
   }, [pageId, currentUser]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const verifyScopedPage = async () => {
+      if (!organizerScopedEventId || !pageId) return;
+      const ev = await getEvent(organizerScopedEventId);
+      const allowed = ev?.landingPageIds ?? [];
+      if (!allowed.includes(pageId) && !cancelled) {
+        navigate('/landing-pages', { replace: true });
+      }
+    };
+    verifyScopedPage();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizerScopedEventId, pageId, navigate]);
+
   const handleTemplateSelect = (templateConfig: ConferenceConfig) => {
     setConfig(templateConfig);
     setSaveTitle(templateConfig.title);
@@ -137,18 +161,18 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
 
   const handleSave = async () => {
     if (!currentUser) {
-      setSaveError('You must be logged in to save pages');
+      setSaveError(t('loginRequired'));
       return;
     }
 
     if (!saveTitle.trim()) {
-      setSaveError('Please enter a title for your landing page');
+      setSaveError(t('errTitleEmpty'));
       return;
     }
 
     // Validate config has required fields
     if (!config.title || !config.title.trim()) {
-      setSaveError('Please set a main title in the Hero section');
+      setSaveError(t('errHeroTitle'));
       return;
     }
 
@@ -169,6 +193,16 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
       } else {
         // Create new page
         const newPageId = await saveLandingPage(currentUser.id, saveTitle.trim(), config);
+        if (organizerScopedEventId) {
+          const ev = await getEvent(organizerScopedEventId);
+          if (ev) {
+            const ids = [...(ev.landingPageIds || [])];
+            if (!ids.includes(newPageId)) {
+              ids.push(newPageId);
+              await updateEvent(organizerScopedEventId, { landingPageIds: ids });
+            }
+          }
+        }
         console.log('New page created with ID:', newPageId);
         
         // Navigate to the edit route with the new pageId
@@ -183,14 +217,13 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
       }
     } catch (error: any) {
       console.error('Error saving page:', error);
-      // Provide more specific error messages
-      let errorMessage = 'Failed to save landing page. Please try again.';
-      if (error.message) {
-        errorMessage = error.message;
-      } else if (error.code === 'permission-denied') {
-        errorMessage = 'You do not have permission to save this page.';
+      let errorMessage = t('saveFailed');
+      if (error.code === 'permission-denied') {
+        errorMessage = t('errPermission');
       } else if (error.code === 'unavailable') {
-        errorMessage = 'Service is temporarily unavailable. Please try again later.';
+        errorMessage = t('errUnavailable');
+      } else if (error.message) {
+        errorMessage = error.message;
       }
       setSaveError(errorMessage);
     } finally {
@@ -320,7 +353,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                     <div className="flex items-center gap-2 text-white/90">
                       <Calendar size={20} className="text-indigo-300" />
                       <span className="text-lg font-medium">
-                        {new Date(config.date).toLocaleDateString('en-US', { 
+                        {new Date(config.date).toLocaleDateString(localeTag, { 
                           year: 'numeric', 
                           month: 'long', 
                           day: 'numeric' 
@@ -340,10 +373,10 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
               {config.hero.showTimer && (
                 <div className={`flex gap-4 mb-10 ${config.hero.layout === 'center' ? 'justify-center' : 'justify-start'}`}>
                   {[
-                    { label: 'Days', value: timeLeft.days },
-                    { label: 'Hours', value: timeLeft.hours },
-                    { label: 'Min', value: timeLeft.minutes },
-                    { label: 'Sec', value: timeLeft.seconds }
+                    { label: t('previewCountdownDays'), value: timeLeft.days },
+                    { label: t('previewCountdownHours'), value: timeLeft.hours },
+                    { label: t('previewCountdownMin'), value: timeLeft.minutes },
+                    { label: t('previewCountdownSec'), value: timeLeft.seconds }
                   ].map((unit, i) => (
                     <div key={i} className="flex flex-col items-center justify-center bg-white/10 backdrop-blur-md rounded-xl p-3 min-w-[70px] border border-white/20 shadow-xl">
                       <span className="text-2xl font-bold text-white font-mono">{String(unit.value).padStart(2, '0')}</span>
@@ -511,9 +544,24 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
           />
         );
       case 'submission':
-        return <SubmissionSection key={section.id} config={config.submission} title={section.title} />;
+        return (
+          <SubmissionSection
+            key={section.id}
+            config={config.submission}
+            title={section.title}
+            formModalEventId={pageId || 'new'}
+            formModalEventTitle={config.title}
+          />
+        );
       case 'committee':
-        return <ScientificCommitteeSection key={section.id} members={config.committee} title={section.title} />;
+        return (
+          <ScientificCommitteeSection
+            key={section.id}
+            members={config.committee}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+          />
+        );
       case 'pricing':
         return <PricingSection key={section.id} offers={config.pricing} title={section.title} />;
       case 'partners':
@@ -533,7 +581,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
         <Loader2 className="animate-spin text-indigo-600" size={40} />
-        <p className="text-slate-500 mt-4">Loading landing page...</p>
+        <p className="text-slate-500 mt-4">{t('loading')}</p>
       </div>
     );
   }
@@ -551,13 +599,13 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                 <ArrowLeft size={20} />
               </button>
             )}
-            <h1 className="text-3xl font-bold text-slate-900">Landing Page Builder</h1>
+            <h1 className="text-3xl font-bold text-slate-900">{t('pageTitle')}</h1>
           </div>
-          <p className="text-slate-500 mt-1 text-sm">Design your conference website. Reorder sections and preview in real-time.</p>
+          <p className="text-slate-500 mt-1 text-sm">{t('subtitle')}</p>
         </div>
         <div className="flex gap-3">
           <button className="flex items-center gap-2 px-4 py-2 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">
-            <Eye size={18} /> Preview
+            <Eye size={18} /> {t('preview')}
           </button>
           <button 
             onClick={() => {
@@ -569,7 +617,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
             }}
             className="flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm shadow-indigo-200 transition-colors"
           >
-            <Save size={18} /> {pageId ? 'Save Changes' : 'Save Page'}
+            <Save size={18} /> {pageId ? t('saveChanges') : t('savePage')}
           </button>
         </div>
       </header>
@@ -580,7 +628,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold text-slate-900">
-                {pageId ? 'Save Changes' : 'Save Landing Page'}
+                {pageId ? t('saveDialogTitleEdit') : t('saveDialogTitleNew')}
               </h2>
               <button
                 onClick={() => {
@@ -597,7 +645,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Landing Page Title <span className="text-red-500">*</span>
+                  {t('lpTitleLabel')} <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -611,13 +659,13 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                       handleSave();
                     }
                   }}
-                  placeholder="e.g., International AI Conference 2024"
+                  placeholder={t('lpTitlePlaceholder')}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:bg-slate-50 disabled:cursor-not-allowed"
                   disabled={isSaving}
                   autoFocus
                 />
                 <p className="text-xs text-slate-500 mt-1">
-                  This title will be used to identify your page in the list
+                  {t('lpTitleHelp')}
                 </p>
               </div>
 
@@ -631,7 +679,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
               {saveSuccess && (
                 <div className="p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2 text-green-700 text-sm">
                   <span className="text-green-600 font-bold">✓</span>
-                  <span>Landing page saved successfully! {pageId ? 'Changes have been updated.' : 'Your page is now saved.'}</span>
+                  <span>{pageId ? t('saveSuccessUpdated') : t('saveSuccessNew')}</span>
                 </div>
               )}
 
@@ -645,7 +693,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                   className="flex-1 px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors"
                   disabled={isSaving}
                 >
-                  Cancel
+                  {t('cancel')}
                 </button>
                 <button
                   onClick={handleSave}
@@ -655,12 +703,12 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                   {isSaving ? (
                     <>
                       <Loader2 className="animate-spin" size={16} />
-                      Saving...
+                      {t('saving')}
                     </>
                   ) : (
                     <>
                       <Save size={16} />
-                      {pageId ? 'Save Changes' : 'Save Page'}
+                      {pageId ? t('saveChanges') : t('savePage')}
                     </>
                   )}
                 </button>
@@ -674,7 +722,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
         <div className="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50/50">
             <h3 className="font-semibold text-slate-700 flex items-center gap-2">
-              <Settings2 size={18} /> Editor Controls
+              <Settings2 size={18} /> {t('editorControls')}
             </h3>
           </div>
           
@@ -687,7 +735,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                   <div className="p-1.5 rounded-md border bg-white border-slate-200 text-slate-400">
                     <MenuIcon size={16} />
                   </div>
-                  <span className="font-semibold text-sm">Header Settings</span>
+                  <span className="font-semibold text-sm">{t('headerSettings')}</span>
                 </div>
                 {expandedSectionId === 'header-settings' ? <ChevronUp size={18}/> : <ChevronDown size={18}/>}
               </div>
@@ -737,7 +785,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                   <div className="p-4 bg-white border-t border-slate-100 animate-fade-in">
                     {/* Title Alignment Control */}
                     <div className="mb-4">
-                      <label className="block text-xs font-medium text-slate-700 mb-2">Title Alignment</label>
+                      <label className="block text-xs font-medium text-slate-700 mb-2">{t('titleAlignment')}</label>
                       <div className="flex gap-2">
                         <button
                           onClick={() => setConfig({
@@ -753,7 +801,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                           }`}
                         >
                           <Type size={14} className="rotate-90" />
-                          <span className="text-xs font-medium">Left</span>
+                          <span className="text-xs font-medium">{t('alignLeft')}</span>
                         </button>
                         <button
                           onClick={() => setConfig({
@@ -769,7 +817,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                           }`}
                         >
                           <Type size={14} />
-                          <span className="text-xs font-medium">Center</span>
+                          <span className="text-xs font-medium">{t('alignCenter')}</span>
                         </button>
                         <button
                           onClick={() => setConfig({
@@ -785,12 +833,12 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                           }`}
                         >
                           <Type size={14} className="-rotate-90" />
-                          <span className="text-xs font-medium">Right</span>
+                          <span className="text-xs font-medium">{t('alignRight')}</span>
                         </button>
                       </div>
                     </div>
                     <div className="mb-4">
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Section Display Title</label>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">{t('sectionDisplayTitle')}</label>
                       <input 
                         type="text" 
                         value={section.title}
@@ -812,18 +860,18 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
               <button
                 onClick={() => {
                   const sectionTypes: Array<{ type: string; title: string }> = [
-                    { type: 'hero', title: 'Hero Section' },
-                    { type: 'about', title: 'About' },
-                    { type: 'speakers', title: 'Speakers' },
-                    { type: 'committee', title: 'Committee' },
-                    { type: 'team', title: 'Team' },
-                    { type: 'agenda', title: 'Agenda' },
-                    { type: 'faq', title: 'FAQ' },
-                    { type: 'contact', title: 'Contact' },
-                    { type: 'submission', title: 'Submission' },
-                    { type: 'partners', title: 'Partners' },
-                    { type: 'pricing', title: 'Pricing' },
-                    { type: 'images', title: 'Gallery' },
+                    { type: 'hero', title: t('secHero') },
+                    { type: 'about', title: t('secAbout') },
+                    { type: 'speakers', title: t('secSpeakers') },
+                    { type: 'committee', title: t('secCommittee') },
+                    { type: 'team', title: t('secTeam') },
+                    { type: 'agenda', title: t('secAgenda') },
+                    { type: 'faq', title: t('secFaq') },
+                    { type: 'contact', title: t('secContact') },
+                    { type: 'submission', title: t('secSubmission') },
+                    { type: 'partners', title: t('secPartners') },
+                    { type: 'pricing', title: t('secPricing') },
+                    { type: 'images', title: t('secGallery') },
                   ];
                   
                   const availableTypes = sectionTypes.filter(
@@ -831,12 +879,12 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                   );
                   
                   if (availableTypes.length === 0) {
-                    alert('All section types are already added.');
+                    alert(t('addAllSectionsAlert'));
                     return;
                   }
                   
                   const selectedType = prompt(
-                    `Available sections:\n${availableTypes.map((st, i) => `${i + 1}. ${st.title}`).join('\n')}\n\nEnter number to add:`
+                    `${t('addSectionPromptIntro')}\n${availableTypes.map((st, i) => `${i + 1}. ${st.title}`).join('\n')}\n\n${t('addSectionPromptEnter')}`
                   );
                   
                   if (selectedType) {
@@ -860,7 +908,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                 className="w-full px-4 py-2 text-sm text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
-                Add Section
+                {t('addSection')}
               </button>
             </div>
           </div>
@@ -872,13 +920,13 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
             <div className="flex gap-1.5"><div className="w-3 h-3 rounded-full bg-red-500"></div><div className="w-3 h-3 rounded-full bg-yellow-500"></div><div className="w-3 h-3 rounded-full bg-green-500"></div></div>
             <div className="mx-auto bg-slate-900 text-slate-400 text-xs px-4 py-1.5 rounded-full w-2/3 text-center border border-slate-700 flex items-center justify-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-500"></span>
-              sympose-ai.com/preview/conference
+              {t('livePreviewLabel')}
             </div>
             <button
               onClick={() => setIsFullScreen(true)}
               className="ml-auto p-2 text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors"
-              aria-label="Full screen preview"
-              title="Full screen preview"
+              aria-label={t('fullscreenPreview')}
+              title={t('fullscreenPreview')}
             >
               <Maximize2 size={18} />
             </button>
@@ -917,7 +965,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                   <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center font-bold">S</div>
                   <span className="font-bold uppercase tracking-widest">{config.title}</span>
                 </div>
-                <p className="text-slate-500">© 2024 Built with Sympose AI Platform.</p>
+                <p className="text-slate-500">{t('previewFooterBuiltWith', { year: 2024 })}</p>
               </div>
             </footer>
           </div>

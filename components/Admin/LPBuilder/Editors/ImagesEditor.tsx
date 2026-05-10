@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { ImageGroup, Image } from '../../../../types';
 import { Plus, Trash2, Image as ImageIcon, ChevronUp, ChevronDown, Upload, X, CheckCircle2 } from 'lucide-react';
 import { uploadImageToStorage } from '../../../../services/storageService';
 import { useAuth } from '../../../../hooks/useAuth';
 import { STORAGE_BUCKETS } from '../../../../supabase';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface ImagesEditorProps {
   imageGroups: ImageGroup[];
@@ -20,13 +21,25 @@ interface UploadProgress {
 }
 
 const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const { currentUser } = useAuth();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<Map<string, UploadProgress[]>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Compress and resize image before upload
+  const formatOptions = useMemo(
+    (): { value: ImageGroup['format']; label: string }[] => [
+      { value: 'catalogue1', label: t('edFmtCatalogue1') },
+      { value: 'catalogue2', label: t('edFmtCatalogue2') },
+      { value: 'catalogue3', label: t('edFmtCatalogue3') },
+      { value: 'catalogue4', label: t('edFmtCatalogue4') },
+      { value: 'slider-rtl', label: t('edFmtSliderRtl') },
+      { value: 'slider-ltr', label: t('edFmtSliderLtr') },
+    ],
+    [t]
+  );
+
   const compressImage = (file: File, maxWidth: number = 1920, maxHeight: number = 1920, quality: number = 0.85): Promise<File> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -37,7 +50,6 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
           let width = img.width;
           let height = img.height;
 
-          // Calculate new dimensions
           if (width > maxWidth || height > maxHeight) {
             if (width > height) {
               height = (height * maxWidth) / width;
@@ -86,7 +98,7 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
   const addGroup = () => {
     const newGroup: ImageGroup = {
       id: Date.now().toString(),
-      name: 'New Image Group',
+      name: t('edGalleryNewGroupName'),
       images: [],
       format: 'catalogue1',
       showNavigation: true,
@@ -98,17 +110,17 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
   };
 
   const removeGroup = (id: string) => {
-    onChange(imageGroups.filter(g => g.id !== id));
+    onChange(imageGroups.filter((g) => g.id !== id));
   };
 
   const updateGroup = (id: string, field: keyof ImageGroup, value: any) => {
-    onChange(imageGroups.map(g => g.id === id ? { ...g, [field]: value } : g));
+    onChange(imageGroups.map((g) => (g.id === id ? { ...g, [field]: value } : g)));
   };
 
   const handleImageUpload = async (groupId: string, files: FileList | null) => {
     if (!files || !currentUser) return;
 
-    const group = imageGroups.find(g => g.id === groupId);
+    const group = imageGroups.find((g) => g.id === groupId);
     if (!group) return;
 
     setUploadingImageId(groupId);
@@ -126,19 +138,16 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
     setUploadProgress(new Map(progressMap));
 
     try {
-      // Process images in batches of 5 for better performance
       const batchSize = 5;
-      let uploadedCount = 0;
 
       for (let i = 0; i < fileArray.length; i += batchSize) {
         const batch = fileArray.slice(i, i + batchSize);
-        
+
         const batchPromises = batch.map(async (file, batchIndex) => {
           const globalIndex = i + batchIndex;
           const fileProgress = initialProgress[globalIndex];
 
           try {
-            // Update status to uploading
             const updateProgress = (progress: number, status: UploadProgress['status']) => {
               const current = progressMap.get(groupId) || [];
               current[globalIndex] = { ...fileProgress, progress, status };
@@ -148,7 +157,6 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
 
             updateProgress(10, 'uploading');
 
-            // Compress image (only if larger than 500KB)
             let fileToUpload = file;
             if (file.size > 500 * 1024) {
               updateProgress(30, 'uploading');
@@ -157,12 +165,7 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
 
             updateProgress(50, 'uploading');
 
-            // Upload to storage
-            const url = await uploadImageToStorage(
-              currentUser.id,
-              fileToUpload,
-              'landing-page-images'
-            );
+            const url = await uploadImageToStorage(currentUser.id, fileToUpload, 'landing-page-images');
 
             updateProgress(90, 'uploading');
 
@@ -173,13 +176,10 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
             };
 
             updateProgress(100, 'completed');
-            
-            // Update group incrementally for better UX (images appear as they upload)
-            uploadedCount++;
-            const currentGroup = imageGroups.find(g => g.id === groupId);
+
+            const currentGroup = imageGroups.find((g) => g.id === groupId);
             if (currentGroup) {
-              // Only add if not already in the list (prevent duplicates)
-              if (!currentGroup.images.some(img => img.url === newImage.url)) {
+              if (!currentGroup.images.some((img) => img.url === newImage.url)) {
                 updateGroup(groupId, 'images', [...currentGroup.images, newImage]);
               }
             }
@@ -199,9 +199,7 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
       }
     } catch (error) {
       console.error('Error uploading images:', error);
-      // Don't show alert for individual failures, just log them
     } finally {
-      // Clear progress after a short delay
       setTimeout(() => {
         const current = progressMap.get(groupId);
         if (current) {
@@ -217,30 +215,18 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
   };
 
   const removeImage = (groupId: string, imageId: string) => {
-    const group = imageGroups.find(g => g.id === groupId);
-    if (group) {
-      updateGroup(groupId, 'images', group.images.filter(img => img.id !== imageId));
+    const grp = imageGroups.find((g) => g.id === groupId);
+    if (grp) {
+      updateGroup(groupId, 'images', grp.images.filter((img) => img.id !== imageId));
     }
   };
-
-  const formatOptions: { value: ImageGroup['format']; label: string }[] = [
-    { value: 'catalogue1', label: 'Catalogue 1' },
-    { value: 'catalogue2', label: 'Catalogue 2' },
-    { value: 'catalogue3', label: 'Catalogue 3' },
-    { value: 'catalogue4', label: 'Catalogue 4' },
-    { value: 'slider-rtl', label: 'Slider RTL' },
-    { value: 'slider-ltr', label: 'Slider LTR' },
-  ];
 
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center mb-3">
-        <span className="text-xs text-slate-500">{imageGroups.length} Groups</span>
-        <button
-          onClick={addGroup}
-          className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800"
-        >
-          <Plus size={12} /> Add Group
+        <span className="text-xs text-slate-500">{t('edGalleryGroupsSummary', { count: imageGroups.length })}</span>
+        <button onClick={addGroup} className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800">
+          <Plus size={12} /> {t('edGalleryAddGroup')}
         </button>
       </div>
 
@@ -256,9 +242,9 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
                   <ImageIcon size={14} />
                 </div>
                 <h5 className="text-sm font-semibold text-slate-800">{group.name}</h5>
-                <span className="text-xs text-slate-400">({group.images.length} images)</span>
+                <span className="text-xs text-slate-400">{t('edGalleryImagesInGroup', { count: group.images.length })}</span>
                 <span className="text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
-                  {formatOptions.find(opt => opt.value === group.format)?.label}
+                  {formatOptions.find((opt) => opt.value === group.format)?.label}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -281,25 +267,19 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
 
             {expandedId === group.id && (
               <div className="p-4 border-t border-slate-100 space-y-4">
-                {/* Group Name */}
                 <input
                   type="text"
                   value={group.name}
                   onChange={(e) => updateGroup(group.id, 'name', e.target.value)}
-                  placeholder="Group Name"
+                  placeholder={t('edGalleryGroupNamePlaceholder')}
                   className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"
                 />
 
-                {/* Format Selection */}
                 <div>
-                  <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block">
-                    Format
-                  </label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block">{t('edGalleryFormat')}</label>
                   <select
                     value={group.format}
-                    onChange={(e) =>
-                      updateGroup(group.id, 'format', e.target.value as ImageGroup['format'])
-                    }
+                    onChange={(e) => updateGroup(group.id, 'format', e.target.value as ImageGroup['format'])}
                     className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"
                   >
                     {formatOptions.map((option) => (
@@ -310,12 +290,9 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
                   </select>
                 </div>
 
-                {/* Main Image Size */}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
-                      Main Width (px)
-                    </label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">{t('edGalleryMainWidth')}</label>
                     <input
                       type="number"
                       min={200}
@@ -325,18 +302,14 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
                         updateGroup(
                           group.id,
                           'mainWidth',
-                          Number.isNaN(parseInt(e.target.value, 10))
-                            ? undefined
-                            : parseInt(e.target.value, 10)
+                          Number.isNaN(parseInt(e.target.value, 10)) ? undefined : parseInt(e.target.value, 10)
                         )
                       }
                       className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">
-                      Main Height (px)
-                    </label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase mb-1 block">{t('edGalleryMainHeight')}</label>
                     <input
                       type="number"
                       min={200}
@@ -346,9 +319,7 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
                         updateGroup(
                           group.id,
                           'mainHeight',
-                          Number.isNaN(parseInt(e.target.value, 10))
-                            ? undefined
-                            : parseInt(e.target.value, 10)
+                          Number.isNaN(parseInt(e.target.value, 10)) ? undefined : parseInt(e.target.value, 10)
                         )
                       }
                       className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"
@@ -356,11 +327,8 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
                   </div>
                 </div>
 
-                {/* Show Navigation Toggle */}
                 <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">
-                    Show Navigation Buttons
-                  </label>
+                  <label className="text-[10px] font-bold text-slate-500 uppercase">{t('edGalleryShowNav')}</label>
                   <button
                     type="button"
                     onClick={() => updateGroup(group.id, 'showNavigation', !group.showNavigation)}
@@ -376,10 +344,9 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
                   </button>
                 </div>
 
-                {/* Image Upload */}
                 <div>
                   <label className="text-[10px] font-bold text-slate-500 uppercase mb-2 block">
-                    Images ({group.images.length})
+                    {t('edGalleryImagesLabel', { count: group.images.length })}
                   </label>
                   <input
                     ref={fileInputRef}
@@ -400,40 +367,27 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
                     {uploadingImageId === group.id ? (
                       <>
                         <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent"></div>
-                        <span className="text-xs text-slate-600">Uploading...</span>
+                        <span className="text-xs text-slate-600">{t('edGalleryUploading')}</span>
                       </>
                     ) : (
                       <>
                         <Upload size={14} className="text-indigo-600" />
-                        <span className="text-xs text-indigo-600 font-medium">
-                          Upload Images (Multiple)
-                        </span>
+                        <span className="text-xs text-indigo-600 font-medium">{t('edGalleryUploadMultiple')}</span>
                       </>
                     )}
                   </label>
 
-                  {/* Upload Progress */}
                   {uploadProgress.has(group.id) && uploadProgress.get(group.id)!.length > 0 && (
                     <div className="mt-3 space-y-2">
                       {uploadProgress.get(group.id)!.map((progress) => (
                         <div key={progress.fileId} className="bg-slate-50 rounded-lg p-2">
                           <div className="flex items-center gap-2 mb-1">
                             {progress.preview && (
-                              <img
-                                src={progress.preview}
-                                alt=""
-                                className="w-8 h-8 object-cover rounded"
-                              />
+                              <img src={progress.preview} alt="" className="w-8 h-8 object-cover rounded" />
                             )}
-                            <span className="text-xs text-slate-700 flex-1 truncate">
-                              {progress.fileName}
-                            </span>
-                            {progress.status === 'completed' && (
-                              <CheckCircle2 size={14} className="text-green-600" />
-                            )}
-                            {progress.status === 'error' && (
-                              <X size={14} className="text-red-600" />
-                            )}
+                            <span className="text-xs text-slate-700 flex-1 truncate">{progress.fileName}</span>
+                            {progress.status === 'completed' && <CheckCircle2 size={14} className="text-green-600" />}
+                            {progress.status === 'error' && <X size={14} className="text-red-600" />}
                             {progress.status === 'uploading' && (
                               <div className="animate-spin rounded-full h-3 w-3 border-2 border-indigo-600 border-t-transparent"></div>
                             )}
@@ -452,22 +406,17 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
                   )}
                 </div>
 
-                {/* Image Grid */}
                 {group.images.length > 0 && (
                   <div className="grid grid-cols-4 gap-2 mt-4">
                     {group.images.map((image) => (
                       <div key={image.id} className="relative group">
                         <div className="aspect-square rounded-lg overflow-hidden border-2 border-slate-200">
-                          <img
-                            src={image.url}
-                            alt={image.alt || ''}
-                            className="w-full h-full object-cover"
-                          />
+                          <img src={image.url} alt={image.alt || ''} className="w-full h-full object-cover" />
                         </div>
                         <button
                           onClick={() => removeImage(group.id, image.id)}
                           className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="Remove image"
+                          title={t('edGalleryRemoveImage')}
                         >
                           <X size={12} />
                         </button>
@@ -485,4 +434,3 @@ const ImagesEditor: React.FC<ImagesEditorProps> = ({ imageGroups, onChange }) =>
 };
 
 export default ImagesEditor;
-

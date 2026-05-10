@@ -29,9 +29,49 @@ import { STORAGE_BUCKETS } from '../../../../supabase';
 import { RegistrationForm, Event, DecisionStatus } from '../../../../types';
 import SubmissionDecisionModal from './SubmissionDecisionModal';
 import DisplayManagerModal from './DisplayManagerModal';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
+
+/**
+ * Map a submission to exactly one event when the same submission form is used on several events.
+ * Prefers stored event UUID, then acceptedEventId, then an unambiguous landing-page id match.
+ * Returns null if the row cannot be tied to a single event (avoids showing it under the wrong event).
+ */
+function resolveSubmissionEvent(submission: FormSubmission, userEvents: Event[]): Event | null {
+  const eventsWithForm = userEvents.filter((event) => {
+    if (event.submissionFormIds && event.submissionFormIds.length > 0) {
+      return event.submissionFormIds.includes(submission.formId);
+    }
+    return Boolean((event as unknown as { submissionFormId?: string }).submissionFormId === submission.formId);
+  });
+  if (eventsWithForm.length === 0) return null;
+
+  const byStoredEventId = eventsWithForm.find((e) => e.id === submission.eventId);
+  if (byStoredEventId) return byStoredEventId;
+
+  if (submission.acceptedEventId) {
+    const byAccepted = eventsWithForm.find((e) => e.id === submission.acceptedEventId);
+    if (byAccepted) return byAccepted;
+  }
+
+  const landingHits = eventsWithForm.filter(
+    (e) => Array.isArray(e.landingPageIds) && e.landingPageIds.includes(submission.eventId)
+  );
+  if (landingHits.length === 1) return landingHits[0];
+  if (landingHits.length > 1) {
+    if (submission.acceptedEventId) {
+      const resolved = landingHits.find((e) => e.id === submission.acceptedEventId);
+      if (resolved) return resolved;
+    }
+    return null;
+  }
+
+  return null;
+}
 
 const ReceivedSubmissions: React.FC = () => {
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const isEventScopeLocked = !!organizerScopedEventId;
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -56,6 +96,12 @@ const ReceivedSubmissions: React.FC = () => {
       loadSubmissions();
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (organizerScopedEventId) {
+      setSelectedEvent(organizerScopedEventId);
+    }
+  }, [organizerScopedEventId]);
 
   // Initialize header display fields with filter fields when forms are loaded
   useEffect(() => {
@@ -145,47 +191,20 @@ const ReceivedSubmissions: React.FC = () => {
         submissionFormIdsArray
       );
       
-      // Normalize submissions: match them to events and update eventId/eventTitle
-      // Note: submission.eventId might be a landing page ID (legacy) or an event ID (new)
+      // Normalize submissions: one canonical event per row (event + form pair), never guess across events sharing the same form
       const normalizedSubmissions = allSubmissions
-        .map(submission => {
-          // Check if this formId is a submission form for any event
+        .map((submission) => {
           if (!submissionFormIds.has(submission.formId)) {
             return null;
           }
-          
-          // Find matching event - check both event ID and landing page IDs
-          const matchingEvent = userEvents.find(event => {
-            // Check if formId is in this event's submission forms
-            const hasFormId = (event.submissionFormIds && event.submissionFormIds.includes(submission.formId)) ||
-                             ((event as any).submissionFormId === submission.formId);
-            
-            if (!hasFormId) {
-              return false;
-            }
-            
-            // Check if submission's eventId matches the event ID directly
-            if (event.id === submission.eventId) {
-              return true;
-            }
-            
-            // Check if submission's eventId matches any of the event's landing page IDs (legacy support)
-            if (event.landingPageIds && event.landingPageIds.includes(submission.eventId)) {
-              return true;
-            }
-            
-            return false;
-          });
-          
+          const matchingEvent = resolveSubmissionEvent(submission, userEvents);
           if (!matchingEvent) {
             return null;
           }
-          
-          // Update submission's eventId to the actual event ID for consistent filtering
           return {
             ...submission,
             eventId: matchingEvent.id,
-            eventTitle: matchingEvent.name
+            eventTitle: matchingEvent.name,
           };
         })
         .filter((submission): submission is FormSubmission => submission !== null);
@@ -879,21 +898,25 @@ const ReceivedSubmissions: React.FC = () => {
           <div className="flex items-center gap-3">
             <Filter size={18} className="text-slate-500" />
             <label className="text-sm font-medium text-slate-700">Filter by Event:</label>
-            <select
-              value={selectedEvent}
-              onChange={(e) => setSelectedEvent(e.target.value)}
-              className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="all">All Events ({submissions.length})</option>
-              {uniqueEvents.map((event) => {
-                const count = submissions.filter(s => s.eventId === event.id).length;
-                return (
-                  <option key={event.id} value={event.id}>
-                    {event.title} ({count})
-                  </option>
-                );
-              })}
-            </select>
+            {isEventScopeLocked ? (
+              <p className="text-sm text-slate-600 py-2">Showing only your selected event (change it from the header).</p>
+            ) : (
+              <select
+                value={selectedEvent}
+                onChange={(e) => setSelectedEvent(e.target.value)}
+                className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All Events ({submissions.length})</option>
+                {uniqueEvents.map((event) => {
+                  const count = submissions.filter(s => s.eventId === event.id).length;
+                  return (
+                    <option key={event.id} value={event.id}>
+                      {event.title} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            )}
           </div>
         </div>
       </div>

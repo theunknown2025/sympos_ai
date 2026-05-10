@@ -36,6 +36,9 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { SubscriptionRole, ViewState } from '../../../types';
+import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
+import { getAdminNavLabels } from '../../../i18n/adminNavLabels';
+import { useOrganizerChooserLayout } from '../../../contexts/OrganizerEventScopeContext';
 
 interface SidebarItemProps {
   icon: React.ComponentType<{ size?: number }>;
@@ -185,6 +188,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleAcademy,
   onSignOut,
 }) => {
+  const { language } = useAdminDisplaySettings();
+  const nav = getAdminNavLabels(language);
+  const hideForOrganizerChooser = useOrganizerChooserLayout();
+  if (hideForOrganizerChooser) return null;
+
   return (
     <aside 
       className={`${sidebarOpen ? 'w-64' : 'w-20'} 
@@ -196,7 +204,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
         {sidebarOpen && (
           <span className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-600">
-            Sympose AI
+            {nav.brand}
           </span>
         )}
       </div>
@@ -210,14 +218,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={LayoutDashboard}
-                  label="Dashboard"
+                  label={nav.dashboard}
                   active={currentView === ViewState.DASHBOARD}
                   expanded={dashboardExpanded}
                   onToggle={onToggleDashboard}
                   subItems={[
                     {
                       icon: LayoutDashboard,
-                      label: 'Overview',
+                      label: nav.overview,
                       view: ViewState.DASHBOARD,
                       active: currentView === ViewState.DASHBOARD,
                     },
@@ -235,7 +243,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <SidebarItem
                   icon={FolderOpen}
-                  label="Profile Folder"
+                  label={nav.profileFolder}
                   active={currentView === ViewState.ENTITY_PROFILE}
                   onClick={() => onNavigateToView(ViewState.ENTITY_PROFILE)}
                 />
@@ -250,7 +258,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <SidebarItem
                   icon={Calendar}
-                  label="Event Management"
+                  label={nav.eventManagement}
                   active={currentView === ViewState.EVENT_MANAGEMENT}
                   onClick={() => onNavigateToView(ViewState.EVENT_MANAGEMENT)}
                 />
@@ -265,7 +273,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={GraduationCap}
-                  label="Academy - LMS"
+                  label={nav.academyLms}
                   active={currentView === ViewState.ACADEMY_COURSE_MANAGER ||
                          currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER ||
                          currentView === ViewState.ACADEMY_PAYMENT_MANAGER}
@@ -274,19 +282,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   subItems={[
                     {
                       icon: BookOpen,
-                      label: 'Course Manager',
+                      label: nav.courseManager,
                       view: ViewState.ACADEMY_COURSE_MANAGER,
                       active: currentView === ViewState.ACADEMY_COURSE_MANAGER,
                     },
                     {
                       icon: Users,
-                      label: 'Enrollment Manager',
+                      label: nav.enrollmentManager,
                       view: ViewState.ACADEMY_ENROLLMENT_MANAGER,
                       active: currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER,
                     },
                     {
                       icon: CreditCard,
-                      label: 'Payment Manager',
+                      label: nav.paymentManager,
                       view: ViewState.ACADEMY_PAYMENT_MANAGER,
                       active: currentView === ViewState.ACADEMY_PAYMENT_MANAGER,
                     },
@@ -309,14 +317,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {/* Participant/Jury Member Navigation */}
               <SidebarItem 
                 icon={LayoutDashboard} 
-                label={sidebarOpen ? "Dashboard" : ""} 
+                label={sidebarOpen ? nav.dashboard : ""} 
                 active={currentView === ViewState.JURY_DASHBOARD} 
                 onClick={() => onNavigateToView(ViewState.JURY_DASHBOARD)} 
               />
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={GraduationCap}
-                  label="Academy"
+                  label={nav.academy}
                   active={
                     currentView === ViewState.PARTICIPANT_ACADEMY ||
                     currentView === ViewState.PARTICIPANT_ACADEMY_COURSES
@@ -326,7 +334,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   subItems={[
                     {
                       icon: BookOpen,
-                      label: 'Courses',
+                      label: nav.courses,
                       view: ViewState.PARTICIPANT_ACADEMY_COURSES,
                       active: currentView === ViewState.PARTICIPANT_ACADEMY_COURSES,
                     },
@@ -353,7 +361,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 sidebarOpen ? (
                   <ExpandableSidebarItem
                     icon={Briefcase}
-                    label="Super Admin"
+                    label={nav.superAdmin}
                     active={
                       currentView === ViewState.SUPERADMIN_DASHBOARD ||
                       currentView === ViewState.SUPERADMIN_SUBSCRIPTIONS
@@ -363,13 +371,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     subItems={[
                       {
                         icon: LayoutDashboard,
-                        label: 'Dashboard',
+                        label: nav.dashboard,
                         view: ViewState.SUPERADMIN_DASHBOARD,
                         active: currentView === ViewState.SUPERADMIN_DASHBOARD,
                       },
                       {
                         icon: Users,
-                        label: 'Subscriptions',
+                        label: nav.subscriptions,
                         view: ViewState.SUPERADMIN_SUBSCRIPTIONS,
                         active: currentView === ViewState.SUPERADMIN_SUBSCRIPTIONS,
                       },
@@ -391,7 +399,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={FileStack}
-                  label="Submissions"
+                  label={nav.submissions}
                   active={currentView === ViewState.SUBMISSIONS || 
                          currentView === ViewState.SUBMISSIONS_DASHBOARD ||
                          currentView === ViewState.SUBMISSIONS_FOLLOW_UP ||
@@ -404,37 +412,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   subItems={[
                     {
                       icon: LayoutDashboard,
-                      label: 'Dashboard',
+                      label: nav.dashboard,
                       view: ViewState.SUBMISSIONS_DASHBOARD,
                       active: currentView === ViewState.SUBMISSIONS_DASHBOARD,
                     },
                     {
                       icon: Clock,
-                      label: 'Follow up',
+                      label: nav.followUp,
                       view: ViewState.SUBMISSIONS_FOLLOW_UP,
                       active: currentView === ViewState.SUBMISSIONS_FOLLOW_UP,
                     },
                     {
                       icon: FileText,
-                      label: 'Manage Submissions',
+                      label: nav.manageSubmissions,
                       view: ViewState.SUBMISSIONS_MANAGE,
                       active: currentView === ViewState.SUBMISSIONS_MANAGE,
                     },
                     {
                       icon: UserCog,
-                      label: 'Manage Committee',
+                      label: nav.manageCommittee,
                       view: ViewState.SUBMISSIONS_MANAGE_COMMITTEE,
                       active: currentView === ViewState.SUBMISSIONS_MANAGE_COMMITTEE,
                     },
                     {
                       icon: BarChart3,
-                      label: 'Reporting',
+                      label: nav.reporting,
                       view: ViewState.SUBMISSIONS_REPORTING,
                       active: currentView === ViewState.SUBMISSIONS_REPORTING,
                     },
                     {
                       icon: Calendar,
-                      label: 'Program Builder',
+                      label: nav.programBuilder,
                       view: ViewState.PROGRAM_BUILDER,
                       active: currentView === ViewState.PROGRAM_BUILDER,
                     },
@@ -458,20 +466,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={Users}
-                  label="Registrations"
+                  label={nav.registrations}
                   active={currentView === ViewState.REGISTRATION_LIST || currentView === ViewState.CHECKIN}
                   expanded={registrationsExpanded}
                   onToggle={onToggleRegistrations}
                   subItems={[
                     {
                       icon: ClipboardList,
-                      label: 'Registration',
+                      label: nav.registration,
                       view: ViewState.REGISTRATION_LIST,
                       active: currentView === ViewState.REGISTRATION_LIST,
                     },
                     {
                       icon: CheckSquare,
-                      label: 'Checkin',
+                      label: nav.checkin,
                       view: ViewState.CHECKIN,
                       active: currentView === ViewState.CHECKIN,
                     },
@@ -489,50 +497,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={Wrench}
-                  label="Tools"
+                  label={nav.tools}
                   active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER}
                   expanded={toolsExpanded}
                   onToggle={onToggleTools}
                   subItems={[
                     {
                       icon: Globe,
-                      label: 'Landing Page Builder',
+                      label: nav.landingPageBuilder,
                       view: ViewState.LANDING_PAGES,
                       active: currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER,
                     },
                     {
                       icon: FileText,
-                      label: 'Form Builder',
+                      label: nav.formBuilder,
                       view: ViewState.FORM_BUILDER,
                       active: currentView === ViewState.FORM_BUILDER,
                     },
                     {
                       icon: FolderOpen,
-                      label: 'Files Manager',
+                      label: nav.filesManager,
                       view: ViewState.FILES_MANAGER,
                       active: currentView === ViewState.FILES_MANAGER,
                     },
                     {
                       icon: Palette,
-                      label: 'Design Editor',
+                      label: nav.designEditor,
                       view: ViewState.CANVA_CERTIFICATE_BACKGROUND,
                       active: currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND,
                     },
                     {
                       icon: Mail,
-                      label: 'Emailer',
+                      label: nav.emailer,
                       view: ViewState.EMAILER,
                       active: currentView === ViewState.EMAILER,
                     },
                     {
                       icon: BookOpen,
-                      label: 'Blogs',
+                      label: nav.blogs,
                       view: ViewState.BLOGS,
                       active: currentView === ViewState.BLOGS,
                     },
                     {
                       icon: Presentation,
-                      label: 'Presenter',
+                      label: nav.presenter,
                       view: ViewState.PRESENTER,
                       active: currentView === ViewState.PRESENTER,
                     },
@@ -558,20 +566,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={Certificate}
-                  label="Certificates Manager"
+                  label={nav.certificatesManager}
                   active={currentView === ViewState.CERTIFICATE_TEMPLATE_BUILDER || currentView === ViewState.CERTIFICATE_TEMPLATE_LIST || currentView === ViewState.GENERATE_CERTIFICATES}
                   expanded={certificatesExpanded}
                   onToggle={onToggleCertificates}
                   subItems={[
                     {
                       icon: FileEdit,
-                      label: 'Manage Templates',
+                      label: nav.manageTemplates,
                       view: ViewState.CERTIFICATE_TEMPLATE_LIST,
                       active: currentView === ViewState.CERTIFICATE_TEMPLATE_BUILDER || currentView === ViewState.CERTIFICATE_TEMPLATE_LIST,
                     },
                     {
                       icon: Download,
-                      label: 'Generate Certificates',
+                      label: nav.generateCertificates,
                       view: ViewState.GENERATE_CERTIFICATES,
                       active: currentView === ViewState.GENERATE_CERTIFICATES,
                     },
@@ -595,7 +603,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={Briefcase}
-                  label="Project Management"
+                  label={nav.projectManagement}
                   active={currentView === ViewState.PROJECT_MANAGEMENT || 
                          currentView === ViewState.PERSONNEL_MANAGEMENT ||
                          currentView === ViewState.PROJECTS ||
@@ -605,19 +613,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   subItems={[
                     {
                       icon: Users,
-                      label: 'Personnel Management',
+                      label: nav.personnelManagement,
                       view: ViewState.PERSONNEL_MANAGEMENT,
                       active: currentView === ViewState.PERSONNEL_MANAGEMENT,
                     },
                     {
                       icon: FolderKanban,
-                      label: 'Projects',
+                      label: nav.projects,
                       view: ViewState.PROJECTS,
                       active: currentView === ViewState.PROJECTS,
                     },
                     {
                       icon: Clock,
-                      label: 'Follow up',
+                      label: nav.followUp,
                       view: ViewState.FOLLOW_UP,
                       active: currentView === ViewState.FOLLOW_UP,
                     },
@@ -638,7 +646,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={CreditCard}
-                  label="Paiement Management"
+                  label={nav.paiementManagement}
                   active={currentView === ViewState.PAIEMENT_MANAGEMENT || 
                          currentView === ViewState.PAIEMENT_INFORMATION ||
                          currentView === ViewState.NEW_PAIEMENT ||
@@ -649,25 +657,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   subItems={[
                     {
                       icon: FileText,
-                      label: 'Paiement Information',
+                      label: nav.paiementInformation,
                       view: ViewState.PAIEMENT_INFORMATION,
                       active: currentView === ViewState.PAIEMENT_INFORMATION,
                     },
                     {
                       icon: Plus,
-                      label: 'New Offer',
+                      label: nav.newOffer,
                       view: ViewState.NEW_PAIEMENT,
                       active: currentView === ViewState.NEW_PAIEMENT,
                     },
                     {
                       icon: Clock,
-                      label: 'Follow up',
+                      label: nav.followUp,
                       view: ViewState.PAIEMENT_FOLLOW_UP,
                       active: currentView === ViewState.PAIEMENT_FOLLOW_UP,
                     },
                     {
                       icon: FileEdit,
-                      label: 'Generator',
+                      label: nav.generator,
                       view: ViewState.PAIEMENT_GENERATOR,
                       active: currentView === ViewState.PAIEMENT_GENERATOR,
                     },
@@ -689,7 +697,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <SidebarItem
                   icon={MessageSquare}
-                  label="Messaging"
+                  label={nav.messaging}
                   active={currentView === ViewState.MESSAGING}
                   onClick={() => onNavigateToView(ViewState.MESSAGING)}
                 />
@@ -710,62 +718,62 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={Award}
-                  label="Participant"
+                  label={nav.participant}
                   active={currentView === ViewState.JURY || currentView === ViewState.JURY_DASHBOARD || currentView === ViewState.JURY_PROFILE || currentView === ViewState.JURY_INVITATIONS || currentView === ViewState.JURY_EVENTS || currentView === ViewState.JURY_REVIEWS || currentView === ViewState.PARTICIPANT_REGISTRATIONS || currentView === ViewState.PARTICIPANT_SUBMISSIONS || currentView === ViewState.PARTICIPANT_MESSAGING || currentView === ViewState.PARTICIPANT_ACADEMY}
                   expanded={juryExpanded}
                   onToggle={onToggleJury}
                   subItems={[
                     {
                       icon: LayoutDashboard,
-                      label: 'Dashboard',
+                      label: nav.dashboard,
                       view: ViewState.JURY_DASHBOARD,
                       active: currentView === ViewState.JURY_DASHBOARD,
                     },
                     {
                       icon: Users,
-                      label: 'My Profile',
+                      label: nav.myProfile,
                       view: ViewState.JURY_PROFILE,
                       active: currentView === ViewState.JURY_PROFILE,
                     },
                     {
                       icon: Bell,
-                      label: 'Invitations',
+                      label: nav.invitations,
                       view: ViewState.JURY_INVITATIONS,
                       active: currentView === ViewState.JURY_INVITATIONS,
                     },
                     {
                       icon: Calendar,
-                      label: 'Events',
+                      label: nav.events,
                       view: ViewState.JURY_EVENTS,
                       active: currentView === ViewState.JURY_EVENTS,
                     },
                     {
                       icon: FileText,
-                      label: 'Reviews',
+                      label: nav.reviews,
                       view: ViewState.JURY_REVIEWS,
                       active: currentView === ViewState.JURY_REVIEWS,
                     },
                     {
                       icon: ClipboardList,
-                      label: 'Registrations',
+                      label: nav.registrations,
                       view: ViewState.PARTICIPANT_REGISTRATIONS,
                       active: currentView === ViewState.PARTICIPANT_REGISTRATIONS,
                     },
                     {
                       icon: Send,
-                      label: 'Submissions',
+                      label: nav.submissions,
                       view: ViewState.PARTICIPANT_SUBMISSIONS,
                       active: currentView === ViewState.PARTICIPANT_SUBMISSIONS,
                     },
                     {
                       icon: MessageSquare,
-                      label: 'Messages',
+                      label: nav.messages,
                       view: ViewState.PARTICIPANT_MESSAGING,
                       active: currentView === ViewState.PARTICIPANT_MESSAGING,
                     },
                     {
                       icon: GraduationCap,
-                      label: 'Academy',
+                      label: nav.academy,
                       view: ViewState.PARTICIPANT_ACADEMY,
                       active: currentView === ViewState.PARTICIPANT_ACADEMY,
                     },
@@ -785,32 +793,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {sidebarOpen ? (
                 <ExpandableSidebarItem
                   icon={Wrench}
-                  label="Tools"
+                  label={nav.tools}
                   active={currentView === ViewState.PARTICIPANT_TOOLS || currentView === ViewState.LATEX_EDITOR || currentView === ViewState.CV_BUILDER || currentView === ViewState.PROFILE_BUILDER || currentView === ViewState.PARTICIPANT_BLOG}
                   expanded={participantToolsExpanded}
                   onToggle={onToggleParticipantTools}
                   subItems={[
                     {
                       icon: Code,
-                      label: 'LaTeX Editor',
+                      label: nav.latexEditor,
                       view: ViewState.LATEX_EDITOR,
                       active: currentView === ViewState.LATEX_EDITOR,
                     },
                     {
                       icon: FileText,
-                      label: 'CV Builder',
+                      label: nav.cvBuilder,
                       view: ViewState.CV_BUILDER,
                       active: currentView === ViewState.CV_BUILDER,
                     },
                     {
                       icon: User,
-                      label: 'Profile Builder',
+                      label: nav.profileBuilder,
                       view: ViewState.PROFILE_BUILDER,
                       active: currentView === ViewState.PROFILE_BUILDER,
                     },
                     {
                       icon: BookOpen,
-                      label: 'Blog',
+                      label: nav.blog,
                       view: ViewState.PARTICIPANT_BLOG,
                       active: currentView === ViewState.PARTICIPANT_BLOG,
                     },
@@ -836,7 +844,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="w-full flex items-center justify-center gap-2 p-2 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
         >
           <LogOut size={20} />
-          {sidebarOpen && <span className="text-sm font-medium">Sign Out</span>}
+          {sidebarOpen && <span className="text-sm font-medium">{nav.signOut}</span>}
         </button>
       </div>
     </aside>

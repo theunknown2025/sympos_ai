@@ -19,6 +19,7 @@ import { getUserEvents, getEvent } from '../../../../services/eventService';
 import { Event, EventDate } from '../../../../types';
 import { toggleCheckin, getCheckinStatusMap, bulkToggleCheckin, RegistrationCheckin } from '../../../../services/checkinService';
 import BadgerDisplay from './BadgerDisplay';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
 
 interface AcceptedRegistrationListProps {
   eventId?: string; // Optional: filter by specific event
@@ -28,6 +29,8 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
   eventId
 }) => {
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const isEventScopeLocked = !!organizerScopedEventId;
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [filteredSubmissions, setFilteredSubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,6 +92,12 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
   useEffect(() => {
     filterSubmissions();
   }, [searchQuery, submissions, selectedEvent]);
+
+  useEffect(() => {
+    if (organizerScopedEventId) {
+      setSelectedEvent(organizerScopedEventId);
+    }
+  }, [organizerScopedEventId]);
 
   // Load selected event data when event changes
   useEffect(() => {
@@ -425,21 +434,27 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
           <label className="block text-sm font-medium text-slate-700 mb-2">
             Event
           </label>
-          <select
-            value={selectedEvent}
-            onChange={(e) => {
-              setSelectedEvent(e.target.value);
-              setSelectedSubmissions(new Set());
-            }}
-            className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="all">All Events</option>
-            {events.map(event => (
-              <option key={event.id} value={event.id}>
-                {event.name}
-              </option>
-            ))}
-          </select>
+          {isEventScopeLocked ? (
+            <p className="w-full text-sm text-slate-600 py-2">
+              Showing only your selected event (change it from the header).
+            </p>
+          ) : (
+            <select
+              value={selectedEvent}
+              onChange={(e) => {
+                setSelectedEvent(e.target.value);
+                setSelectedSubmissions(new Set());
+              }}
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value="all">All Events</option>
+              {events.map(event => (
+                <option key={event.id} value={event.id}>
+                  {event.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Search Bar */}

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X, Check, Palette, Sparkles, Crown } from 'lucide-react';
-import { ConferenceConfig } from '../../../types';
+import { ConferenceConfig } from '../../../../types';
 import { MODERN_MINIMAL_TEMPLATE, MODERN_MINIMAL_METADATA } from './Design1_ModernMinimal';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface TemplateMetadata {
   name: string;
@@ -43,8 +44,18 @@ interface TemplateSelectorProps {
 
 const TemplateSelector: React.FC<TemplateSelectorProps> = ({ isOpen, onClose, onSelectTemplate, onUseDefault }) => {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const { t } = useAdminTranslation('pageBuilder');
+  const { t: tc } = useAdminTranslation('common');
 
   if (!isOpen) return null;
+
+  const categoryLabel = (category: string) => {
+    const c = category.toLowerCase();
+    if (c === 'modern') return t('tplCategoryModern');
+    if (c === 'professional') return t('tplCategoryProfessional');
+    if (c === 'classic') return t('tplCategoryClassic');
+    return category;
+  };
 
   const handleSelect = (template: Template) => {
     setSelectedTemplateId(template.id);
@@ -71,8 +82,8 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ isOpen, onClose, on
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900">Choose a Template</h2>
-            <p className="text-slate-500 mt-1">Select a design template to start building your landing page</p>
+            <h2 className="text-2xl font-bold text-slate-900">{t('tplChooseTitle')}</h2>
+            <p className="text-slate-500 mt-1">{t('tplChooseSubtitle')}</p>
           </div>
           <button
             onClick={onClose}
@@ -107,7 +118,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ isOpen, onClose, on
                   {/* Category Badge */}
                   <div className="absolute top-3 left-3 flex items-center gap-2 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full">
                     {getCategoryIcon(template.metadata.category)}
-                    <span className="text-xs font-semibold text-slate-700">{template.metadata.category}</span>
+                    <span className="text-xs font-semibold text-slate-700">{categoryLabel(template.metadata.category)}</span>
                   </div>
 
                   {/* Selected Indicator */}
@@ -145,7 +156,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ isOpen, onClose, on
                     ))}
                     {template.metadata.features.length > 3 && (
                       <div className="text-xs text-slate-400 mt-2">
-                        +{template.metadata.features.length - 3} more features
+                        {t('tplMoreFeatures', { n: template.metadata.features.length - 3 })}
                       </div>
                     )}
                   </div>
@@ -160,7 +171,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ isOpen, onClose, on
           {/* Coming Soon Placeholder */}
           <div className="mt-8 p-6 bg-slate-50 rounded-xl border-2 border-dashed border-slate-300 text-center">
             <p className="text-slate-500 text-sm">
-              More templates coming soon! Check back for Design 2 and Design 3.
+              {t('tplComingSoon')}
             </p>
           </div>
         </div>
@@ -168,7 +179,7 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ isOpen, onClose, on
         {/* Footer */}
         <div className="p-6 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
           <p className="text-sm text-slate-500">
-            You can customize all aspects of the template after selection
+            {t('tplFooterNote')}
           </p>
           <div className="flex items-center gap-3">
             {onUseDefault && (
@@ -179,14 +190,14 @@ const TemplateSelector: React.FC<TemplateSelectorProps> = ({ isOpen, onClose, on
                 }}
                 className="px-4 py-2 text-slate-600 hover:bg-white rounded-lg transition-colors"
               >
-                Use Default Template
+                {t('tplUseDefault')}
               </button>
             )}
             <button
               onClick={onClose}
               className="px-4 py-2 text-slate-600 hover:bg-white rounded-lg transition-colors"
             >
-              Cancel
+              {tc('cancel')}
             </button>
           </div>
         </div>

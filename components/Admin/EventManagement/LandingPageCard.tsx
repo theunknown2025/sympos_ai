@@ -3,9 +3,11 @@ import { Globe, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ViewState } from '../../../types';
 import { getRoutePath } from '../../../routes';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
 
 const LandingPageCard: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useAdminTranslation('eventForm');
 
   const handleClick = () => {
     navigate(getRoutePath(ViewState.LANDING_PAGES));
@@ -22,9 +24,9 @@ const LandingPageCard: React.FC = () => {
         </div>
         <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-indigo-600 group-hover:translate-x-1 transition-all" />
       </div>
-      <h3 className="text-lg font-semibold text-slate-900 mb-2">Landing Page</h3>
+      <h3 className="text-lg font-semibold text-slate-900 mb-2">{t('cardLandingPage')}</h3>
       <p className="text-sm text-slate-500">
-        Create and manage your event landing pages with customizable sections and content.
+        {t('cardLandingPageBody')}
       </p>
     </div>
   );

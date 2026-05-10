@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Trash2, Edit2, Calendar, Globe, Award, FileText, Loader2, AlertCircle, ArrowRight, FileCheck, Users, Eye, Send, Grid3x3, List, Settings2, MapPin, Tag, Clock, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../hooks/useAuth';
@@ -11,6 +11,8 @@ import { getEvaluationForm } from '../../../services/evaluationFormService';
 import { getCommittee } from '../../../services/committeeService';
 import { getEventSubmissions } from '../../../services/registrationSubmissionService';
 import { getRoutePath } from '../../../routes';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
+import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 import NewEvent from './NewEvent';
 import EditEvent from './EditEvent';
 import EventPreview from './EventPreview';
@@ -40,6 +42,41 @@ const defaultColumns: ColumnConfig[] = [
 
 const ListOfEvents: React.FC = () => {
   const { currentUser, userRole } = useAuth();
+  const { t } = useAdminTranslation('eventManagement');
+  const { t: tc } = useAdminTranslation('common');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
+
+  const colLabel = useCallback(
+    (id: string) => {
+      switch (id) {
+        case 'name':
+          return t('colEventName');
+        case 'eventType':
+          return t('colType');
+        case 'eventFormat':
+          return t('colFormat');
+        case 'location':
+          return t('colLocation');
+        case 'dates':
+          return t('colDates');
+        case 'status':
+          return t('colStatus');
+        case 'registrationForms':
+          return t('colRegistrationForms');
+        case 'created':
+          return t('colCreated');
+        case 'updated':
+          return t('colUpdated');
+        case 'actions':
+          return t('colActions');
+        default:
+          return id;
+      }
+    },
+    [t]
+  );
+
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -94,14 +131,14 @@ const ListOfEvents: React.FC = () => {
       setEvents(userEvents);
     } catch (err: any) {
       console.error('Error loading events:', err);
-      setError(err.message || 'Failed to load events');
+      setError(err.message || t('loadEventsFailed'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (eventId: string) => {
-    if (!confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
+    if (!confirm(t('deleteConfirm'))) {
       return;
     }
 
@@ -111,7 +148,7 @@ const ListOfEvents: React.FC = () => {
       setEvents(events.filter(e => e.id !== eventId));
     } catch (err: any) {
       console.error('Error deleting event:', err);
-      alert(err.message || 'Failed to delete event');
+      alert(err.message || t('deleteFailed'));
     } finally {
       setDeletingId(null);
     }
@@ -140,8 +177,8 @@ const ListOfEvents: React.FC = () => {
     return (
       <div className="text-center py-12">
         <Calendar className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-        <h3 className="text-lg font-semibold text-slate-700 mb-2">No events yet</h3>
-        <p className="text-sm text-slate-500">Create your first event to get started.</p>
+        <h3 className="text-lg font-semibold text-slate-700 mb-2">{t('noEventsTitle')}</h3>
+        <p className="text-sm text-slate-500">{t('noEventsSubtitle')}</p>
       </div>
     );
   }
@@ -198,7 +235,7 @@ const ListOfEvents: React.FC = () => {
           className="mb-4 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-2"
         >
           <ArrowRight className="rotate-180" size={16} />
-          Back to Events List
+          {t('backToList')}
         </button>
         <EditEvent 
           eventId={editingEventId}
@@ -218,7 +255,7 @@ const ListOfEvents: React.FC = () => {
           className="mb-4 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-2"
         >
           <ArrowRight className="rotate-180" size={16} />
-          Back to Events List
+          {t('backToList')}
         </button>
         <EventPreview eventId={previewingEventId} onClose={handlePreviewClose} />
       </div>
@@ -237,19 +274,19 @@ const ListOfEvents: React.FC = () => {
             <button
               onClick={() => setShowColumnFilter(!showColumnFilter)}
               className="p-2 rounded-lg transition-colors bg-slate-100 text-slate-600 hover:bg-slate-200"
-              title="Column settings"
+              title={t('columnSettingsTooltip')}
             >
               <Settings2 size={20} />
             </button>
             {showColumnFilter && (
               <div className="absolute right-0 top-full mt-2 bg-white border border-slate-200 rounded-lg shadow-lg z-10 p-4 min-w-[200px]">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-slate-900">Columns</h3>
+                  <h3 className="text-sm font-semibold text-slate-900">{t('columnsHeader')}</h3>
                   <button
                     onClick={resetColumns}
                     className="text-xs text-indigo-600 hover:text-indigo-700"
                   >
-                    Reset
+                    {t('resetBtn')}
                   </button>
                 </div>
                 <div className="space-y-2">
@@ -264,7 +301,7 @@ const ListOfEvents: React.FC = () => {
                         onChange={() => toggleColumnVisibility(column.id)}
                         className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                       />
-                      <span className="text-sm text-slate-700">{column.label}</span>
+                      <span className="text-sm text-slate-700">{colLabel(column.id)}</span>
                     </label>
                   ))}
                 </div>
@@ -279,7 +316,7 @@ const ListOfEvents: React.FC = () => {
               ? 'bg-indigo-100 text-indigo-600'
               : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
-          title="Card view"
+          title={t('cardViewTooltip')}
         >
           <Grid3x3 size={20} />
         </button>
@@ -290,7 +327,7 @@ const ListOfEvents: React.FC = () => {
               ? 'bg-indigo-100 text-indigo-600'
               : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
           }`}
-          title="Row view"
+          title={t('rowViewTooltip')}
         >
           <List size={20} />
         </button>
@@ -330,7 +367,7 @@ const ListOfEvents: React.FC = () => {
                       key={column.id}
                       className={`px-4 py-3 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider ${column.width || ''}`}
                     >
-                      {column.label}
+                      {colLabel(column.id)}
                     </th>
                   ))}
                 </tr>
@@ -341,6 +378,8 @@ const ListOfEvents: React.FC = () => {
                     key={event.id}
                     event={event}
                     columns={columns}
+                    colLabel={colLabel}
+                    localeTag={localeTag}
                     onDelete={handleDelete}
                     onEdit={handleEdit}
                     onPreview={handlePreview}
@@ -388,7 +427,28 @@ const truncateDescription = (text: string, maxWords: number = 100): string => {
   return words.slice(0, maxWords).join(' ') + '...';
 };
 
-const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPreview, onPublish, isDeleting, isSelected, onSelect }) => {
+const EventCard: React.FC<EventCardProps> = ({
+  event,
+  onDelete,
+  onEdit,
+  onPreview,
+  onPublish,
+  isDeleting,
+  isSelected,
+  onSelect,
+}) => {
+  const { t } = useAdminTranslation('eventManagement');
+  const { t: tc } = useAdminTranslation('common');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
+
+  const publishStatusLabel = (s?: string | null) =>
+    s === 'Published'
+      ? t('statusPublished')
+      : s === 'Closed'
+        ? t('statusClosed')
+        : t('statusDraft');
+
   const [registrationFormTitles, setRegistrationFormTitles] = useState<string[]>([]);
 
   useEffect(() => {
@@ -443,7 +503,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
               onPreview(event.id);
             }}
             className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-            title="Preview event"
+            title={t('previewEvent')}
           >
             <Eye size={16} />
           </button>
@@ -461,10 +521,10 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
             }`}
             title={
               event.publishStatus === 'Published'
-                ? 'Change publication status'
+                ? t('changePublication')
                 : event.publishStatus === 'Closed'
-                ? 'Reopen event'
-                : 'Publish event'
+                  ? t('reopenEvent')
+                  : t('publishEvent')
             }
           >
             <Send size={16} />
@@ -475,7 +535,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
               onEdit(event.id);
             }}
             className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-            title="Edit event"
+            title={t('editEvent')}
           >
             <Edit2 size={16} />
           </button>
@@ -486,7 +546,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
             }}
             disabled={isDeleting}
             className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-            title="Delete event"
+            title={t('deleteEvent')}
           >
             {isDeleting ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -502,7 +562,9 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
         <div className="flex items-start gap-3 p-2 bg-slate-50 rounded-lg mb-3">
           <FileText className="w-4 h-4 text-blue-600 mt-0.5" />
           <div className="flex-1">
-            <p className="text-xs font-medium text-slate-500 mb-1">Registration Forms ({event.registrationFormIds.length})</p>
+            <p className="text-xs font-medium text-slate-500 mb-1">
+              {t('registrationFormsHeading', { n: event.registrationFormIds.length })}
+            </p>
             {registrationFormTitles.length > 0 ? (
               <div className="flex flex-wrap gap-1.5">
                 {registrationFormTitles.slice(0, 2).map((title, idx) => (
@@ -515,12 +577,12 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
                 ))}
                 {registrationFormTitles.length > 2 && (
                   <span className="px-2 py-0.5 text-xs text-slate-500">
-                    +{registrationFormTitles.length - 2} more
+                    {t('moreCount', { n: registrationFormTitles.length - 2 })}
                   </span>
                 )}
               </div>
             ) : (
-              <p className="text-sm text-slate-400">Loading...</p>
+              <p className="text-sm text-slate-400">{tc('loading')}</p>
             )}
           </div>
         </div>
@@ -528,8 +590,10 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
 
       <div className="pt-3 border-t border-slate-200 flex items-center justify-between">
         <p className="text-xs text-slate-500">
-          Created: {new Date(event.createdAt).toLocaleDateString()} • 
-          Updated: {new Date(event.updatedAt).toLocaleDateString()}
+          {t('createdLabel')}{' '}
+          {new Date(event.createdAt).toLocaleDateString(localeTag)} •{' '}
+          {t('updatedLabel')}{' '}
+          {new Date(event.updatedAt).toLocaleDateString(localeTag)}
         </p>
         {event.publishStatus && (
           <span
@@ -541,7 +605,7 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
                 : 'bg-slate-100 text-slate-700'
             }`}
           >
-            {event.publishStatus}
+            {publishStatusLabel(event.publishStatus)}
           </span>
         )}
       </div>
@@ -552,6 +616,8 @@ const EventCard: React.FC<EventCardProps> = ({ event, onDelete, onEdit, onPrevie
 interface EventRowProps {
   event: Event;
   columns: ColumnConfig[];
+  colLabel: (id: string) => string;
+  localeTag: string;
   onDelete: (eventId: string) => void;
   onEdit: (eventId: string) => void;
   onPreview: (eventId: string) => void;
@@ -561,7 +627,20 @@ interface EventRowProps {
   onSelect: () => void;
 }
 
-const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, onPreview, onPublish, isDeleting, isSelected, onSelect }) => {
+const EventRow: React.FC<EventRowProps> = ({
+  event,
+  columns,
+  colLabel,
+  localeTag,
+  onDelete,
+  onEdit,
+  onPreview,
+  onPublish,
+  isDeleting,
+  isSelected,
+  onSelect,
+}) => {
+  const { t } = useAdminTranslation('eventManagement');
   const [registrationFormTitles, setRegistrationFormTitles] = useState<string[]>([]);
 
   useEffect(() => {
@@ -595,14 +674,30 @@ const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, o
   const formatDates = (dates?: EventDate[]): string => {
     if (!dates || dates.length === 0) return '-';
     const firstDate = dates[0];
-    const start = new Date(firstDate.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const end = firstDate.endDate !== firstDate.startDate
-      ? new Date(firstDate.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-      : null;
+    const start = new Date(firstDate.startDate).toLocaleDateString(localeTag, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    const end =
+      firstDate.endDate !== firstDate.startDate
+        ? new Date(firstDate.endDate).toLocaleDateString(localeTag, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })
+        : null;
     return end ? `${start} - ${end}` : start;
   };
 
   const renderCell = (columnId: string) => {
+    const statusLabel = (s?: string | null) =>
+      s === 'Published'
+        ? t('statusPublished')
+        : s === 'Closed'
+          ? t('statusClosed')
+          : t('statusDraft');
+
     switch (columnId) {
       case 'name':
         return (
@@ -654,7 +749,7 @@ const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, o
                 : 'bg-slate-100 text-slate-700'
             }`}
           >
-            {event.publishStatus}
+            {statusLabel(event.publishStatus)}
           </span>
         ) : (
           <span className="text-sm text-slate-400">-</span>
@@ -664,7 +759,7 @@ const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, o
           <div className="flex items-center gap-1">
             <FileText size={14} className="text-slate-400" />
             <span className="text-sm text-slate-700">
-              {registrationFormTitles.length} form{registrationFormTitles.length !== 1 ? 's' : ''}
+              {t('formsCountCell', { n: registrationFormTitles.length })}
             </span>
           </div>
         ) : (
@@ -673,13 +768,13 @@ const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, o
       case 'created':
         return (
           <span className="text-sm text-slate-600">
-            {new Date(event.createdAt).toLocaleDateString()}
+            {new Date(event.createdAt).toLocaleDateString(localeTag)}
           </span>
         );
       case 'updated':
         return (
           <span className="text-sm text-slate-600">
-            {new Date(event.updatedAt).toLocaleDateString()}
+            {new Date(event.updatedAt).toLocaleDateString(localeTag)}
           </span>
         );
       case 'actions':
@@ -691,7 +786,7 @@ const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, o
                 onPreview(event.id);
               }}
               className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-              title="Preview event"
+              title={t('previewEvent')}
             >
               <Eye size={14} />
             </button>
@@ -704,15 +799,15 @@ const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, o
                 event.publishStatus === 'Published'
                   ? 'text-green-600 hover:bg-green-50'
                   : event.publishStatus === 'Closed'
-                  ? 'text-orange-600 hover:bg-orange-50'
-                  : 'text-slate-600 hover:bg-slate-50'
+                    ? 'text-orange-600 hover:bg-orange-50'
+                    : 'text-slate-600 hover:bg-slate-50'
               }`}
               title={
                 event.publishStatus === 'Published'
-                  ? 'Change publication status'
+                  ? t('changePublication')
                   : event.publishStatus === 'Closed'
-                  ? 'Reopen event'
-                  : 'Publish event'
+                    ? t('reopenEvent')
+                    : t('publishEvent')
               }
             >
               <Send size={14} />
@@ -723,7 +818,7 @@ const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, o
                 onEdit(event.id);
               }}
               className="p-1.5 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-              title="Edit event"
+              title={t('editEvent')}
             >
               <Edit2 size={14} />
             </button>
@@ -734,7 +829,7 @@ const EventRow: React.FC<EventRowProps> = ({ event, columns, onDelete, onEdit, o
               }}
               disabled={isDeleting}
               className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-              title="Delete event"
+              title={t('deleteEvent')}
             >
               {isDeleting ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -776,6 +871,7 @@ interface GeneralQuickAccessProps {
 
 const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
   const navigate = useNavigate();
+  const { t } = useAdminTranslation('eventManagement');
   const [landingPageTitles, setLandingPageTitles] = useState<string[]>([]);
   const [landingPageIds, setLandingPageIds] = useState<string[]>([]);
   const [certificateTitles, setCertificateTitles] = useState<string[]>([]);
@@ -902,10 +998,10 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
       <div className="flex items-center justify-between mb-4">
         <div>
           <p className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
-            Quick Access
+            {t('quickAccessTitle')}
           </p>
           <p className="text-sm text-slate-500">
-            Open the main tools linked to this event in one click.
+            {t('quickAccessSubtitle')}
           </p>
         </div>
       </div>
@@ -927,16 +1023,16 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
             </div>
             <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-indigo-600 transition-colors" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900 mb-2">Landing Pages</h3>
+          <h3 className="text-base font-semibold text-slate-900 mb-2">{t('qaLandingPages')}</h3>
           {loading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
-              <span className="text-sm text-slate-400">Loading...</span>
+              <span className="text-sm text-slate-400">{t('loadingShort')}</span>
             </div>
           ) : landingPageTitles.length > 0 ? (
             <div>
               <p className="text-sm text-slate-600 mb-1">
-                {landingPageTitles.length} page{landingPageTitles.length !== 1 ? 's' : ''} selected
+                {t('pagesSelected', { n: landingPageTitles.length })}
               </p>
               <div className="flex flex-wrap gap-1">
                 {landingPageTitles.slice(0, 2).map((title, idx) => (
@@ -949,13 +1045,13 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
                 ))}
                 {landingPageTitles.length > 2 && (
                   <span className="px-2 py-0.5 text-xs text-slate-500">
-                    +{landingPageTitles.length - 2} more
+                    {t('moreCount', { n: landingPageTitles.length - 2 })}
                   </span>
                 )}
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-400">No landing pages</p>
+            <p className="text-sm text-slate-400">{t('noLandingPages')}</p>
           )}
         </div>
 
@@ -978,18 +1074,18 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
             </div>
             <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-amber-600 transition-colors" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900 mb-2">Certificates</h3>
+          <h3 className="text-base font-semibold text-slate-900 mb-2">{t('qaCertificates')}</h3>
           {loading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
-              <span className="text-sm text-slate-400">Loading...</span>
+              <span className="text-sm text-slate-400">{t('loadingShort')}</span>
             </div>
           ) : certificateTitles.length > 0 ? (
             <p className="text-sm text-slate-600">
-              {certificateTitles.length} template{certificateTitles.length !== 1 ? 's' : ''} available
+              {t('templatesAvailable', { n: certificateTitles.length })}
             </p>
           ) : (
-            <p className="text-sm text-slate-400">No certificates</p>
+            <p className="text-sm text-slate-400">{t('noCertificates')}</p>
           )}
         </div>
 
@@ -1004,16 +1100,16 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
             </div>
             <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-blue-600 transition-colors" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900 mb-2">Submission Forms</h3>
+          <h3 className="text-base font-semibold text-slate-900 mb-2">{t('qaSubmissionForms')}</h3>
           {loading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
-              <span className="text-sm text-slate-400">Loading...</span>
+              <span className="text-sm text-slate-400">{t('loadingShort')}</span>
             </div>
           ) : submissionFormTitles.length > 0 ? (
             <div>
               <p className="text-sm text-slate-600 mb-1">
-                {submissionFormTitles.length} form{submissionFormTitles.length !== 1 ? 's' : ''} selected
+                {t('formsSelected', { n: submissionFormTitles.length })}
               </p>
               <div className="flex flex-wrap gap-1">
                 {submissionFormTitles.slice(0, 2).map((title, idx) => (
@@ -1026,19 +1122,19 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
                 ))}
                 {submissionFormTitles.length > 2 && (
                   <span className="px-2 py-0.5 text-xs text-slate-500">
-                    +{submissionFormTitles.length - 2} more
+                    {t('moreCount', { n: submissionFormTitles.length - 2 })}
                   </span>
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-2">
-                {submissionsCount} submission{submissionsCount !== 1 ? 's' : ''} received
+                {t('submissionsReceived', { n: submissionsCount })}
               </p>
             </div>
           ) : (
             <div>
-              <p className="text-sm text-slate-400 mb-1">No submission forms</p>
+              <p className="text-sm text-slate-400 mb-1">{t('noSubmissionForms')}</p>
               <p className="text-xs text-slate-500">
-                {submissionsCount} submission{submissionsCount !== 1 ? 's' : ''} received
+                {t('submissionsReceived', { n: submissionsCount })}
               </p>
             </div>
           )}
@@ -1055,16 +1151,16 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
             </div>
             <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-green-600 transition-colors" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900 mb-2">Registration Forms</h3>
+          <h3 className="text-base font-semibold text-slate-900 mb-2">{t('qaRegistrationForms')}</h3>
           {loading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
-              <span className="text-sm text-slate-400">Loading...</span>
+              <span className="text-sm text-slate-400">{t('loadingShort')}</span>
             </div>
           ) : registrationFormTitles.length > 0 ? (
             <div>
               <p className="text-sm text-slate-600 mb-1">
-                {registrationFormTitles.length} form{registrationFormTitles.length !== 1 ? 's' : ''} selected
+                {t('formsSelected', { n: registrationFormTitles.length })}
               </p>
               <div className="flex flex-wrap gap-1">
                 {registrationFormTitles.slice(0, 2).map((title, idx) => (
@@ -1077,19 +1173,19 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
                 ))}
                 {registrationFormTitles.length > 2 && (
                   <span className="px-2 py-0.5 text-xs text-slate-500">
-                    +{registrationFormTitles.length - 2} more
+                    {t('moreCount', { n: registrationFormTitles.length - 2 })}
                   </span>
                 )}
               </div>
               <p className="text-xs text-slate-500 mt-2">
-                {registrationsCount} registration{registrationsCount !== 1 ? 's' : ''} total
+                {t('registrationsTotal', { n: registrationsCount })}
               </p>
             </div>
           ) : (
             <div>
-              <p className="text-sm text-slate-400 mb-1">No registration forms</p>
+              <p className="text-sm text-slate-400 mb-1">{t('noRegistrationForms')}</p>
               <p className="text-xs text-slate-500">
-                {registrationsCount} registration{registrationsCount !== 1 ? 's' : ''} total
+                {t('registrationsTotal', { n: registrationsCount })}
               </p>
             </div>
           )}
@@ -1106,16 +1202,16 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
             </div>
             <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-orange-600 transition-colors" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900 mb-2">Evaluation Forms</h3>
+          <h3 className="text-base font-semibold text-slate-900 mb-2">{t('qaEvaluationForms')}</h3>
           {loading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
-              <span className="text-sm text-slate-400">Loading...</span>
+              <span className="text-sm text-slate-400">{t('loadingShort')}</span>
             </div>
           ) : evaluationFormTitles.length > 0 ? (
             <div>
               <p className="text-sm text-slate-600 mb-1">
-                {evaluationFormTitles.length} form{evaluationFormTitles.length !== 1 ? 's' : ''} selected
+                {t('formsSelected', { n: evaluationFormTitles.length })}
               </p>
               <div className="flex flex-wrap gap-1">
                 {evaluationFormTitles.slice(0, 2).map((title, idx) => (
@@ -1128,13 +1224,13 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
                 ))}
                 {evaluationFormTitles.length > 2 && (
                   <span className="px-2 py-0.5 text-xs text-slate-500">
-                    +{evaluationFormTitles.length - 2} more
+                    {t('moreCount', { n: evaluationFormTitles.length - 2 })}
                   </span>
                 )}
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-400">No evaluation forms</p>
+            <p className="text-sm text-slate-400">{t('noEvaluationForms')}</p>
           )}
         </div>
 
@@ -1149,16 +1245,16 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
             </div>
             <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-teal-600 transition-colors" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900 mb-2">Committees</h3>
+          <h3 className="text-base font-semibold text-slate-900 mb-2">{t('qaCommittees')}</h3>
           {loading ? (
             <div className="flex items-center gap-2">
               <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
-              <span className="text-sm text-slate-400">Loading...</span>
+              <span className="text-sm text-slate-400">{t('loadingShort')}</span>
             </div>
           ) : committeeNames.length > 0 ? (
             <div>
               <p className="text-sm text-slate-600 mb-1">
-                {committeeNames.length} committee{committeeNames.length !== 1 ? 's' : ''} linked
+                {t('committeesLinked', { n: committeeNames.length })}
               </p>
               <div className="flex flex-wrap gap-1">
                 {committeeNames.slice(0, 2).map((name, idx) => (
@@ -1171,13 +1267,13 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
                 ))}
                 {committeeNames.length > 2 && (
                   <span className="px-2 py-0.5 text-xs text-slate-500">
-                    +{committeeNames.length - 2} more
+                    {t('moreCount', { n: committeeNames.length - 2 })}
                   </span>
                 )}
               </div>
             </div>
           ) : (
-            <p className="text-sm text-slate-400">No committees</p>
+            <p className="text-sm text-slate-400">{t('noCommittees')}</p>
           )}
         </div>
       </div>

@@ -19,12 +19,24 @@ export interface Submission {
   files: string[];
 }
 
+/** How a landing-page action button opens (hero + call-for-papers). */
+export type SubmissionActionTarget = 'document' | 'link' | 'image' | 'form';
+
+/** For document/image CTAs: external link vs file uploaded to storage (URL in uploadedFileUrl). */
+export type HeroButtonAssetSource = 'url' | 'upload';
+
 export interface HeroButton {
   id: string;
   text: string;
   url: string;
   style: 'primary' | 'secondary';
   formId?: string; // Optional: ID of the registration form to show in modal
+  /** When set, submission section CTA uses this instead of guessing from url/formId. */
+  actionTarget?: SubmissionActionTarget;
+  /** When actionTarget is document or image: use external url or an uploaded file URL. */
+  assetSource?: HeroButtonAssetSource;
+  /** Public URL after upload (stored inside landing_pages.config JSON). */
+  uploadedFileUrl?: string;
 }
 
 export interface HeroConfig {
@@ -61,6 +73,13 @@ export interface CommitteeMember {
   bio: string;
   imageUrl: string;
   socials: SocialLink[];
+  /**
+   * When set (e.g. from an imported saved committee), the Scientific Committee section
+   * uses a president block for the main committee chair and separate blocks for sub-committees.
+   */
+  landingTier?: 'president' | 'subcommittee_chair' | 'member';
+  /** Field-of-intervention name; groups members with sub-committee chairs on the landing page. */
+  subcommitteeName?: string;
 }
 
 export interface TeamMember {
@@ -108,11 +127,27 @@ export interface ContactConfig {
   mapEmbedUrl: string;
 }
 
+export type TimelineStepIcon =
+  | 'calendar'
+  | 'file-text'
+  | 'send'
+  | 'clock'
+  | 'check-circle'
+  | 'info'
+  | 'upload'
+  | 'flag'
+  | 'award';
+
 export interface TimelineStep {
   id: string;
-  date: string;
   title: string;
+  /** Shown on the card; max 50 characters (enforced in LP builder editor). */
   description: string;
+  /** @deprecated Legacy label; used when deadline is empty. */
+  date?: string;
+  /** Preferred: ISO YYYY-MM-DD deadline (calendar). */
+  deadline?: string;
+  icon?: TimelineStepIcon;
 }
 
 export interface SubmissionSectionConfig {
@@ -250,6 +285,8 @@ export enum ViewState {
   LOGIN = 'login',
   REGISTER = 'register',
   DASHBOARD = 'dashboard',
+  /** Organizer home: pick an event to manage or start full workspace */
+  ORGANIZER_WORKSPACE = 'organizerWorkspace',
   BUILDER = 'builder',
   LANDING_PAGES = 'landingPages',
   REGISTRATIONS = 'registrations',
@@ -521,6 +558,12 @@ export interface EventBanner {
 
 export type PublishStatus = 'Draft' | 'Published' | 'Closed';
 
+/** Submission pipeline preset for an event (New Event wizard). */
+export type SubmissionWorkflowPreset = 'A' | 'B' | 'C' | 'D';
+
+/** Registration path: A = registration only; B = registration + payment. */
+export type RegistrationWorkflowPreset = 'A' | 'B';
+
 export type EventType = 'Conference' | 'Seminar' | 'Workshop' | 'Webinar' | 'Continuing professional development event' | 'Online conference';
 export type EventFormat = 'Virtual' | 'In-Person' | 'Hybrid';
 
@@ -544,11 +587,25 @@ export interface Event {
   submissionFormIds: string[]; // Array of submission form IDs
   evaluationFormIds: string[]; // Array of evaluation form IDs
   certificateTemplateIds: string[]; // Array of certificate template IDs
+  /** Certificate template IDs used for participant badges (name tags, etc.). */
+  badgeTemplateIds?: string[];
   committeeIds: string[]; // Array of committee IDs
+  /** When true, event uses evaluation forms and scientific committees. */
+  evaluationEnabled?: boolean;
   banner?: EventBanner; // Banner configuration
   publishStatus?: PublishStatus; // Publication status: Draft, Published, or Closed
   registrationDeadline?: string; // Deadline date for registration (ISO date string)
-  submissionDeadline?: string; // Deadline date for submission (ISO date string)
+  submissionDeadline?: string; // Article / full paper submission deadline (ISO date string)
+  /** A: article only; B: article + pay; C: abstract + article; D: abstract + article + pay */
+  submissionWorkflowPreset?: SubmissionWorkflowPreset;
+  abstractSubmissionFormIds?: string[];
+  abstractSubmissionDeadline?: string;
+  paymentDeadline?: string;
+  registrationWorkflowPreset?: RegistrationWorkflowPreset;
+  /** payments.id — offer used when registration includes payment (preset B). */
+  registrationPaymentOfferId?: string;
+  /** payments.id — offer used when submission workflow includes payment (presets B or D). */
+  submissionPaymentOfferId?: string;
   createdAt: Date;
   updatedAt: Date;
 }

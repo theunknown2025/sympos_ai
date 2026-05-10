@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, X, Plus, Trash2, Loader2, Calendar, MapPin, Search, ExternalLink, Info, FileText, Hash, Users, Building, Globe, Award, ClipboardList, Send, UserCheck, Tag, AlignLeft, Eye, Image, Palette, Layers, Clock, Maximize2, Edit } from 'lucide-react';
+import { Save, X, Plus, Trash2, Loader2, Calendar, MapPin, Search, ExternalLink, Info, FileText, Hash, Users, Building, Globe, Award, ClipboardList, Send, UserCheck, Tag, AlignLeft, Eye, Image, Palette, Layers, Clock, Maximize2, Edit, CreditCard, Check, IdCard } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
+import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 import { getUserLandingPages } from '../../../services/landingPageService';
 import { getUserRegistrationForms } from '../../../services/registrationFormService';
 import { getUserEvaluationForms } from '../../../services/evaluationFormService';
 import { getUserCertificateTemplates } from '../../../services/certificateTemplateService';
+import { getUserBadgeTemplates } from '../../../services/badgeTemplateService';
 import { getCommittees } from '../../../services/committeeService';
+import { getPayments, getPaymentMethods, Payment, PaymentMethod } from '../../../services/paymentService';
 import { saveEvent, getEvent, updateEvent } from '../../../services/eventService';
 import { SavedLandingPage } from '../../../services/landingPageService';
-import { RegistrationForm, EvaluationForm, Committee, EventPartner, EventDate, EventLink, CertificateTemplate, EventBanner } from '../../../types';
+import { RegistrationForm, EvaluationForm, Committee, EventPartner, EventDate, EventLink, CertificateTemplate, EventBanner, SubmissionWorkflowPreset, RegistrationWorkflowPreset } from '../../../types';
 import { supabase, TABLES } from '../../../supabase';
 import TextEditorModal from './TextEditorModal';
+import TemplatePreviewModal from '../Certificates/TemplatePreviewModal';
 
 interface NewEventProps {
   eventId?: string;
@@ -20,6 +25,9 @@ interface NewEventProps {
 
 const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const { currentUser } = useAuth();
+  const { t } = useAdminTranslation('eventForm');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [keywords, setKeywords] = useState<string[]>([]);
@@ -38,18 +46,31 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const [links, setLinks] = useState<EventLink[]>([]);
   const [selectedLandingPageIds, setSelectedLandingPageIds] = useState<string[]>([]);
   const [selectedCertificateIds, setSelectedCertificateIds] = useState<string[]>([]);
+  const [selectedBadgeTemplateIds, setSelectedBadgeTemplateIds] = useState<string[]>([]);
   const [selectedRegistrationFormIds, setSelectedRegistrationFormIds] = useState<string[]>([]);
   const [selectedSubmissionFormIds, setSelectedSubmissionFormIds] = useState<string[]>([]);
   const [selectedEvaluationFormIds, setSelectedEvaluationFormIds] = useState<string[]>([]);
   const [selectedCommitteeIds, setSelectedCommitteeIds] = useState<string[]>([]);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
+  const [submissionWorkflowPreset, setSubmissionWorkflowPreset] = useState<SubmissionWorkflowPreset>('A');
+  const [selectedAbstractSubmissionFormIds, setSelectedAbstractSubmissionFormIds] = useState<string[]>([]);
+  const [abstractSubmissionDeadline, setAbstractSubmissionDeadline] = useState('');
+  const [paymentDeadline, setPaymentDeadline] = useState('');
+  const [registrationWorkflowPreset, setRegistrationWorkflowPreset] = useState<RegistrationWorkflowPreset>('A');
+  const [registrationPaymentOfferId, setRegistrationPaymentOfferId] = useState('');
+  const [submissionPaymentOfferId, setSubmissionPaymentOfferId] = useState('');
+  const [evaluationEnabled, setEvaluationEnabled] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   
   const [landingPages, setLandingPages] = useState<SavedLandingPage[]>([]);
   const [certificates, setCertificates] = useState<CertificateTemplate[]>([]);
+  const [badgeTemplates, setBadgeTemplates] = useState<CertificateTemplate[]>([]);
   const [registrationForms, setRegistrationForms] = useState<RegistrationForm[]>([]);
   const [evaluationForms, setEvaluationForms] = useState<EvaluationForm[]>([]);
   const [committees, setCommittees] = useState<Committee[]>([]);
+  const [paymentOffers, setPaymentOffers] = useState<Payment[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [showPartnersModal, setShowPartnersModal] = useState(false);
   const [partnerSearchQuery, setPartnerSearchQuery] = useState('');
@@ -57,6 +78,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const [newPartnerName, setNewPartnerName] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [showTextEditor, setShowTextEditor] = useState(false);
+  const [templatePreview, setTemplatePreview] = useState<{
+    kind: 'badge' | 'certificate';
+    id: string;
+  } | null>(null);
   
   // Banner configuration
   const [banner, setBanner] = useState<EventBanner>({
@@ -80,22 +105,28 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
       setLoading(true);
       if (!currentUser?.id) return;
       
-      const [pages, certs, forms, evalForms, comms] = await Promise.all([
+      const [pages, certs, badges, forms, evalForms, comms, pays, methods] = await Promise.all([
         getUserLandingPages(currentUser.id),
         getUserCertificateTemplates(currentUser.id),
+        getUserBadgeTemplates(currentUser.id),
         getUserRegistrationForms(currentUser.id),
         getUserEvaluationForms(currentUser.id),
         getCommittees(currentUser.id),
+        getPayments(currentUser.id),
+        getPaymentMethods(currentUser.id),
       ]);
       
       setLandingPages(pages);
       setCertificates(certs);
+      setBadgeTemplates(badges);
       setRegistrationForms(forms);
       setEvaluationForms(evalForms);
       setCommittees(comms);
+      setPaymentOffers(pays);
+      setPaymentMethods(methods);
     } catch (err: any) {
       console.error('Error loading data:', err);
-      setError(err.message || 'Failed to load data');
+      setError(err.message || t('errLoadData'));
     } finally {
       setLoading(false);
     }
@@ -321,6 +352,16 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
     setSelectedCertificateIds(selectedCertificateIds.filter(id => id !== certificateId));
   };
 
+  const handleAddBadgeTemplate = (templateId: string) => {
+    if (!selectedBadgeTemplateIds.includes(templateId)) {
+      setSelectedBadgeTemplateIds([...selectedBadgeTemplateIds, templateId]);
+    }
+  };
+
+  const handleRemoveBadgeTemplate = (templateId: string) => {
+    setSelectedBadgeTemplateIds(selectedBadgeTemplateIds.filter((id) => id !== templateId));
+  };
+
   const handleAddRegistrationForm = (formId: string) => {
     if (!selectedRegistrationFormIds.includes(formId)) {
       setSelectedRegistrationFormIds([...selectedRegistrationFormIds, formId]);
@@ -361,6 +402,80 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
     setSelectedCommitteeIds(selectedCommitteeIds.filter(id => id !== committeeId));
   };
 
+  const handleAddAbstractSubmissionForm = (formId: string) => {
+    if (!selectedAbstractSubmissionFormIds.includes(formId)) {
+      setSelectedAbstractSubmissionFormIds([...selectedAbstractSubmissionFormIds, formId]);
+    }
+  };
+
+  const handleRemoveAbstractSubmissionForm = (formId: string) => {
+    setSelectedAbstractSubmissionFormIds(selectedAbstractSubmissionFormIds.filter(id => id !== formId));
+  };
+
+  const workflowNeedsAbstract = submissionWorkflowPreset === 'C' || submissionWorkflowPreset === 'D';
+  const workflowNeedsPayment = submissionWorkflowPreset === 'B' || submissionWorkflowPreset === 'D';
+  const registrationNeedsPayment = registrationWorkflowPreset === 'B';
+
+  const renderPaymentOfferDetails = (offerId: string) => {
+    const offer = paymentOffers.find((p) => p.id === offerId);
+    if (!offer) return null;
+    const methodNames = offer.selectedMethods
+      .map((mid) => paymentMethods.find((m) => m.id === mid)?.name)
+      .filter(Boolean) as string[];
+    const sortedComponents = [...offer.components].sort((a, b) => a.displayOrder - b.displayOrder);
+    return (
+      <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-4 text-sm space-y-2">
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{t('labelPaymentOfferDetails')}</p>
+        <p className="font-semibold text-slate-900">{offer.name}</p>
+        {offer.description ? <p className="text-slate-600">{offer.description}</p> : null}
+        {sortedComponents.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">{t('labelPaymentOfferComponents')}</p>
+            <ul className="space-y-1 list-disc list-inside text-slate-700">
+              {sortedComponents.map((c) => (
+                <li key={c.id}>
+                  {c.label}
+                  {c.value != null && c.value !== '' ? `: ${c.value}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {methodNames.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">{t('labelPaymentMethodsAccepted')}</p>
+            <p className="text-slate-700">{methodNames.join(', ')}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const goWizardNext = () => {
+    setError('');
+    if (!eventId && wizardStep === 1) {
+      if (!name.trim()) {
+        setError(t('errNameRequired'));
+        return;
+      }
+      setWizardStep(2);
+      return;
+    }
+    if (!eventId && wizardStep === 2) {
+      if (!validateDeadlines()) {
+        return;
+      }
+      setWizardStep(3);
+    }
+  };
+
+  const goWizardBack = () => {
+    setError('');
+    if (!eventId && wizardStep > 1) {
+      setWizardStep((s) => (s === 3 ? 2 : 1));
+    }
+  };
+
   // Helper function to remove prefix from form title
   const removePrefix = (title: string, prefix: string): string => {
     if (title.startsWith(prefix)) {
@@ -382,14 +497,38 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
     form.title.startsWith('Eval')
   );
 
+  const validateDeadlines = (): boolean => {
+    if (!registrationDeadline?.trim()) {
+      setError(t('errRegistrationDeadlineRequired'));
+      return false;
+    }
+    if (!submissionDeadline?.trim()) {
+      setError(t('errArticleDeadlineRequired'));
+      return false;
+    }
+    if (workflowNeedsAbstract && !abstractSubmissionDeadline?.trim()) {
+      setError(t('errAbstractDeadlineRequired'));
+      return false;
+    }
+    if (workflowNeedsPayment && !paymentDeadline?.trim()) {
+      setError(t('errPaymentDeadlineRequired'));
+      return false;
+    }
+    return true;
+  };
+
   const validateEvent = (): boolean => {
     if (!name.trim()) {
-      setError('Event name is required');
+      setError(t('errNameRequired'));
       return false;
     }
     
     if (!currentUser?.id) {
-      setError('User not authenticated');
+      setError(t('errUserNotAuth'));
+      return false;
+    }
+
+    if (!validateDeadlines()) {
       return false;
     }
     
@@ -422,12 +561,25 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
         landingPageIds: selectedLandingPageIds,
         registrationFormIds: selectedRegistrationFormIds,
         submissionFormIds: selectedSubmissionFormIds,
-        evaluationFormIds: selectedEvaluationFormIds,
+        evaluationFormIds: evaluationEnabled ? selectedEvaluationFormIds : [],
         certificateTemplateIds: selectedCertificateIds,
-        committeeIds: selectedCommitteeIds,
+        badgeTemplateIds: selectedBadgeTemplateIds.length > 0 ? selectedBadgeTemplateIds : undefined,
+        committeeIds: evaluationEnabled ? selectedCommitteeIds : [],
+        evaluationEnabled,
         banner: banner,
-        registrationDeadline: registrationDeadline || undefined,
-        submissionDeadline: submissionDeadline || undefined,
+        registrationDeadline: registrationDeadline.trim(),
+        submissionDeadline: submissionDeadline.trim(),
+        submissionWorkflowPreset: submissionWorkflowPreset || undefined,
+        abstractSubmissionFormIds: workflowNeedsAbstract && selectedAbstractSubmissionFormIds.length > 0
+          ? selectedAbstractSubmissionFormIds
+          : undefined,
+        abstractSubmissionDeadline: workflowNeedsAbstract ? abstractSubmissionDeadline.trim() : '',
+        paymentDeadline: workflowNeedsPayment ? paymentDeadline.trim() : '',
+        registrationWorkflowPreset: registrationWorkflowPreset || undefined,
+        registrationPaymentOfferId:
+          registrationNeedsPayment && registrationPaymentOfferId ? registrationPaymentOfferId : undefined,
+        submissionPaymentOfferId:
+          workflowNeedsPayment && submissionPaymentOfferId ? submissionPaymentOfferId : undefined,
       };
 
       if (eventId) {
@@ -441,7 +593,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
       onSave();
     } catch (err: any) {
       console.error('Error saving event:', err);
-      setError(err.message || 'Failed to save event');
+      setError(err.message || t('errSaveEvent'));
     } finally {
       setIsSaving(false);
     }
@@ -494,7 +646,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const formatDate = (dateString: string): string => {
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { 
+      return date.toLocaleDateString(localeTag, { 
         year: 'numeric', 
         month: 'long', 
         day: 'numeric' 
@@ -505,9 +657,13 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   };
 
   const handleOpenFullScreen = () => {
-    // Create a new window with the preview content
     const previewWindow = window.open('', '_blank', 'width=1920,height=1080');
     if (!previewWindow) return;
+
+    const escAttr = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const previewDocTitleSafe = escAttr(t('previewDocTitle', { name: name || t('untitledEvent') }));
+    const htmlLang = language === 'fr' ? 'fr' : 'en';
 
     // Get banner style as CSS string
     const bannerStyle = getBannerStyle();
@@ -526,11 +682,11 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
     // Generate the preview HTML
     const previewHTML = `
       <!DOCTYPE html>
-      <html lang="en">
+      <html lang="${htmlLang}">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Event Preview - ${name || 'Untitled Event'}</title>
+        <title>${previewDocTitleSafe}</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <style>
           body { margin: 0; padding: 0; }
@@ -542,7 +698,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
           <div class="relative text-white" style="${bannerStyleString}">
             <div class="absolute inset-0 bg-black opacity-20"></div>
             <div class="relative max-w-7xl mx-auto px-6 py-20">
-              <h1 class="text-5xl font-bold mb-4 drop-shadow-lg">${(name || 'Event Name').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</h1>
+              <h1 class="text-5xl font-bold mb-4 drop-shadow-lg">${(name || t('defaultEventName')).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</h1>
             </div>
           </div>
 
@@ -562,7 +718,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${fields.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Fields</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secFields')}</h2>
                     </div>
                     <div class="flex flex-wrap gap-2">
                       ${fields.map(field => `<span class="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-sm font-medium">${field.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`).join('')}
@@ -573,7 +729,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${keywords.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Keywords</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secKeywords')}</h2>
                     </div>
                     <div class="flex flex-wrap gap-2">
                       ${keywords.map(keyword => `<span class="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-sm font-medium">${keyword.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`).join('')}
@@ -587,7 +743,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                       ${dates.filter(d => d.startDate && d.endDate).length > 0 ? `
                         <div>
                           <div class="flex items-center gap-2 mb-3">
-                            <h2 class="text-xl font-semibold text-slate-800">Event Dates</h2>
+                            <h2 class="text-xl font-semibold text-slate-800">${t('secEventDates')}</h2>
                           </div>
                           <div class="space-y-3">
                             ${dates.filter(d => d.startDate && d.endDate).map((dateRange, index) => `
@@ -606,7 +762,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                       ${location ? `
                         <div>
                           <div class="flex items-center gap-2 mb-3">
-                            <h2 class="text-xl font-semibold text-slate-800">Location</h2>
+                            <h2 class="text-xl font-semibold text-slate-800">${t('secLocation')}</h2>
                           </div>
                           <p class="text-slate-700">${location.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
                         </div>
@@ -618,7 +774,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${partners.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Partners</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secPartners')}</h2>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                       ${partners.map((partner, index) => `
@@ -633,7 +789,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${links.filter(l => l.name && l.url).length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Links</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secLinks')}</h2>
                     </div>
                     <div class="space-y-2">
                       ${links.filter(l => l.name && l.url).map((link, index) => `
@@ -648,7 +804,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedCommitteeIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Committees</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secCommittees')}</h2>
                     </div>
                     <div class="space-y-4">
                       ${committees.filter(c => selectedCommitteeIds.includes(c.id)).map((committee) => `
@@ -676,10 +832,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedLandingPageIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Landing Pages</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secLandingPages')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedLandingPageIds.length} landing page${selectedLandingPageIds.length !== 1 ? 's' : ''} configured
+                      ${t('countLandingPagesConfigured', { n: selectedLandingPageIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -687,10 +843,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedRegistrationFormIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Registration Forms</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secRegistrationForms')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedRegistrationFormIds.length} form${selectedRegistrationFormIds.length !== 1 ? 's' : ''} configured
+                      ${t('countFormsConfigured', { n: selectedRegistrationFormIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -698,10 +854,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedSubmissionFormIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Submission Forms</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secSubmissionForms')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedSubmissionFormIds.length} form${selectedSubmissionFormIds.length !== 1 ? 's' : ''} configured
+                      ${t('countFormsConfigured', { n: selectedSubmissionFormIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -709,10 +865,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedEvaluationFormIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Evaluation Forms</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secEvaluationForms')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedEvaluationFormIds.length} form${selectedEvaluationFormIds.length !== 1 ? 's' : ''} configured
+                      ${t('countFormsConfigured', { n: selectedEvaluationFormIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -720,10 +876,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedCertificateIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Certificates</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secCertificates')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedCertificateIds.length} template${selectedCertificateIds.length !== 1 ? 's' : ''} configured
+                      ${t('countTemplatesConfigured', { n: selectedCertificateIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -750,13 +906,83 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   return (
     <div className="space-y-8">
       <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Two Column Layout */}
+        {!eventId && (
+          <nav
+            className="mb-8 rounded-xl border border-slate-200 bg-white px-4 py-5 sm:px-6 shadow-sm"
+            aria-label="Event creation steps"
+          >
+            <div className="mb-4 h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full min-w-0 rounded-full bg-indigo-600 transition-all duration-500 ease-out"
+                style={{ width: `${(wizardStep / 3) * 100}%` }}
+                role="progressbar"
+                aria-valuemin={1}
+                aria-valuemax={3}
+                aria-valuenow={wizardStep}
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:gap-4">
+              {([
+                [1, 'wizardStep1'],
+                [2, 'wizardStep2'],
+                [3, 'wizardStep3'],
+              ] as const).map(([step, labelKey]) => {
+                const completed = wizardStep > step;
+                const current = wizardStep === step;
+                return (
+                  <button
+                    key={step}
+                    type="button"
+                    onClick={() => {
+                      if (step === 1) {
+                        setWizardStep(1);
+                        setError('');
+                        return;
+                      }
+                      if (!name.trim()) {
+                        setError(t('errNameRequired'));
+                        return;
+                      }
+                      setError('');
+                      setWizardStep(step as 1 | 2 | 3);
+                    }}
+                    className={`flex flex-col items-center gap-2 rounded-lg px-1 py-2 text-center transition-colors sm:flex-row sm:justify-center sm:gap-3 ${
+                      current
+                        ? 'bg-indigo-50 ring-1 ring-indigo-200'
+                        : 'hover:bg-slate-50'
+                    }`}
+                  >
+                    <span
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 text-sm font-semibold transition-colors ${
+                        completed
+                          ? 'border-indigo-600 bg-indigo-600 text-white'
+                          : current
+                            ? 'border-indigo-600 bg-white text-indigo-700'
+                            : 'border-slate-200 bg-white text-slate-400'
+                      }`}
+                    >
+                      {completed ? <Check size={18} strokeWidth={2.5} aria-hidden /> : step}
+                    </span>
+                    <span
+                      className={`text-xs font-medium leading-tight sm:text-left sm:text-sm ${
+                        current ? 'text-indigo-900' : completed ? 'text-slate-800' : 'text-slate-500'
+                      }`}
+                    >
+                      {t(labelKey)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+        )}
+        {(!eventId ? wizardStep === 1 : true) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column: General Information */}
           <div className="bg-white rounded-lg border border-slate-200 p-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
               <Info className="text-indigo-600" size={20} />
-              General Information
+              {t('sectionGeneralInfo')}
             </h2>
             
             <div className="space-y-6">
@@ -764,7 +990,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Tag className="text-slate-500" size={16} />
-                Event Name <span className="text-red-500">*</span>
+                {t('labelEventName')} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -772,7 +998,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Enter event name"
+                placeholder={t('phEventName')}
                 required
               />
             </div>
@@ -782,7 +1008,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
               <div className="flex items-center justify-between mb-2">
                 <label htmlFor="description" className="block text-sm font-medium text-slate-700 flex items-center gap-2">
                   <AlignLeft className="text-slate-500" size={16} />
-                  Description
+                  {t('labelDescription')}
                 </label>
                 <button
                   type="button"
@@ -790,7 +1016,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
                 >
                   <Edit size={14} />
-                  Use Text Editor
+                  {t('btnUseTextEditor')}
                 </button>
               </div>
               <textarea
@@ -799,7 +1025,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Enter event description"
+                placeholder={t('phDescription')}
               />
             </div>
 
@@ -807,7 +1033,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Hash className="text-slate-500" size={16} />
-                Keywords
+                {t('labelKeywords')}
               </label>
               {keywords.length > 0 && (
                 <div className="mb-3 flex flex-wrap gap-2">
@@ -839,7 +1065,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   }
                 }}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Add keywords (type comma to add)"
+                placeholder={t('phKeywords')}
               />
             </div>
 
@@ -849,7 +1075,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <Tag className="text-slate-500" size={16} />
-                  Fields
+                  {t('labelFields')}
                 </label>
                 {fields.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
@@ -881,7 +1107,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     }
                   }}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Add fields (type comma to add)"
+                  placeholder={t('phFields')}
                 />
               </div>
 
@@ -889,7 +1115,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <Tag className="text-slate-500" size={16} />
-                  Subfields
+                  {t('labelSubfields')}
                 </label>
                 {subfields.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
@@ -921,7 +1147,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     }
                   }}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Add subfields (type comma to add)"
+                  placeholder={t('phSubfields')}
                 />
               </div>
             </div>
@@ -930,20 +1156,20 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Tag className="text-slate-500" size={16} />
-                Event Type
+                {t('labelEventType')}
               </label>
               <select
                 value={eventType}
                 onChange={(e) => setEventType(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">Select event type</option>
-                <option value="Conference">Conference</option>
-                <option value="Seminar">Seminar</option>
-                <option value="Workshop">Workshop</option>
-                <option value="Webinar">Webinar</option>
-                <option value="Continuing professional development event">Continuing professional development event</option>
-                <option value="Online conference">Online conference</option>
+                <option value="">{t('optSelectEventType')}</option>
+                <option value="Conference">{t('evtTypeConference')}</option>
+                <option value="Seminar">{t('evtTypeSeminar')}</option>
+                <option value="Workshop">{t('evtTypeWorkshop')}</option>
+                <option value="Webinar">{t('evtTypeWebinar')}</option>
+                <option value="Continuing professional development event">{t('evtTypeCpd')}</option>
+                <option value="Online conference">{t('evtTypeOnlineConference')}</option>
               </select>
             </div>
 
@@ -951,17 +1177,17 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Globe className="text-slate-500" size={16} />
-                Event Format
+                {t('labelEventFormat')}
               </label>
               <select
                 value={eventFormat}
                 onChange={(e) => setEventFormat(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">Select event format</option>
-                <option value="Virtual">Virtual</option>
-                <option value="In-Person">In-Person</option>
-                <option value="Hybrid">Hybrid</option>
+                <option value="">{t('optSelectFormat')}</option>
+                <option value="Virtual">{t('fmtVirtual')}</option>
+                <option value="In-Person">{t('fmtInPerson')}</option>
+                <option value="Hybrid">{t('fmtHybrid')}</option>
               </select>
             </div>
 
@@ -969,7 +1195,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Building className="text-slate-500" size={16} />
-                Partners
+                {t('labelPartners')}
               </label>
               {partners.length > 0 && (
                 <div className="mb-3 space-y-2">
@@ -996,7 +1222,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors text-slate-700 flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
-                Add Partner
+                {t('btnAddPartner')}
               </button>
             </div>
 
@@ -1004,7 +1230,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Calendar className="text-slate-500" size={16} />
-                Dates
+                {t('labelDates')}
               </label>
               {dates.length > 0 && (
                 <div className="mb-3 space-y-3">
@@ -1015,7 +1241,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <div className="flex-1">
-                          <label className="block text-xs text-slate-500 mb-1">Start Date</label>
+                          <label className="block text-xs text-slate-500 mb-1">{t('labelStartDate')}</label>
                           <input
                             type="date"
                             value={date.startDate}
@@ -1024,7 +1250,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                           />
                         </div>
                         <div className="flex-1">
-                          <label className="block text-xs text-slate-500 mb-1">End Date</label>
+                          <label className="block text-xs text-slate-500 mb-1">{t('labelEndDate')}</label>
                           <input
                             type="date"
                             value={date.endDate}
@@ -1050,7 +1276,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors text-slate-700 flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
-                Add Date Range
+                {t('btnAddDateRange')}
               </button>
             </div>
 
@@ -1058,7 +1284,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label htmlFor="location" className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <MapPin className="text-slate-500" size={16} />
-                Location
+                {t('labelLocation')}
               </label>
               <div className="relative">
                 <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
@@ -1068,7 +1294,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Enter event location"
+                  placeholder={t('phLocation')}
                 />
               </div>
             </div>
@@ -1077,7 +1303,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <ExternalLink className="text-slate-500" size={16} />
-                Links
+                {t('labelLinks')}
               </label>
               {links.length > 0 && (
                 <div className="mb-3 space-y-3">
@@ -1088,23 +1314,23 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <div className="flex-1">
-                          <label className="block text-xs text-slate-500 mb-1">Link Name</label>
+                          <label className="block text-xs text-slate-500 mb-1">{t('labelLinkName')}</label>
                           <input
                             type="text"
                             value={link.name}
                             onChange={(e) => handleUpdateLink(link.id, 'name', e.target.value)}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                            placeholder="e.g., Website"
+                            placeholder={t('phLinkName')}
                           />
                         </div>
                         <div className="flex-1">
-                          <label className="block text-xs text-slate-500 mb-1">URL</label>
+                          <label className="block text-xs text-slate-500 mb-1">{t('labelUrl')}</label>
                           <input
                             type="url"
                             value={link.url}
                             onChange={(e) => handleUpdateLink(link.id, 'url', e.target.value)}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                            placeholder="https://example.com"
+                            placeholder={t('phUrl')}
                           />
                         </div>
                         <button
@@ -1125,17 +1351,17 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors text-slate-700 flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
-                Add Link
+                {t('btnAddLink')}
               </button>
             </div>
           </div>
           </div>
 
-          {/* Right Column: Organization */}
+          {/* Right Column: banner (step 1); label matches wizard */}
           <div className="bg-white rounded-lg border border-slate-200 p-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
               <Building className="text-indigo-600" size={20} />
-              Organization
+              {!eventId ? t('labelBannerManager') : t('sectionOrganization')}
             </h2>
             
             <div className="space-y-6">
@@ -1143,7 +1369,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <Layers className="text-slate-500" size={16} />
-                  Banner Manager
+                  {t('labelBannerManager')}
                 </label>
                 
                 {/* Banner Type Selection */}
@@ -1159,7 +1385,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                       }`}
                     >
                       <Image size={14} className="inline mr-1" />
-                      Image
+                      {t('bannerTypeImage')}
                     </button>
                     <button
                       type="button"
@@ -1171,7 +1397,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                       }`}
                     >
                       <Palette size={14} className="inline mr-1" />
-                      Color
+                      {t('bannerTypeColor')}
                     </button>
                     <button
                       type="button"
@@ -1191,7 +1417,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                       }`}
                     >
                       <Layers size={14} className="inline mr-1" />
-                      Gradient
+                      {t('bannerTypeGradient')}
                     </button>
                   </div>
                 </div>
@@ -1221,7 +1447,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         type="text"
                         value={banner.imageUrl || ''}
                         onChange={(e) => setBanner({ ...banner, imageUrl: e.target.value })}
-                        placeholder="Image URL or upload file"
+                        placeholder={t('bannerImageUrlPh')}
                         className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                       />
                       <button
@@ -1229,7 +1455,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         onClick={() => bannerImageInputRef.current?.click()}
                         className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm"
                       >
-                        Upload
+                        {t('bannerUpload')}
                       </button>
                     </div>
                     {banner.imageUrl && (
@@ -1254,7 +1480,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         </div>
                         <div>
                           <label className="block text-xs text-slate-600 mb-2">
-                            Vertical Position: {banner.imagePositionY !== undefined ? banner.imagePositionY : 50}%
+                            {t('bannerVerticalPosition', { pct: banner.imagePositionY !== undefined ? banner.imagePositionY : 50 })}
                           </label>
                           <input
                             type="range"
@@ -1265,9 +1491,9 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                           />
                           <div className="flex justify-between text-xs text-slate-500 mt-1">
-                            <span>Top</span>
-                            <span>Center</span>
-                            <span>Bottom</span>
+                            <span>{t('posTop')}</span>
+                            <span>{t('posCenter')}</span>
+                            <span>{t('posBottom')}</span>
                           </div>
                         </div>
                       </div>
@@ -1305,7 +1531,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs text-slate-600 mb-1">From Color</label>
+                        <label className="block text-xs text-slate-600 mb-1">{t('labelFromColor')}</label>
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
@@ -1334,7 +1560,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs text-slate-600 mb-1">To Color</label>
+                        <label className="block text-xs text-slate-600 mb-1">{t('labelToColor')}</label>
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
@@ -1364,7 +1590,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-600 mb-1">Direction</label>
+                      <label className="block text-xs text-slate-600 mb-1">{t('labelDirection')}</label>
                       <select
                         value={banner.gradientColors?.direction || 'to-r'}
                         onChange={(e) => setBanner({
@@ -1376,14 +1602,14 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         })}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                       >
-                        <option value="to-r">Left to Right</option>
-                        <option value="to-l">Right to Left</option>
-                        <option value="to-b">Top to Bottom</option>
-                        <option value="to-t">Bottom to Top</option>
-                        <option value="to-br">Top Left to Bottom Right</option>
-                        <option value="to-bl">Top Right to Bottom Left</option>
-                        <option value="to-tr">Bottom Left to Top Right</option>
-                        <option value="to-tl">Bottom Right to Top Left</option>
+                        <option value="to-r">{t('gradToR')}</option>
+                        <option value="to-l">{t('gradToL')}</option>
+                        <option value="to-b">{t('gradToB')}</option>
+                        <option value="to-t">{t('gradToT')}</option>
+                        <option value="to-br">{t('gradToBr')}</option>
+                        <option value="to-bl">{t('gradToBl')}</option>
+                        <option value="to-tr">{t('gradToTr')}</option>
+                        <option value="to-tl">{t('gradToTl')}</option>
                       </select>
                     </div>
                     <div 
@@ -1405,156 +1631,83 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 )}
               </div>
 
-              {/* Landing Page Selection */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <Globe className="text-slate-500" size={16} />
-                  Landing Pages
-                </label>
-                  
-                  {selectedLandingPageIds.length > 0 && (
-                    <div className="mb-3 space-y-2">
-                      {selectedLandingPageIds.map(pageId => {
-                        const page = landingPages.find(p => p.id === pageId);
-                        return page ? (
-                          <div
-                            key={pageId}
-                            className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                          >
-                            <span className="text-sm font-medium text-slate-700">{page.title}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveLandingPage(pageId)}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
+            </div>
+          </div>
+        </div>
+        )}
 
-                  <div className="relative">
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleAddLandingPage(e.target.value);
-                          e.target.value = '';
-                        }
-                      }}
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    >
-                      <option value="">Add a landing page</option>
-                      {landingPages
-                        .filter(page => !selectedLandingPageIds.includes(page.id))
-                        .map(page => (
-                          <option key={page.id} value={page.id}>
-                            {page.title}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  
-                  {landingPages.length === 0 && (
-                    <p className="mt-2 text-sm text-slate-500">
-                      No landing pages available. Create one in the Landing Pages section.
-                    </p>
-                  )}
+        {(!eventId && wizardStep === 2) && (
+        <div className="space-y-8">
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <ClipboardList className="text-indigo-600" size={20} />
+              {t('sectionStep2Registration')}
+            </h2>
+            <div className="space-y-6">
+              <div>
+                <p className="text-sm font-medium text-slate-700 mb-3">{t('labelRegistrationWorkflow')}</p>
+                <p className="text-sm text-slate-500 mb-4">{t('regWorkflowHelp')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegistrationWorkflowPreset('A');
+                      setRegistrationPaymentOfferId('');
+                    }}
+                    className={`text-left rounded-xl border-2 p-4 transition-all ${
+                      registrationWorkflowPreset === 'A'
+                        ? 'border-indigo-600 bg-indigo-50 shadow-sm'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <p className="font-semibold text-slate-900">A — {t('regWorkflowA_title')}</p>
+                    <p className="mt-1 text-sm text-slate-600">{t('regWorkflowA_body')}</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRegistrationWorkflowPreset('B')}
+                    className={`text-left rounded-xl border-2 p-4 transition-all ${
+                      registrationWorkflowPreset === 'B'
+                        ? 'border-indigo-600 bg-indigo-50 shadow-sm'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <p className="font-semibold text-slate-900">B — {t('regWorkflowB_title')}</p>
+                    <p className="mt-1 text-sm text-slate-600">{t('regWorkflowB_body')}</p>
+                  </button>
                 </div>
+              </div>
 
-              {/* Certificate Selection */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <Award className="text-slate-500" size={16} />
-                  Certificates
-                </label>
-                  
-                  {selectedCertificateIds.length > 0 && (
-                    <div className="mb-3 space-y-2">
-                      {selectedCertificateIds.map(certId => {
-                        const cert = certificates.find(c => c.id === certId);
-                        return cert ? (
-                          <div
-                            key={certId}
-                            className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                          >
-                            <span className="text-sm font-medium text-slate-700">{cert.title}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveCertificate(certId)}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        ) : null;
-                      })}
-                    </div>
-                  )}
-
-                  <div className="relative">
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleAddCertificate(e.target.value);
-                          e.target.value = '';
-                        }
-                      }}
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    >
-                      <option value="">Add a certificate template</option>
-                      {certificates
-                        .filter(cert => !selectedCertificateIds.includes(cert.id))
-                        .map(cert => (
-                          <option key={cert.id} value={cert.id}>
-                            {cert.title}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                  
-                  {certificates.length === 0 && (
-                    <p className="mt-2 text-sm text-slate-500">
-                      No certificate templates available. Create one in the Certificates section.
-                    </p>
-                  )}
-                </div>
-
-              {/* Registration Form Selection */}
-              <div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-x-8 lg:gap-y-5 items-stretch">
+              <div className="min-w-0 w-full flex flex-col">
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <ClipboardList className="text-slate-500" size={16} />
-                  Registration Forms
+                  {t('labelRegistrationForms')}
                 </label>
-              
-              {selectedRegistrationFormIds.length > 0 && (
-                <div className="mb-3 space-y-2">
-                  {selectedRegistrationFormIds.map(formId => {
-                    const form = registrationForms.find(f => f.id === formId);
-                    return form ? (
-                      <div
-                        key={formId}
-                        className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                      >
-                        <span className="text-sm font-medium text-slate-700">
-                          {removePrefix(form.title, 'Reg')}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveRegistrationForm(formId)}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                {selectedRegistrationFormIds.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {selectedRegistrationFormIds.map((formId) => {
+                      const form = registrationForms.find((f) => f.id === formId);
+                      return form ? (
+                        <div
+                          key={formId}
+                          className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
                         >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ) : null;
-                  })}
-                </div>
-              )}
-
+                          <span className="text-sm font-medium text-slate-700">
+                            {removePrefix(form.title, 'Reg')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRegistrationForm(formId)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
                 <div className="relative">
                   <select
                     value=""
@@ -1566,10 +1719,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     }}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   >
-                    <option value="">Add a registration form</option>
+                    <option value="">{t('optAddRegistrationForm')}</option>
                     {registrationFormsFiltered
-                      .filter(form => !selectedRegistrationFormIds.includes(form.id))
-                      .map(form => (
+                      .filter((form) => !selectedRegistrationFormIds.includes(form.id))
+                      .map((form) => (
                         <option key={form.id} value={form.id}>
                           {removePrefix(form.title, 'Reg')}
                         </option>
@@ -1577,39 +1730,277 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   </select>
                 </div>
               </div>
-
-              {/* Submission Form Selection */}
-              <div>
+              <div className="min-w-0 w-full flex flex-col">
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <Send className="text-slate-500" size={16} />
-                  Submission Forms
+                  <Calendar className="text-slate-500" size={16} />
+                  {t('labelRegistrationDeadline')}
+                  <span className="text-red-500">*</span>
                 </label>
-              
-              {selectedSubmissionFormIds.length > 0 && (
-                <div className="mb-3 space-y-2">
-                  {selectedSubmissionFormIds.map(formId => {
-                    const form = registrationForms.find(f => f.id === formId);
-                    return form ? (
-                      <div
-                        key={formId}
-                        className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                      >
-                        <span className="text-sm font-medium text-slate-700">
-                          {removePrefix(form.title, 'Sub')}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveSubmissionForm(formId)}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ) : null;
-                  })}
+                <input
+                  type="date"
+                  value={registrationDeadline}
+                  onChange={(e) => setRegistrationDeadline(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  required
+                />
+              </div>
+              </div>
+              {registrationNeedsPayment && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+                  <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                    <CreditCard className="text-indigo-600" size={18} />
+                    {t('labelRegistrationPaymentOffer')}
+                  </label>
+                  <select
+                    value={registrationPaymentOfferId}
+                    onChange={(e) => setRegistrationPaymentOfferId(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                  >
+                    <option value="">{t('optSelectPaymentOffer')}</option>
+                    {paymentOffers.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                  {registrationPaymentOfferId ? renderPaymentOfferDetails(registrationPaymentOfferId) : null}
+                  {paymentOffers.length === 0 && (
+                    <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                      {t('emptyNoPaymentOffers')}
+                    </p>
+                  )}
                 </div>
               )}
+            </div>
+          </div>
 
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <h2 className="text-xl font-semibold text-slate-900 mb-2 flex items-center gap-2">
+              <Send className="text-indigo-600" size={20} />
+              {t('sectionStep2Submission')}
+            </h2>
+            <p className="text-sm text-slate-500 mb-6">{t('workflowHelp')}</p>
+
+            <div className="mb-8">
+              <p className="text-sm font-medium text-slate-700 mb-3">{t('labelSubmissionWorkflow')}</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSubmissionWorkflowPreset('A');
+                    setSubmissionPaymentOfferId('');
+                  }}
+                  className={`text-left rounded-xl border-2 p-4 transition-all ${
+                    submissionWorkflowPreset === 'A'
+                      ? 'border-indigo-600 bg-indigo-50 shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
+                        submissionWorkflowPreset === 'A'
+                          ? 'border-indigo-600 bg-indigo-600'
+                          : 'border-slate-300 bg-white'
+                      }`}
+                    >
+                      {submissionWorkflowPreset === 'A' ? (
+                        <span className="h-2 w-2 rounded-full bg-white" />
+                      ) : null}
+                    </span>
+                    <div>
+                      <p className="font-semibold text-slate-900">A — {t('workflowA_title')}</p>
+                      <p className="mt-1 text-sm text-slate-600">{t('workflowA_body')}</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubmissionWorkflowPreset('B')}
+                  className={`text-left rounded-xl border-2 p-4 transition-all ${
+                    submissionWorkflowPreset === 'B'
+                      ? 'border-indigo-600 bg-indigo-50 shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
+                        submissionWorkflowPreset === 'B'
+                          ? 'border-indigo-600 bg-indigo-600'
+                          : 'border-slate-300 bg-white'
+                      }`}
+                    >
+                      {submissionWorkflowPreset === 'B' ? (
+                        <span className="h-2 w-2 rounded-full bg-white" />
+                      ) : null}
+                    </span>
+                    <div>
+                      <p className="font-semibold text-slate-900">B — {t('workflowB_title')}</p>
+                      <p className="mt-1 text-sm text-slate-600">{t('workflowB_body')}</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSubmissionWorkflowPreset('C');
+                    setSubmissionPaymentOfferId('');
+                  }}
+                  className={`text-left rounded-xl border-2 p-4 transition-all ${
+                    submissionWorkflowPreset === 'C'
+                      ? 'border-indigo-600 bg-indigo-50 shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
+                        submissionWorkflowPreset === 'C'
+                          ? 'border-indigo-600 bg-indigo-600'
+                          : 'border-slate-300 bg-white'
+                      }`}
+                    >
+                      {submissionWorkflowPreset === 'C' ? (
+                        <span className="h-2 w-2 rounded-full bg-white" />
+                      ) : null}
+                    </span>
+                    <div>
+                      <p className="font-semibold text-slate-900">C — {t('workflowC_title')}</p>
+                      <p className="mt-1 text-sm text-slate-600">{t('workflowC_body')}</p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSubmissionWorkflowPreset('D')}
+                  className={`text-left rounded-xl border-2 p-4 transition-all ${
+                    submissionWorkflowPreset === 'D'
+                      ? 'border-indigo-600 bg-indigo-50 shadow-sm'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
+                        submissionWorkflowPreset === 'D'
+                          ? 'border-indigo-600 bg-indigo-600'
+                          : 'border-slate-300 bg-white'
+                      }`}
+                    >
+                      {submissionWorkflowPreset === 'D' ? (
+                        <span className="h-2 w-2 rounded-full bg-white" />
+                      ) : null}
+                    </span>
+                    <div>
+                      <p className="font-semibold text-slate-900">D — {t('workflowD_title')}</p>
+                      <p className="mt-1 text-sm text-slate-600">{t('workflowD_body')}</p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {workflowNeedsAbstract && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-x-8 lg:gap-y-5 items-stretch mb-6 pb-6 border-b border-slate-100">
+                <div className="min-w-0 w-full flex flex-col">
+                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                    <FileText className="text-slate-500" size={16} />
+                    {t('labelAbstractSubmissionForms')}
+                  </label>
+                  {selectedAbstractSubmissionFormIds.length > 0 && (
+                    <div className="mb-3 space-y-2">
+                      {selectedAbstractSubmissionFormIds.map((formId) => {
+                        const form = registrationForms.find((f) => f.id === formId);
+                        return form ? (
+                          <div
+                            key={formId}
+                            className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                          >
+                            <span className="text-sm font-medium text-slate-700">
+                              {removePrefix(form.title, 'Sub')}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAbstractSubmissionForm(formId)}
+                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        ) : null;
+                      })}
+                    </div>
+                  )}
+                  <div className="relative">
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleAddAbstractSubmissionForm(e.target.value);
+                          e.target.value = '';
+                        }
+                      }}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    >
+                      <option value="">{t('optAddAbstractForm')}</option>
+                      {submissionFormsFiltered
+                        .filter((form) => !selectedAbstractSubmissionFormIds.includes(form.id))
+                        .map((form) => (
+                          <option key={form.id} value={form.id}>
+                            {removePrefix(form.title, 'Sub')}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="min-w-0 w-full flex flex-col">
+                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                    <Calendar className="text-slate-500" size={16} />
+                    {t('labelAbstractDeadline')}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={abstractSubmissionDeadline}
+                    onChange={(e) => setAbstractSubmissionDeadline(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    required
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-x-8 lg:gap-y-5 items-stretch mb-6">
+              <div className="min-w-0 w-full flex flex-col">
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <Send className="text-slate-500" size={16} />
+                  {t('labelArticleSubmissionForms')}
+                </label>
+                {selectedSubmissionFormIds.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {selectedSubmissionFormIds.map((formId) => {
+                      const form = registrationForms.find((f) => f.id === formId);
+                      return form ? (
+                        <div
+                          key={formId}
+                          className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                        >
+                          <span className="text-sm font-medium text-slate-700">
+                            {removePrefix(form.title, 'Sub')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSubmissionForm(formId)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
                 <div className="relative">
                   <select
                     value=""
@@ -1621,10 +2012,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     }}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   >
-                    <option value="">Add a submission form</option>
+                    <option value="">{t('optAddSubmissionForm')}</option>
                     {submissionFormsFiltered
-                      .filter(form => !selectedSubmissionFormIds.includes(form.id))
-                      .map(form => (
+                      .filter((form) => !selectedSubmissionFormIds.includes(form.id))
+                      .map((form) => (
                         <option key={form.id} value={form.id}>
                           {removePrefix(form.title, 'Sub')}
                         </option>
@@ -1632,71 +2023,137 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   </select>
                 </div>
               </div>
+              <div className="min-w-0 w-full flex flex-col">
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <Calendar className="text-slate-500" size={16} />
+                  {t('labelArticleDeadline')}
+                  <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={submissionDeadline}
+                  onChange={(e) => setSubmissionDeadline(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  required
+                />
+              </div>
+            </div>
 
-              {/* Registration Deadline */}
-              {selectedRegistrationFormIds.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                    <Calendar className="text-slate-500" size={16} />
-                    Registration Deadline
-                  </label>
-                  <input
-                    type="date"
-                    value={registrationDeadline}
-                    onChange={(e) => setRegistrationDeadline(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+            {workflowNeedsPayment && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-x-8 lg:gap-y-5 items-stretch">
+                  <div className="min-w-0 w-full flex flex-col space-y-3">
+                    <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                      <CreditCard className="text-indigo-600" size={18} />
+                      {t('labelSubmissionPaymentOffer')}
+                    </label>
+                    <select
+                      value={submissionPaymentOfferId}
+                      onChange={(e) => setSubmissionPaymentOfferId(e.target.value)}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    >
+                      <option value="">{t('optSelectPaymentOffer')}</option>
+                      {paymentOffers.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                    {submissionPaymentOfferId ? renderPaymentOfferDetails(submissionPaymentOfferId) : null}
+                    {paymentOffers.length === 0 && (
+                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                        {t('emptyNoPaymentOffers')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="min-w-0 w-full flex flex-col">
+                    <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                      <Calendar className="text-slate-500" size={16} />
+                      {t('labelPaymentDeadline')}
+                      <span className="text-red-500">*</span>
+                    </label>
+                    <p className="text-xs text-slate-500 mb-2">{t('paymentDeadlineHintSubmission')}</p>
+                    <input
+                      type="date"
+                      value={paymentDeadline}
+                      onChange={(e) => setPaymentDeadline(e.target.value)}
+                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                      required
+                    />
+                  </div>
                 </div>
-              )}
+              </div>
+            )}
+          </div>
 
-              {/* Submission Deadline */}
-              {selectedSubmissionFormIds.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                    <Calendar className="text-slate-500" size={16} />
-                    Submission Deadline
-                  </label>
-                  <input
-                    type="date"
-                    value={submissionDeadline}
-                    onChange={(e) => setSubmissionDeadline(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-              )}
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
+          <h2 className="text-xl font-semibold text-slate-900 mb-2 flex items-center gap-2">
+            <FileText className="text-indigo-600" size={20} />
+            {t('sectionStep2Evaluation')}
+          </h2>
+          <p className="text-sm text-slate-500 mb-6">{t('evaluationSectionHint')}</p>
+          <div className="flex flex-wrap items-center gap-4 mb-6">
+            <span className="text-sm font-medium text-slate-700">{t('labelEvaluationInclude')}</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={evaluationEnabled}
+              onClick={() => {
+                setEvaluationEnabled((v) => {
+                  const next = !v;
+                  if (!next) {
+                    setSelectedEvaluationFormIds([]);
+                    setSelectedCommitteeIds([]);
+                  }
+                  return next;
+                });
+              }}
+              className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                evaluationEnabled ? 'bg-indigo-600' : 'bg-slate-200'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  evaluationEnabled ? 'translate-x-6' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+            <span className="text-sm text-slate-600">
+              {evaluationEnabled ? t('evaluationToggleYes') : t('evaluationToggleNo')}
+            </span>
+          </div>
 
-              {/* Evaluation Form Selection */}
+          {evaluationEnabled && (
+            <div className="space-y-6 rounded-lg border border-slate-100 bg-slate-50/60 p-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <FileText className="text-orange-600" size={16} />
-                  Evaluation Forms
+                  {t('labelEvaluationForms')}
                 </label>
-              
-              {selectedEvaluationFormIds.length > 0 && (
-                <div className="mb-3 space-y-2">
-                  {selectedEvaluationFormIds.map(formId => {
-                    const form = evaluationForms.find(f => f.id === formId);
-                    return form ? (
-                      <div
-                        key={formId}
-                        className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-200"
-                      >
-                        <span className="text-sm font-medium text-slate-700">
-                          {removePrefix(form.title, 'Eval')}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveEvaluationForm(formId)}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                {selectedEvaluationFormIds.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {selectedEvaluationFormIds.map((formId) => {
+                      const form = evaluationForms.find((f) => f.id === formId);
+                      return form ? (
+                        <div
+                          key={formId}
+                          className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-200"
                         >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ) : null;
-                  })}
-                </div>
-              )}
-
+                          <span className="text-sm font-medium text-slate-700">
+                            {removePrefix(form.title, 'Eval')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveEvaluationForm(formId)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
                 <div className="relative">
                   <select
                     value=""
@@ -1706,12 +2163,12 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         e.target.value = '';
                       }
                     }}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                   >
-                    <option value="">Add an evaluation form</option>
+                    <option value="">{t('optAddEvaluationForm')}</option>
                     {evaluationFormsFiltered
-                      .filter(form => !selectedEvaluationFormIds.includes(form.id))
-                      .map(form => (
+                      .filter((form) => !selectedEvaluationFormIds.includes(form.id))
+                      .map((form) => (
                         <option key={form.id} value={form.id}>
                           {removePrefix(form.title, 'Eval')}
                         </option>
@@ -1720,36 +2177,33 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 </div>
               </div>
 
-              {/* Committee Selection */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <UserCheck className="text-slate-500" size={16} />
-                  Committees
+                  {t('labelCommittees')}
                 </label>
-              
-              {selectedCommitteeIds.length > 0 && (
-                <div className="mb-3 space-y-2">
-                  {selectedCommitteeIds.map(committeeId => {
-                    const committee = committees.find(c => c.id === committeeId);
-                    return committee ? (
-                      <div
-                        key={committeeId}
-                        className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                      >
-                        <span className="text-sm font-medium text-slate-700">{committee.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCommittee(committeeId)}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                {selectedCommitteeIds.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {selectedCommitteeIds.map((committeeId) => {
+                      const committee = committees.find((c) => c.id === committeeId);
+                      return committee ? (
+                        <div
+                          key={committeeId}
+                          className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
                         >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ) : null;
-                  })}
-                </div>
-              )}
-
+                          <span className="text-sm font-medium text-slate-700">{committee.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCommittee(committeeId)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
                 <div className="relative">
                   <select
                     value=""
@@ -1759,12 +2213,12 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         e.target.value = '';
                       }
                     }}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
                   >
-                    <option value="">Add a committee</option>
+                    <option value="">{t('optAddCommittee')}</option>
                     {committees
-                      .filter(committee => !selectedCommitteeIds.includes(committee.id))
-                      .map(committee => (
+                      .filter((committee) => !selectedCommitteeIds.includes(committee.id))
+                      .map((committee) => (
                         <option key={committee.id} value={committee.id}>
                           {committee.name}
                         </option>
@@ -1773,8 +2227,212 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 </div>
               </div>
             </div>
+          )}
+        </div>
+
+        </div>
+        )}
+
+        {(!eventId && wizardStep === 3) && (
+        <div className="bg-white rounded-lg border border-slate-200 p-6">
+          <h2 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
+            <Layers className="text-indigo-600" size={20} />
+            {t('sectionStep3Tools')}
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <Globe className="text-slate-500" size={16} />
+                  {t('labelLandingPages')}
+                </label>
+                {selectedLandingPageIds.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {selectedLandingPageIds.map((pageId) => {
+                      const page = landingPages.find((p) => p.id === pageId);
+                      return page ? (
+                        <div
+                          key={pageId}
+                          className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                        >
+                          <span className="text-sm font-medium text-slate-700">{page.title}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveLandingPage(pageId)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+                <div className="relative">
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleAddLandingPage(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">{t('optAddLandingPage')}</option>
+                    {landingPages
+                      .filter((page) => !selectedLandingPageIds.includes(page.id))
+                      .map((page) => (
+                        <option key={page.id} value={page.id}>
+                          {page.title}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {landingPages.length === 0 && (
+                  <p className="mt-2 text-sm text-slate-500">{t('emptyNoLandingPages')}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <IdCard className="text-indigo-600" size={16} />
+                  {t('labelBadges')}
+                </label>
+                {selectedBadgeTemplateIds.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {selectedBadgeTemplateIds.map((tid) => {
+                      const tpl = badgeTemplates.find((c) => c.id === tid);
+                      return tpl ? (
+                        <div
+                          key={tid}
+                          className="flex items-center justify-between gap-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100"
+                        >
+                          <span className="text-sm font-medium text-slate-700 flex-1 min-w-0 truncate">
+                            {tpl.title}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setTemplatePreview({ kind: 'badge', id: tid })}
+                              className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded transition-colors"
+                              title={t('btnPreviewTemplate')}
+                              aria-label={t('btnPreviewTemplate')}
+                            >
+                              <Eye size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveBadgeTemplate(tid)}
+                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+                <div className="relative">
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleAddBadgeTemplate(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">{t('optAddBadgeTemplate')}</option>
+                    {badgeTemplates
+                      .filter((c) => !selectedBadgeTemplateIds.includes(c.id))
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.title}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {badgeTemplates.length === 0 && (
+                  <p className="mt-2 text-sm text-slate-500">{t('emptyNoBadgeTemplates')}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <Award className="text-slate-500" size={16} />
+                  {t('labelCertificates')}
+                </label>
+                {selectedCertificateIds.length > 0 && (
+                  <div className="mb-3 space-y-2">
+                    {selectedCertificateIds.map((certId) => {
+                      const cert = certificates.find((c) => c.id === certId);
+                      return cert ? (
+                        <div
+                          key={certId}
+                          className="flex items-center justify-between gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                        >
+                          <span className="text-sm font-medium text-slate-700 flex-1 min-w-0 truncate">
+                            {cert.title}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setTemplatePreview({ kind: 'certificate', id: certId })}
+                              className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded transition-colors"
+                              title={t('btnPreviewTemplate')}
+                              aria-label={t('btnPreviewTemplate')}
+                            >
+                              <Eye size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCertificate(certId)}
+                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ) : null;
+                    })}
+                  </div>
+                )}
+                <div className="relative">
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleAddCertificate(e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="">{t('optAddCertificate')}</option>
+                    {certificates
+                      .filter((cert) => !selectedCertificateIds.includes(cert.id))
+                      .map((cert) => (
+                        <option key={cert.id} value={cert.id}>
+                          {cert.title}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {certificates.length === 0 && (
+                  <p className="mt-2 text-sm text-slate-500">{t('emptyNoCertificates')}</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
+        )}
 
         {/* Error Message */}
         {error && (
@@ -1784,39 +2442,61 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
         )}
 
         {/* Action Buttons */}
-        <div className="flex items-center justify-center gap-3 pt-4 border-t border-slate-200">
+        <div className="flex flex-wrap items-center justify-center gap-3 pt-4 border-t border-slate-200">
           <button
             type="button"
             onClick={onCancel}
             className="w-40 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
           >
-            Cancel
+            {t('btnCancel')}
           </button>
-          <button
-            type="button"
-            onClick={handlePreview}
-            className="w-40 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
-          >
-            <Eye size={16} />
-            Preview
-          </button>
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="w-40 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save size={16} />
-                {eventId ? 'Update Event' : 'Create Event'}
-              </>
-            )}
-          </button>
+          {!eventId && wizardStep > 1 && (
+            <button
+              type="button"
+              onClick={goWizardBack}
+              className="w-40 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              {t('btnBack')}
+            </button>
+          )}
+          {!eventId && wizardStep < 3 && (
+            <button
+              type="button"
+              onClick={goWizardNext}
+              className="w-40 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+            >
+              {t('btnNext')}
+            </button>
+          )}
+          {(!eventId ? wizardStep === 3 : true) && (
+            <button
+              type="button"
+              onClick={handlePreview}
+              className="w-40 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <Eye size={16} />
+              {t('btnPreview')}
+            </button>
+          )}
+          {(!eventId ? wizardStep === 3 : true) && (
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="w-40 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {t('btnSaving')}
+                </>
+              ) : (
+                <>
+                  <Save size={16} />
+                  {eventId ? t('btnUpdateEvent') : t('btnCreateEvent')}
+                </>
+              )}
+            </button>
+          )}
         </div>
       </form>
 
@@ -1826,7 +2506,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
             <div className="p-6 border-b border-slate-200">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900">Add Partner</h3>
+                <h3 className="text-lg font-semibold text-slate-900">{t('partnerModalTitle')}</h3>
                 <button
                   type="button"
                   onClick={() => {
@@ -1846,7 +2526,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 {/* Search Existing Entities */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Search Existing Entities
+                    {t('partnerSearchLabel')}
                   </label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
@@ -1855,7 +2535,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                       value={partnerSearchQuery}
                       onChange={(e) => setPartnerSearchQuery(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Search entities..."
+                      placeholder={t('partnerSearchPh')}
                     />
                   </div>
                   {partnerSearchResults.length > 0 && (
@@ -1880,20 +2560,20 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     <div className="w-full border-t border-slate-300"></div>
                   </div>
                   <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-white text-slate-500">Or add new</span>
+                    <span className="px-2 bg-white text-slate-500">{t('partnerOrNew')}</span>
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Partner Name
+                    {t('partnerNameLabel')}
                   </label>
                   <input
                     type="text"
                     value={newPartnerName}
                     onChange={(e) => setNewPartnerName(e.target.value)}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Enter partner name"
+                    placeholder={t('partnerNamePh')}
                   />
                 </div>
               </div>
@@ -1909,7 +2589,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 }}
                 className="px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
               >
-                Cancel
+                {t('btnCancel')}
               </button>
               <button
                 type="button"
@@ -1917,7 +2597,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 disabled={!newPartnerName.trim()}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Add Partner
+                {t('btnAddPartner')}
               </button>
             </div>
           </div>
@@ -1930,21 +2610,21 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
           <div className="bg-white rounded-xl shadow-xl max-w-7xl w-full my-8 flex flex-col max-h-[95vh]">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-900">Event Preview</h2>
+              <h2 className="text-2xl font-bold text-slate-900">{t('previewModalTitle')}</h2>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleOpenFullScreen}
                   className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-100 transition-colors"
-                  title="Open in full screen"
-                  aria-label="Open in full screen"
+                  title={t('previewOpenFullscreen')}
+                  aria-label={t('previewOpenFullscreen')}
                 >
                   <Maximize2 size={20} />
                 </button>
                 <button
                   onClick={() => setShowPreview(false)}
                   className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-                  title="Close preview"
-                  aria-label="Close preview"
+                  title={t('previewClose')}
+                  aria-label={t('previewClose')}
                 >
                   <X size={20} />
                 </button>
@@ -1958,7 +2638,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 <div className="relative text-white" style={getBannerStyle()}>
                   <div className="absolute inset-0 bg-black opacity-20"></div>
                   <div className="relative max-w-7xl mx-auto px-6 py-20">
-                    <h1 className="text-5xl font-bold drop-shadow-lg">{name || 'Event Name'}</h1>
+                    <h1 className="text-5xl font-bold drop-shadow-lg">{name || t('defaultEventName')}</h1>
                   </div>
                 </div>
 
@@ -1972,7 +2652,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <FileText className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Description</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secDescription')}</h2>
                           </div>
                           <div 
                             className="text-slate-700 leading-relaxed prose max-w-none"
@@ -1986,7 +2666,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <Hash className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Keywords</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secKeywords')}</h2>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {keywords.map((keyword, index) => (
@@ -2006,7 +2686,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <Tag className="w-5 h-5 text-purple-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Fields</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secFields')}</h2>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {fields.map((field, index) => (
@@ -2026,7 +2706,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <Calendar className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Event Dates</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secEventDates')}</h2>
                           </div>
                           <div className="space-y-3">
                             {dates.filter(d => d.startDate && d.endDate).map((dateRange, index) => (
@@ -2051,7 +2731,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <Building className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Partners</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secPartners')}</h2>
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {partners.map((partner, index) => (
@@ -2071,7 +2751,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <ExternalLink className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Links</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secLinks')}</h2>
                           </div>
                           <div className="space-y-2">
                             {links.filter(l => l.name && l.url).map((link, index) => (
@@ -2097,7 +2777,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <UserCheck className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Committees</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secCommittees')}</h2>
                           </div>
                           <div className="space-y-4">
                             {committees
@@ -2134,7 +2814,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <MapPin className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Location</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secLocation')}</h2>
                           </div>
                           <p className="text-slate-700">{location}</p>
                         </section>
@@ -2145,10 +2825,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <Globe className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Landing Pages</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secLandingPages')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedLandingPageIds.length} landing page{selectedLandingPageIds.length !== 1 ? 's' : ''} configured
+                            {t('countLandingPagesConfigured', { n: selectedLandingPageIds.length })}
                           </p>
                         </section>
                       )}
@@ -2158,10 +2838,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <ClipboardList className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Registration Forms</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secRegistrationForms')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedRegistrationFormIds.length} form{selectedRegistrationFormIds.length !== 1 ? 's' : ''} configured
+                            {t('countFormsConfigured', { n: selectedRegistrationFormIds.length })}
                           </p>
                         </section>
                       )}
@@ -2171,10 +2851,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <Send className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Submission Forms</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secSubmissionForms')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedSubmissionFormIds.length} form{selectedSubmissionFormIds.length !== 1 ? 's' : ''} configured
+                            {t('countFormsConfigured', { n: selectedSubmissionFormIds.length })}
                           </p>
                         </section>
                       )}
@@ -2184,10 +2864,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <FileText className="w-5 h-5 text-orange-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Evaluation Forms</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secEvaluationForms')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedEvaluationFormIds.length} form{selectedEvaluationFormIds.length !== 1 ? 's' : ''} configured
+                            {t('countFormsConfigured', { n: selectedEvaluationFormIds.length })}
                           </p>
                         </section>
                       )}
@@ -2197,10 +2877,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <Award className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Certificates</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secCertificates')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedCertificateIds.length} template{selectedCertificateIds.length !== 1 ? 's' : ''} configured
+                            {t('countTemplatesConfigured', { n: selectedCertificateIds.length })}
                           </p>
                         </section>
                       )}
@@ -2216,7 +2896,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 onClick={() => setShowPreview(false)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
               >
-                Close Preview
+                {t('previewCloseFooter')}
               </button>
             </div>
           </div>
@@ -2229,6 +2909,16 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
         onClose={() => setShowTextEditor(false)}
         onInsert={(content) => setDescription(content)}
         initialContent={description}
+      />
+
+      <TemplatePreviewModal
+        isOpen={!!templatePreview?.id}
+        onClose={() => setTemplatePreview(null)}
+        kind={templatePreview?.kind ?? 'certificate'}
+        templateId={templatePreview?.id ?? ''}
+        titleBadge={t('templatePreviewBadge')}
+        titleCertificate={t('templatePreviewCertificate')}
+        closeLabel={t('previewClose')}
       />
     </div>
   );

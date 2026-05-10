@@ -4,6 +4,7 @@ import {
   HelpCircle, Calendar, CreditCard, MapPin, FileText, Users, ChevronDown, ChevronUp 
 } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface FaqSectionProps {
   items: FaqItem[];
@@ -22,6 +23,7 @@ const IconMap = {
 
 const FaqSection: React.FC<FaqSectionProps> = ({ items, title = "Frequently Asked Questions", titleAlignment = 'center' }) => {
   const [openId, setOpenId] = useState<string | null>(items.length > 0 ? items[0].id : null);
+  const { t } = useAdminTranslation('pageBuilder');
   const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
   const containerAlignClass = titleAlignment === 'left' ? 'items-start' : titleAlignment === 'right' ? 'items-end' : 'items-center';
   const isTitleArabic = isArabic(title);
@@ -46,7 +48,7 @@ const FaqSection: React.FC<FaqSectionProps> = ({ items, title = "Frequently Aske
             </>
           )}
         </h2>
-        <p className="text-slate-500">No questions added yet.</p>
+        <p className="text-slate-500">{t('edSecFaqEmpty')}</p>
       </div>
     );
   }
@@ -68,7 +70,7 @@ const FaqSection: React.FC<FaqSectionProps> = ({ items, title = "Frequently Aske
               </>
             )}
           </h2>
-          <p className="text-slate-500">Find answers to common questions about the conference.</p>
+          <p className="text-slate-500">{t('edSecFaqIntro')}</p>
         </div>
 
         <div className="space-y-4">
@@ -85,7 +87,10 @@ const FaqSection: React.FC<FaqSectionProps> = ({ items, title = "Frequently Aske
               >
                 <button
                   onClick={() => toggle(item.id)}
+                  type="button"
                   className="w-full flex items-center justify-between p-5 text-left"
+                  aria-expanded={isOpen}
+                  aria-label={isOpen ? t('edAriaFaqToggleClose') : t('edAriaFaqToggleOpen')}
                 >
                   <div className="flex items-center gap-4">
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 transition-colors ${

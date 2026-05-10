@@ -1,11 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FolderKanban } from 'lucide-react';
 import NewProject from './NewProject';
 import ProjectList from './ProjectList';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
 
 const Projects: React.FC = () => {
+  const organizerScopedEventId = useOrganizerScopedEventId();
   const [activeTab, setActiveTab] = useState<'new' | 'list'>('new');
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (organizerScopedEventId) {
+      setSelectedEventId(organizerScopedEventId);
+    }
+  }, [organizerScopedEventId]);
 
   return (
     <div className="space-y-6">

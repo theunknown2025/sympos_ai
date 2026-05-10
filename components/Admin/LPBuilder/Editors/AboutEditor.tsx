@@ -1,6 +1,7 @@
 import React from 'react';
 import { Wand2, ImageIcon, Layout } from 'lucide-react';
 import { AboutConfig } from '../../../../types';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface AboutEditorProps {
   description: string;
@@ -11,14 +12,15 @@ interface AboutEditorProps {
   onAboutConfigChange?: (config: AboutConfig) => void;
 }
 
-const AboutEditor: React.FC<AboutEditorProps> = ({ 
-  description, 
-  isGenerating, 
-  onDescriptionChange, 
+const AboutEditor: React.FC<AboutEditorProps> = ({
+  description,
+  isGenerating,
+  onDescriptionChange,
   onAiGenerate,
   aboutConfig,
-  onAboutConfigChange
+  onAboutConfigChange,
 }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const updateAboutConfig = (field: keyof AboutConfig, value: any) => {
     if (onAboutConfigChange && aboutConfig) {
       onAboutConfigChange({ ...aboutConfig, [field]: value });
@@ -27,13 +29,12 @@ const AboutEditor: React.FC<AboutEditorProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Include Image Toggle */}
       {onAboutConfigChange && aboutConfig && (
         <div className="p-3 bg-slate-50 rounded-lg border border-slate-100">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <ImageIcon size={16} className="text-slate-500" />
-              <span className="text-sm font-medium text-slate-700">Include Picture</span>
+              <span className="text-sm font-medium text-slate-700">{t('edAboutIncludePicture')}</span>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
@@ -49,18 +50,18 @@ const AboutEditor: React.FC<AboutEditorProps> = ({
           {aboutConfig.includeImage && (
             <div className="space-y-3 mt-3">
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-1">Image URL</label>
+                <label className="block text-xs font-medium text-slate-700 mb-1">{t('edAboutImageUrl')}</label>
                 <input
                   type="text"
                   value={aboutConfig.imageUrl}
                   onChange={(e) => updateAboutConfig('imageUrl', e.target.value)}
-                  placeholder="https://example.com/image.jpg"
+                  placeholder={t('edAboutImageUrlPlaceholder')}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-900"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 mb-2">Layout</label>
+                <label className="block text-xs font-medium text-slate-700 mb-2">{t('edAboutLayout')}</label>
                 <div className="space-y-2">
                   <button
                     onClick={() => updateAboutConfig('layout', 'top')}
@@ -71,7 +72,7 @@ const AboutEditor: React.FC<AboutEditorProps> = ({
                     }`}
                   >
                     <Layout size={16} />
-                    <span className="text-xs font-medium">Image and text on top</span>
+                    <span className="text-xs font-medium">{t('edAboutLayoutTop')}</span>
                   </button>
                   <button
                     onClick={() => updateAboutConfig('layout', 'left-right')}
@@ -82,7 +83,7 @@ const AboutEditor: React.FC<AboutEditorProps> = ({
                     }`}
                   >
                     <Layout size={16} />
-                    <span className="text-xs font-medium">Text left, image right</span>
+                    <span className="text-xs font-medium">{t('edAboutLayoutLeftRight')}</span>
                   </button>
                   <button
                     onClick={() => updateAboutConfig('layout', 'right-left')}
@@ -93,7 +94,7 @@ const AboutEditor: React.FC<AboutEditorProps> = ({
                     }`}
                   >
                     <Layout size={16} />
-                    <span className="text-xs font-medium">Text right, image left</span>
+                    <span className="text-xs font-medium">{t('edAboutLayoutRightLeft')}</span>
                   </button>
                 </div>
               </div>
@@ -102,23 +103,22 @@ const AboutEditor: React.FC<AboutEditorProps> = ({
         </div>
       )}
 
-      {/* Description */}
       <div>
-        <label className="block text-xs font-medium text-slate-700 mb-1">About / Description</label>
+        <label className="block text-xs font-medium text-slate-700 mb-1">{t('edAboutDescription')}</label>
         <div className="relative">
-          <textarea 
+          <textarea
             value={description}
             onChange={(e) => onDescriptionChange(e.target.value)}
             rows={8}
             className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none resize-none text-sm leading-relaxed bg-white text-slate-900"
           />
-          <button 
+          <button
             onClick={onAiGenerate}
             disabled={isGenerating}
             className="absolute bottom-3 right-3 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 text-xs font-medium rounded-md transition-colors"
           >
-            <Wand2 size={14} className={isGenerating ? "animate-spin" : ""} />
-            {isGenerating ? 'Thinking...' : 'AI Write'}
+            <Wand2 size={14} className={isGenerating ? 'animate-spin' : ''} />
+            {isGenerating ? t('edAboutAiThinking') : t('edAboutAiWrite')}
           </button>
         </div>
       </div>

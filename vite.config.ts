@@ -14,6 +14,10 @@ export default defineConfig(({ mode }) => {
             changeOrigin: true,
             rewrite: (path) => path.replace(/^\/api\/latex/, ''),
           },
+          '/api/admin-display-config': {
+            target: 'http://localhost:3004',
+            changeOrigin: true,
+          },
         },
       },
       plugins: [react()],

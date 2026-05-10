@@ -1,11 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Plus, List } from 'lucide-react';
 import NewEvent from './NewEvent';
 import ListOfEvents from './ListOfEvents';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
 
 const EventManagement: React.FC = () => {
+  const { t } = useAdminTranslation('eventManagement');
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'new' | 'list'>('new');
   const [refreshList, setRefreshList] = useState(0);
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab !== 'new' && tab !== 'list') return;
+    if (tab === 'new') setActiveTab('new');
+    if (tab === 'list') setActiveTab('list');
+    const next = new URLSearchParams(searchParams);
+    next.delete('tab');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const handleEventSaved = () => {
     setActiveTab('list');
@@ -15,8 +29,8 @@ const EventManagement: React.FC = () => {
   return (
     <div className="space-y-6 animate-fade-in">
       <header className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-900">Event Management</h1>
-        <p className="text-slate-500 mt-2">Manage all aspects of your event from one central location</p>
+        <h1 className="text-3xl font-bold text-slate-900">{t('pageTitle')}</h1>
+        <p className="text-slate-500 mt-2">{t('subtitle')}</p>
       </header>
 
       {/* Tabs */}
@@ -32,7 +46,7 @@ const EventManagement: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <Plus size={16} />
-              New Event
+              {t('tabNewEvent')}
             </div>
           </button>
           <button
@@ -45,7 +59,7 @@ const EventManagement: React.FC = () => {
           >
             <div className="flex items-center gap-2">
               <List size={16} />
-              List of Events
+              {t('tabListEvents')}
             </div>
           </button>
         </nav>

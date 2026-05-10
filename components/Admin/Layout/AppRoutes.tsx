@@ -59,6 +59,30 @@ import EnrollmentManager from '../Academy/EnrollmentManager';
 import PaymentManager from '../Academy/PaymentManager';
 import CourseFullScreenPage from '../Academy/CourseFullScreenPage';
 import { CheckSquare, Settings, GraduationCap } from 'lucide-react';
+import { useOrganizerEventScope } from '../../../contexts/OrganizerEventScopeContext';
+import OrganizerWorkspaceHub from './OrganizerWorkspaceHub';
+
+const OrganizerHomeRedirect: React.FC<{
+  isOrganizer: boolean;
+  userRole: SubscriptionRole | null;
+}> = ({ isOrganizer, userRole }) => {
+  const { isOrganizerWorkspaceEnabled, mode, focusedEventId } = useOrganizerEventScope();
+
+  if (!isOrganizer) {
+    return <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />;
+  }
+
+  if (userRole === 'Organizer' && isOrganizerWorkspaceEnabled) {
+    if (mode === 'focused' && focusedEventId) {
+      return <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />;
+    }
+    if (mode === 'choose') {
+      return <Navigate to={getRoutePath(ViewState.ORGANIZER_WORKSPACE)} replace />;
+    }
+  }
+
+  return <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />;
+};
 
 interface AppRoutesProps {
   isOrganizer: boolean;
@@ -90,9 +114,14 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
 
   return (
     <Routes>
-      {/* Root redirect based on role */}
+      {/* Root redirect based on role and organizer workspace mode */}
       <Route path="/" element={
-        isOrganizer ? (
+        <OrganizerHomeRedirect isOrganizer={isOrganizer} userRole={userRole} />
+      } />
+      <Route path="/organizer/workspace" element={
+        isOrganizer && userRole === 'Organizer' ? (
+          <OrganizerWorkspaceHub />
+        ) : isOrganizer ? (
           <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
         ) : (
           <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />

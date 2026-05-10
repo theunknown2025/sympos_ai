@@ -3,8 +3,10 @@ import { AgendaDay, Speaker } from '../../../../types';
 import { Clock, MapPin, User, Calendar, FileText, Download } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
 import { generateProgramPDF } from '../../Submissions/ProgramBuilder/generateProgramPDF';
+import { buildProgramPdfParams } from '../../Submissions/ProgramBuilder/programExportMeta';
 import { getProgramById, type SavedProgram } from '../../../../services/programService';
 import { useAuth } from '../../../../hooks/useAuth';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface AgendaSectionProps {
   agenda: AgendaDay[];
@@ -28,6 +30,7 @@ const AgendaSection: React.FC<AgendaSectionProps> = ({
   showDownloadButton = false
 }) => {
   const { currentUser } = useAuth();
+  const { t } = useAdminTranslation('pageBuilder');
   const [program, setProgram] = useState<SavedProgram | null>(null);
   const [loading, setLoading] = useState(false);
   const selectedDay = agenda.find(d => d.id === activeDayId) || agenda[0];
@@ -59,43 +62,11 @@ const AgendaSection: React.FC<AgendaSectionProps> = ({
     if (!program) return;
 
     try {
-      const timeSlots = generateTimeSlots(program.config);
-      await generateProgramPDF(
-        program.cards,
-        program.venues,
-        timeSlots,
-        program.config,
-        0 // Default to day 0
-      );
+      await generateProgramPDF(buildProgramPdfParams(program, 0));
     } catch (err: any) {
-      alert('Failed to generate PDF: ' + (err.message || 'Unknown error'));
+      alert(t('edPreviewAgendaPdfError', { detail: err.message || t('edPreviewAgendaPdfErrorUnknown') }));
       console.error('Error generating PDF:', err);
     }
-  };
-
-  const generateTimeSlots = (config: SavedProgram['config']): string[] => {
-    const slots: string[] = [];
-    const [startHour, startMin] = config.startTime.split(':').map(Number);
-    const [endHour, endMin] = config.endTime.split(':').map(Number);
-    
-    let currentHour = startHour;
-    let currentMin = startMin;
-    
-    while (
-      currentHour < endHour ||
-      (currentHour === endHour && currentMin <= endMin)
-    ) {
-      const timeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMin).padStart(2, '0')}`;
-      slots.push(timeStr);
-      
-      currentMin += config.timeSlotWidth;
-      if (currentMin >= 60) {
-        currentMin = 0;
-        currentHour++;
-      }
-    }
-    
-    return slots;
   };
 
   return (
@@ -115,7 +86,7 @@ const AgendaSection: React.FC<AgendaSectionProps> = ({
               </>
             )}
           </h2>
-          <p className="text-slate-500">Explore our scheduled events and sessions across the conference days.</p>
+          <p className="text-slate-500">{t('edPreviewAgendaIntro')}</p>
         </div>
 
         {/* Day Tabs */}
@@ -186,8 +157,8 @@ const AgendaSection: React.FC<AgendaSectionProps> = ({
           ) : (
             <div className="text-center py-20 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 text-slate-400">
               <Calendar size={48} className="mx-auto mb-4 opacity-20" />
-              <p className="text-lg font-medium">No sessions scheduled for this day.</p>
-              <p className="text-sm">Use the Agenda Editor to add activities.</p>
+              <p className="text-lg font-medium">{t('edPreviewAgendaEmptyDay')}</p>
+              <p className="text-sm">{t('edPreviewAgendaEmptyHint')}</p>
             </div>
           )}
         </div>
@@ -201,7 +172,7 @@ const AgendaSection: React.FC<AgendaSectionProps> = ({
               className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download size={20} />
-              {loading ? 'Loading...' : 'Download Program'}
+              {loading ? t('edPreviewAgendaLoading') : t('edPreviewAgendaDownload')}
             </button>
           </div>
         )}

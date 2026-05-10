@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ConferenceConfig, HeroButton, Speaker, SocialLink, AgendaDay, AgendaItem, FaqItem, CommitteeMember, ContactConfig, TimelineStep, PartnerGroup, Partner, PricingOffer } from '../../types';
+import { ConferenceConfig, HeroButton, Speaker, SocialLink, AgendaDay, AgendaItem, FaqItem, CommitteeMember, ContactConfig, TimelineStep, TimelineStepIcon, SubmissionActionTarget, HeroButtonAssetSource, PartnerGroup, Partner, PricingOffer } from '../../types';
 import { INITIAL_CONFERENCE_CONFIG } from '../../constants';
 import { 
   Eye, Save, Wand2, Layout, GripVertical, Settings2, Plus, Trash2, 
@@ -224,9 +224,10 @@ const PageBuilder: React.FC = () => {
   const addSubmissionStep = () => {
     const newStep: TimelineStep = {
       id: Date.now().toString(),
-      date: 'Date',
       title: 'New Milestone',
-      description: 'Description of this step.'
+      description: '',
+      deadline: '',
+      icon: 'calendar',
     };
     setConfig(prev => ({
       ...prev,
@@ -242,12 +243,12 @@ const PageBuilder: React.FC = () => {
     }));
   };
 
-  const updateSubmissionStep = (id: string, field: keyof TimelineStep, value: string) => {
+  const updateSubmissionStep = (id: string, patch: Partial<TimelineStep>) => {
     setConfig(prev => ({
       ...prev,
       submission: {
         ...prev.submission,
-        steps: prev.submission.steps.map(s => s.id === id ? { ...s, [field]: value } : s)
+        steps: prev.submission.steps.map(s => s.id === id ? { ...s, ...patch } : s)
       }
     }));
   };
@@ -257,7 +258,8 @@ const PageBuilder: React.FC = () => {
       id: Date.now().toString(),
       text: 'Action',
       url: '#',
-      style: 'secondary'
+      style: 'secondary',
+      actionTarget: 'link',
     };
     setConfig(prev => ({
       ...prev,
@@ -272,12 +274,12 @@ const PageBuilder: React.FC = () => {
     }));
   };
 
-  const updateSubmissionButton = (id: string, field: keyof HeroButton, value: string) => {
+  const updateSubmissionButton = (id: string, patch: Partial<HeroButton>) => {
     setConfig(prev => ({
       ...prev,
       submission: {
         ...prev.submission,
-        buttons: prev.submission.buttons.map(b => b.id === id ? { ...b, [field]: value } : b)
+        buttons: prev.submission.buttons.map(b => b.id === id ? { ...b, ...patch } : b)
       }
     }));
   };
@@ -948,32 +950,36 @@ const PageBuilder: React.FC = () => {
       case 'submission':
         return (
           <div className="space-y-4">
-            {/* Steps Timeline Editor */}
             <div>
               <div className="flex justify-between items-center mb-3">
                 <span className="text-xs text-slate-500">{config.submission.steps.length} Timeline Steps</span>
-                <button onClick={addSubmissionStep} className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800">
+                <button type="button" onClick={addSubmissionStep} className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800">
                   <Plus size={12} /> Add Step
                 </button>
               </div>
               <div className="space-y-3">
-                {config.submission.steps.map((step) => (
+                {config.submission.steps.map((step) => {
+                  const badgeDay = step.deadline
+                    ? step.deadline.slice(8, 10)
+                    : (step.date || '—').split(/[\s,]/)[0]?.slice(0, 3) || '—';
+                  const subtitle = step.deadline || step.date || '';
+                  return (
                   <div key={step.id} className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
-                    <div 
+                    <div
                       className="p-3 bg-white flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors"
                       onClick={() => setExpandedStepId(expandedStepId === step.id ? null : step.id)}
                     >
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 font-bold text-xs shrink-0">
-                          {step.date.split(' ')[0]}
+                          {badgeDay}
                         </div>
                         <div className="overflow-hidden">
                           <p className="text-sm font-semibold text-slate-800 truncate">{step.title || 'New Step'}</p>
-                          <p className="text-xs text-slate-500 truncate">{step.date}</p>
+                          <p className="text-xs text-slate-500 truncate">{subtitle}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button onClick={(e) => { e.stopPropagation(); removeSubmissionStep(step.id); }} className="text-slate-400 hover:text-red-500 p-1">
+                        <button type="button" onClick={(e) => { e.stopPropagation(); removeSubmissionStep(step.id); }} className="text-slate-400 hover:text-red-500 p-1">
                           <Trash2 size={14} />
                         </button>
                         {expandedStepId === step.id ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
@@ -982,88 +988,185 @@ const PageBuilder: React.FC = () => {
 
                     {expandedStepId === step.id && (
                       <div className="p-4 border-t border-slate-100 space-y-3">
-                        <div className="grid grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Date</label>
-                            <input 
-                              type="text" 
-                              value={step.date}
-                              onChange={(e) => updateSubmissionStep(step.id, 'date', e.target.value)}
-                              placeholder="e.g. Jan 15"
-                              className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">Title</label>
-                            <input 
-                              type="text" 
-                              value={step.title}
-                              onChange={(e) => updateSubmissionStep(step.id, 'title', e.target.value)}
-                              placeholder="e.g. Submissions Open"
-                              className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
-                            />
-                          </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Title</label>
+                          <input
+                            type="text"
+                            value={step.title}
+                            onChange={(e) => updateSubmissionStep(step.id, { title: e.target.value })}
+                            placeholder="e.g. Submissions Open"
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
+                          />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-slate-500 mb-1">Description</label>
-                          <textarea 
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Description (max 50)</label>
+                          <textarea
                             rows={2}
+                            maxLength={50}
                             value={step.description}
-                            onChange={(e) => updateSubmissionStep(step.id, 'description', e.target.value)}
-                            placeholder="Details shown on hover..."
+                            onChange={(e) => updateSubmissionStep(step.id, { description: e.target.value.slice(0, 50) })}
+                            placeholder="Short description"
                             className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none resize-none bg-white text-slate-900"
                           />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Deadline</label>
+                          <input
+                            type="date"
+                            value={step.deadline || ''}
+                            onChange={(e) => updateSubmissionStep(step.id, { deadline: e.target.value })}
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Legacy text date (optional)</label>
+                          <input
+                            type="text"
+                            value={step.date || ''}
+                            onChange={(e) => updateSubmissionStep(step.id, { date: e.target.value })}
+                            placeholder="e.g. Jan 15, 2024 if no calendar date"
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Icon</label>
+                          <select
+                            value={step.icon || 'calendar'}
+                            onChange={(e) => updateSubmissionStep(step.id, { icon: e.target.value as TimelineStepIcon })}
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+                          >
+                            {(['calendar', 'file-text', 'send', 'clock', 'check-circle', 'info', 'upload', 'flag', 'award'] as TimelineStepIcon[]).map((ic) => (
+                              <option key={ic} value={ic}>{ic}</option>
+                            ))}
+                          </select>
                         </div>
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
-            {/* Action Buttons Editor */}
             <div className="pt-4 border-t border-slate-100">
               <div className="flex justify-between items-center mb-3">
                 <label className="block text-xs font-medium text-slate-700">Action Buttons</label>
-                <button onClick={addSubmissionButton} className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800">
+                <button type="button" onClick={addSubmissionButton} className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800">
                   <Plus size={12} /> Add Button
                 </button>
               </div>
               <div className="space-y-3">
-                {config.submission.buttons.map((btn) => (
+                {config.submission.buttons.map((btn) => {
+                  const mode = btn.actionTarget || (btn.formId ? 'form' : 'link');
+                  return (
                   <div key={btn.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
                     <div className="flex justify-between items-center">
                       <span className="text-[10px] font-bold text-slate-400 uppercase">Button</span>
-                      <button onClick={() => removeSubmissionButton(btn.id)} className="text-slate-400 hover:text-red-500">
+                      <button type="button" onClick={() => removeSubmissionButton(btn.id)} className="text-slate-400 hover:text-red-500">
                         <Trash2 size={14} />
                       </button>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
-                      <input 
-                        type="text" 
+                      <input
+                        type="text"
                         value={btn.text}
-                        onChange={(e) => updateSubmissionButton(btn.id, 'text', e.target.value)}
+                        onChange={(e) => updateSubmissionButton(btn.id, { text: e.target.value })}
                         placeholder="Label"
                         className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
                       />
-                       <select 
+                      <select
                         value={btn.style}
-                        onChange={(e) => updateSubmissionButton(btn.id, 'style', e.target.value as any)}
+                        onChange={(e) => updateSubmissionButton(btn.id, { style: e.target.value as HeroButton['style'] })}
                         className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
                       >
                         <option value="primary">Primary</option>
                         <option value="secondary">Secondary</option>
                       </select>
                     </div>
-                    <input 
-                      type="text" 
-                      value={btn.url}
-                      onChange={(e) => updateSubmissionButton(btn.id, 'url', e.target.value)}
-                      placeholder="URL (# or https://)"
-                      className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
-                    />
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Connect to</label>
+                      <select
+                        value={mode}
+                        onChange={(e) => {
+                          const v = e.target.value as SubmissionActionTarget;
+                          if (v === 'form') {
+                            updateSubmissionButton(btn.id, { actionTarget: 'form', assetSource: undefined, uploadedFileUrl: undefined });
+                          } else if (v === 'document' || v === 'image') {
+                            updateSubmissionButton(btn.id, { actionTarget: v, formId: undefined, assetSource: btn.assetSource || 'url' });
+                          } else {
+                            updateSubmissionButton(btn.id, { actionTarget: v, formId: undefined, assetSource: undefined, uploadedFileUrl: undefined });
+                          }
+                        }}
+                        className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+                      >
+                        <option value="document">Document</option>
+                        <option value="link">Link</option>
+                        <option value="image">Image</option>
+                        <option value="form">Form</option>
+                      </select>
+                    </div>
+                    {mode === 'form' ? (
+                      <input
+                        type="text"
+                        value={btn.formId || ''}
+                        onChange={(e) => updateSubmissionButton(btn.id, { formId: e.target.value || undefined })}
+                        placeholder="Registration form ID"
+                        className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+                      />
+                    ) : mode === 'link' ? (
+                      <input
+                        type="text"
+                        value={btn.url}
+                        onChange={(e) => updateSubmissionButton(btn.id, { url: e.target.value })}
+                        placeholder="URL (# or https://)"
+                        className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
+                      />
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">Source</label>
+                          <select
+                            value={(btn.assetSource || 'url') as HeroButtonAssetSource}
+                            onChange={(e) => {
+                              const src = e.target.value as HeroButtonAssetSource;
+                              updateSubmissionButton(btn.id, {
+                                assetSource: src,
+                                ...(src === 'url' ? { uploadedFileUrl: undefined } : {}),
+                              });
+                            }}
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+                          >
+                            <option value="url">External link</option>
+                            <option value="upload">Uploaded file URL</option>
+                          </select>
+                        </div>
+                        {(btn.assetSource || 'url') === 'url' ? (
+                          <input
+                            type="text"
+                            value={btn.url}
+                            onChange={(e) => updateSubmissionButton(btn.id, { url: e.target.value })}
+                            placeholder="https://…"
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+                          />
+                        ) : (
+                          <input
+                            type="text"
+                            value={btn.uploadedFileUrl || ''}
+                            onChange={(e) =>
+                              updateSubmissionButton(btn.id, {
+                                uploadedFileUrl: e.target.value || undefined,
+                                assetSource: 'upload',
+                              })
+                            }
+                            placeholder="Public URL after upload (from LP Builder or storage)"
+                            className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+                          />
+                        )}
+                      </>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>

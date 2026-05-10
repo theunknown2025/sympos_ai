@@ -16,6 +16,24 @@ import PublicProfileViewer from './components/Participant/Tools/ProfileBuilder/P
 import { supabase, TABLES } from './supabase';
 import { useAuth } from './hooks/useAuth';
 import { getViewStateFromPath, getRoutePath } from './routes';
+import { AdminDisplaySettingsProvider } from './contexts/AdminDisplaySettingsContext';
+import {
+  OrganizerEventScopeProvider,
+  useOrganizerChooserLayout,
+} from './contexts/OrganizerEventScopeContext';
+
+const OrganizerAwareMain: React.FC<{
+  sidebarOpen: boolean;
+  children: React.ReactNode;
+}> = ({ sidebarOpen, children }) => {
+  const hideOrganizerChooser = useOrganizerChooserLayout();
+  const marginClass = hideOrganizerChooser ? '' : sidebarOpen ? 'ml-64' : 'ml-20';
+  return (
+    <main className={`flex-1 flex flex-col transition-all duration-300 ${marginClass}`}>
+      {children}
+    </main>
+  );
+};
 
 const App: React.FC = () => {
   const navigate = useNavigate();
@@ -149,7 +167,11 @@ const App: React.FC = () => {
           if (effectiveIsParticipant) {
             navigate(getRoutePath(ViewState.JURY_DASHBOARD), { replace: true });
           } else if (effectiveIsOrganizer) {
-            navigate(getRoutePath(ViewState.DASHBOARD), { replace: true });
+            if (userRole === 'Organizer') {
+              navigate(getRoutePath(ViewState.ORGANIZER_WORKSPACE), { replace: true });
+            } else {
+              navigate(getRoutePath(ViewState.DASHBOARD), { replace: true });
+            }
           }
         }
 
@@ -223,7 +245,22 @@ const App: React.FC = () => {
     }
     // Show auth container for login/register pages
     if (location.pathname === '/login' || location.pathname === '/register') {
-      return <AuthContainer onAuthSuccess={() => navigate('/dashboard')} initialView={location.pathname === '/register' ? 'register' : 'login'} />;
+      return (
+        <AuthContainer
+          onAuthSuccess={async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            const role = session?.user?.user_metadata?.role as string | undefined;
+            if (role === 'Organizer') {
+              navigate(getRoutePath(ViewState.ORGANIZER_WORKSPACE));
+            } else if (role === 'SuperAdmin' || role === 'SubSuperAdmin') {
+              navigate(getRoutePath(ViewState.DASHBOARD));
+            } else {
+              navigate(getRoutePath(ViewState.JURY_DASHBOARD));
+            }
+          }}
+          initialView={location.pathname === '/register' ? 'register' : 'login'}
+        />
+      );
     }
     // Default to landing page for other unauthenticated routes
     return <LandingPage />;
@@ -258,68 +295,72 @@ const App: React.FC = () => {
     const slug = location.pathname.replace('/profiles/', '').split('/')[0];
     return <PublicProfileViewer slug={slug} />;
   }
+  if (location.pathname.startsWith('/p/')) {
+    const slug = location.pathname.replace('/p/', '').split('/')[0];
+    return <PublicLandingPageViewer slug={slug} />;
+  }
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
-      <Sidebar
-        sidebarOpen={sidebarOpen}
-        currentView={currentView}
-        userRole={userRole}
-        isOrganizer={effectiveIsOrganizer}
-        dashboardExpanded={dashboardExpanded}
-        registrationsExpanded={registrationsExpanded}
-        certificatesExpanded={certificatesExpanded}
-        submissionsExpanded={submissionsExpanded}
-        toolsExpanded={toolsExpanded}
-        juryExpanded={juryExpanded}
-        eventsExpanded={eventsExpanded}
-        projectManagementExpanded={projectManagementExpanded}
-        participantToolsExpanded={participantToolsExpanded}
-        paiementManagementExpanded={paiementManagementExpanded}
-        academyExpanded={academyExpanded}
-        onNavigateToView={navigateToView}
-        onToggleDashboard={() => setDashboardExpanded(!dashboardExpanded)}
-        onToggleRegistrations={() => setRegistrationsExpanded(!registrationsExpanded)}
-        onToggleCertificates={() => setCertificatesExpanded(!certificatesExpanded)}
-        onToggleSubmissions={() => setSubmissionsExpanded(!submissionsExpanded)}
-        onToggleTools={() => setToolsExpanded(!toolsExpanded)}
-        onToggleJury={() => setJuryExpanded(!juryExpanded)}
-        onToggleEvents={() => setEventsExpanded(!eventsExpanded)}
-        onToggleProjectManagement={() => setProjectManagementExpanded(!projectManagementExpanded)}
-        onToggleParticipantTools={() => setParticipantToolsExpanded(!participantToolsExpanded)}
-        onTogglePaiementManagement={() => setPaiementManagementExpanded(!paiementManagementExpanded)}
-        onToggleAcademy={() => setAcademyExpanded(!academyExpanded)}
-        onSignOut={handleSignOut}
-      />
-
-      {/* Main Content */}
-      <main className={`flex-1 flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
-        <Header
-          sidebarOpen={sidebarOpen}
-          currentUser={currentUser}
-          userRole={userRole}
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-        />
-
-        {/* View Content */}
-        <div className="flex-1 p-8 overflow-auto">
-          <AppRoutes
-            isOrganizer={effectiveIsOrganizer}
+    <AdminDisplaySettingsProvider userId={currentUser.id}>
+      <OrganizerEventScopeProvider userId={currentUser.id} userRole={userRole}>
+        <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
+          <Sidebar
+            sidebarOpen={sidebarOpen}
+            currentView={currentView}
             userRole={userRole}
+            isOrganizer={effectiveIsOrganizer}
+            dashboardExpanded={dashboardExpanded}
+            registrationsExpanded={registrationsExpanded}
+            certificatesExpanded={certificatesExpanded}
+            submissionsExpanded={submissionsExpanded}
+            toolsExpanded={toolsExpanded}
+            juryExpanded={juryExpanded}
+            eventsExpanded={eventsExpanded}
+            projectManagementExpanded={projectManagementExpanded}
+            participantToolsExpanded={participantToolsExpanded}
+            paiementManagementExpanded={paiementManagementExpanded}
+            academyExpanded={academyExpanded}
             onNavigateToView={navigateToView}
-            onEditPage={handleEditPage}
-            onNewPage={handleNewPage}
-            onBackToManager={handleBackToManager}
-            onEditForm={handleEditForm}
-            onNewForm={handleNewForm}
-            onBackToFormList={handleBackToFormList}
+            onToggleDashboard={() => setDashboardExpanded(!dashboardExpanded)}
+            onToggleRegistrations={() => setRegistrationsExpanded(!registrationsExpanded)}
+            onToggleCertificates={() => setCertificatesExpanded(!certificatesExpanded)}
+            onToggleSubmissions={() => setSubmissionsExpanded(!submissionsExpanded)}
+            onToggleTools={() => setToolsExpanded(!toolsExpanded)}
+            onToggleJury={() => setJuryExpanded(!juryExpanded)}
+            onToggleEvents={() => setEventsExpanded(!eventsExpanded)}
+            onToggleProjectManagement={() => setProjectManagementExpanded(!projectManagementExpanded)}
+            onToggleParticipantTools={() => setParticipantToolsExpanded(!participantToolsExpanded)}
+            onTogglePaiementManagement={() => setPaiementManagementExpanded(!paiementManagementExpanded)}
+            onToggleAcademy={() => setAcademyExpanded(!academyExpanded)}
+            onSignOut={handleSignOut}
           />
-        </div>
-      </main>
 
-      {/* Floating AI Assistant (MCP-like Tooling) */}
-      <AIAssistant />
-    </div>
+          <OrganizerAwareMain sidebarOpen={sidebarOpen}>
+            <Header
+              currentUser={currentUser}
+              userRole={userRole}
+              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+            />
+
+            <div className="flex-1 p-8 overflow-auto">
+              <AppRoutes
+                isOrganizer={effectiveIsOrganizer}
+                userRole={userRole}
+                onNavigateToView={navigateToView}
+                onEditPage={handleEditPage}
+                onNewPage={handleNewPage}
+                onBackToManager={handleBackToManager}
+                onEditForm={handleEditForm}
+                onNewForm={handleNewForm}
+                onBackToFormList={handleBackToFormList}
+              />
+            </div>
+          </OrganizerAwareMain>
+
+          <AIAssistant />
+        </div>
+      </OrganizerEventScopeProvider>
+    </AdminDisplaySettingsProvider>
   );
 };
 

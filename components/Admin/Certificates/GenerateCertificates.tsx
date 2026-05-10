@@ -22,11 +22,14 @@ import {
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import QRCode from 'qrcode';
+import { useOrganizerScopedEventId } from '../../../contexts/OrganizerEventScopeContext';
 
 interface GenerateCertificatesProps {}
 
 const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const isEventScopeLocked = !!organizerScopedEventId;
   const [events, setEvents] = useState<SavedLandingPage[]>([]);
   const [templates, setTemplates] = useState<CertificateTemplate[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>('');
@@ -50,6 +53,12 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
       loadTemplates(currentUser.id);
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (organizerScopedEventId) {
+      setSelectedEventId(organizerScopedEventId);
+    }
+  }, [organizerScopedEventId]);
 
   useEffect(() => {
     if (selectedEventId) {
@@ -604,6 +613,8 @@ const GenerateCertificates: React.FC<GenerateCertificatesProps> = () => {
                 <Loader2 className="animate-spin" size={16} />
                 <span className="text-sm">Loading events...</span>
               </div>
+            ) : isEventScopeLocked ? (
+              <p className="text-sm text-slate-600">Event is set from your workspace header.</p>
             ) : (
               <select
                 value={selectedEventId}

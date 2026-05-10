@@ -2,6 +2,7 @@ import React from 'react';
 import { PricingOffer } from '../../../../types';
 import { Check, ArrowRight, Tag } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface PricingSectionProps {
   offers: PricingOffer[];
@@ -10,6 +11,7 @@ interface PricingSectionProps {
 }
 
 const PricingSection: React.FC<PricingSectionProps> = ({ offers, title = "Tickets & Pricing", titleAlignment = 'center' }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
   const containerAlignClass = titleAlignment === 'left' ? 'items-start' : titleAlignment === 'right' ? 'items-end' : 'items-center';
   const isTitleArabic = isArabic(title);
@@ -32,7 +34,7 @@ const PricingSection: React.FC<PricingSectionProps> = ({ offers, title = "Ticket
             )}
           </h2>
           <p className="text-slate-500 max-w-2xl mx-auto text-lg">
-            Choose the best plan for your conference experience. Special rates available for students and early registrants.
+            {t('edSecPricingIntro')}
           </p>
         </div>
 
@@ -48,7 +50,7 @@ const PricingSection: React.FC<PricingSectionProps> = ({ offers, title = "Ticket
             >
               {offer.isHighlighted && (
                 <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-indigo-600 text-white px-4 py-1 rounded-full text-xs font-bold uppercase tracking-wider">
-                  Recommended
+                  {t('edSecPricingRecommended')}
                 </div>
               )}
 
@@ -56,7 +58,7 @@ const PricingSection: React.FC<PricingSectionProps> = ({ offers, title = "Ticket
                 <h3 className="text-xl font-bold text-slate-900 mb-4">{offer.name}</h3>
                 <div className="flex items-baseline gap-1">
                   <span className="text-4xl font-extrabold text-slate-900">{offer.currency}{offer.price}</span>
-                  <span className="text-slate-500 font-medium">/ person</span>
+                  <span className="text-slate-500 font-medium">{t('edSecPricingPerPerson')}</span>
                 </div>
               </div>
 
@@ -83,7 +85,7 @@ const PricingSection: React.FC<PricingSectionProps> = ({ offers, title = "Ticket
                         : 'bg-white text-indigo-600 border border-indigo-200 hover:bg-indigo-50'
                   }`}
                 >
-                  {offer.isSoldOut ? 'Sold Out' : offer.buttonText}
+                  {offer.isSoldOut ? t('edSecPricingSoldOut') : offer.buttonText}
                   {!offer.isSoldOut && <ArrowRight size={18} />}
                 </a>
               </div>

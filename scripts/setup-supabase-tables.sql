@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS landing_pages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
-  config TEXT NOT NULL, -- JSON string
+  config TEXT NOT NULL, -- ConferenceConfig JSON; CTA fields documented in add-landing-pages-config-cta-documentation.sql
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

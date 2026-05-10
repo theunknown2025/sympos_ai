@@ -29,7 +29,8 @@ VALUES (
     'application/zip',
     'application/x-zip-compressed',
     'application/x-rar-compressed',
-    'application/x-7z-compressed'
+    'application/x-7z-compressed',
+    'application/octet-stream'
   ]::text[]
 )
 ON CONFLICT (id) DO NOTHING;

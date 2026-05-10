@@ -6,6 +6,7 @@ export const routes: Record<ViewState, string> = {
   [ViewState.LOGIN]: '/login',
   [ViewState.REGISTER]: '/register',
   [ViewState.DASHBOARD]: '/dashboard',
+  [ViewState.ORGANIZER_WORKSPACE]: '/organizer/workspace',
   [ViewState.BUILDER]: '/builder',
   [ViewState.LANDING_PAGES]: '/landing-pages',
   [ViewState.REGISTRATIONS]: '/registrations',

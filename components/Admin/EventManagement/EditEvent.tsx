@@ -1,16 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, X, Plus, Trash2, Loader2, Calendar, MapPin, Search, ExternalLink, Info, FileText, Hash, Users, Building, Globe, Award, ClipboardList, Send, UserCheck, Tag, AlignLeft, Eye, Image, Palette, Layers, Clock, Maximize2, Edit } from 'lucide-react';
+import { Save, X, Plus, Trash2, Loader2, Calendar, MapPin, Search, ExternalLink, Info, FileText, Hash, Users, Building, Globe, Award, ClipboardList, Send, UserCheck, Tag, AlignLeft, Eye, Image, Palette, Layers, Clock, Maximize2, Edit, CreditCard, IdCard } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
+import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 import { getUserLandingPages } from '../../../services/landingPageService';
 import { getUserRegistrationForms } from '../../../services/registrationFormService';
 import { getUserEvaluationForms } from '../../../services/evaluationFormService';
 import { getUserCertificateTemplates } from '../../../services/certificateTemplateService';
+import { getUserBadgeTemplates } from '../../../services/badgeTemplateService';
 import { getCommittees } from '../../../services/committeeService';
+import { getPayments, getPaymentMethods, Payment, PaymentMethod } from '../../../services/paymentService';
 import { getEvent, updateEvent } from '../../../services/eventService';
 import { SavedLandingPage } from '../../../services/landingPageService';
-import { RegistrationForm, EvaluationForm, Committee, EventPartner, EventDate, EventLink, CertificateTemplate, EventBanner } from '../../../types';
+import { RegistrationForm, EvaluationForm, Committee, EventPartner, EventDate, EventLink, CertificateTemplate, EventBanner, SubmissionWorkflowPreset, RegistrationWorkflowPreset } from '../../../types';
 import { supabase, TABLES } from '../../../supabase';
 import TextEditorModal from './TextEditorModal';
+import TemplatePreviewModal from '../Certificates/TemplatePreviewModal';
 
 interface EditEventProps {
   eventId: string;
@@ -20,6 +25,9 @@ interface EditEventProps {
 
 const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
   const { currentUser } = useAuth();
+  const { t } = useAdminTranslation('eventForm');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [keywords, setKeywords] = useState<string[]>([]);
@@ -38,25 +46,41 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
   const [links, setLinks] = useState<EventLink[]>([]);
   const [selectedLandingPageIds, setSelectedLandingPageIds] = useState<string[]>([]);
   const [selectedCertificateIds, setSelectedCertificateIds] = useState<string[]>([]);
+  const [selectedBadgeTemplateIds, setSelectedBadgeTemplateIds] = useState<string[]>([]);
+  const [evaluationEnabled, setEvaluationEnabled] = useState(false);
   const [selectedRegistrationFormIds, setSelectedRegistrationFormIds] = useState<string[]>([]);
   const [selectedSubmissionFormIds, setSelectedSubmissionFormIds] = useState<string[]>([]);
   const [selectedEvaluationFormIds, setSelectedEvaluationFormIds] = useState<string[]>([]);
   const [selectedCommitteeIds, setSelectedCommitteeIds] = useState<string[]>([]);
+  const [submissionWorkflowPreset, setSubmissionWorkflowPreset] = useState<SubmissionWorkflowPreset>('A');
+  const [selectedAbstractSubmissionFormIds, setSelectedAbstractSubmissionFormIds] = useState<string[]>([]);
+  const [abstractSubmissionDeadline, setAbstractSubmissionDeadline] = useState('');
+  const [paymentDeadline, setPaymentDeadline] = useState('');
+  const [registrationWorkflowPreset, setRegistrationWorkflowPreset] = useState<RegistrationWorkflowPreset>('A');
+  const [registrationPaymentOfferId, setRegistrationPaymentOfferId] = useState('');
+  const [submissionPaymentOfferId, setSubmissionPaymentOfferId] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   
   const [landingPages, setLandingPages] = useState<SavedLandingPage[]>([]);
   const [certificates, setCertificates] = useState<CertificateTemplate[]>([]);
+  const [badgeTemplates, setBadgeTemplates] = useState<CertificateTemplate[]>([]);
   const [registrationForms, setRegistrationForms] = useState<RegistrationForm[]>([]);
   const [evaluationForms, setEvaluationForms] = useState<EvaluationForm[]>([]);
   const [committees, setCommittees] = useState<Committee[]>([]);
+  const [paymentOffers, setPaymentOffers] = useState<Payment[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [showPartnersModal, setShowPartnersModal] = useState(false);
   const [partnerSearchQuery, setPartnerSearchQuery] = useState('');
   const [partnerSearchResults, setPartnerSearchResults] = useState<{ name: string; entityId?: string }[]>([]);
   const [newPartnerName, setNewPartnerName] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [showTextEditor, setShowTextEditor] = useState(false);
+  const [templatePreview, setTemplatePreview] = useState<{
+    kind: 'badge' | 'certificate';
+    id: string;
+  } | null>(null);
   
   // Banner configuration
   const [banner, setBanner] = useState<EventBanner>({
@@ -82,13 +106,13 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
       setError('');
       
       if (!currentUser?.id) {
-        throw new Error('User not authenticated');
+        throw new Error(t('errUserNotAuth'));
       }
 
       // Load event data
       const eventData = await getEvent(eventId);
       if (!eventData) {
-        throw new Error('Event not found');
+        throw new Error(t('errEventNotFound'));
       }
 
       // Pre-populate form fields
@@ -108,10 +132,23 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
       setLinks(eventData.links || []);
       setSelectedLandingPageIds(eventData.landingPageIds || []);
       setSelectedCertificateIds(eventData.certificateTemplateIds || []);
+      setSelectedBadgeTemplateIds(eventData.badgeTemplateIds || []);
       setSelectedRegistrationFormIds(eventData.registrationFormIds || []);
       setSelectedSubmissionFormIds(eventData.submissionFormIds || []);
       setSelectedEvaluationFormIds(eventData.evaluationFormIds || []);
       setSelectedCommitteeIds(eventData.committeeIds || []);
+      const legacyEval =
+        (eventData.evaluationFormIds?.length ?? 0) > 0 || (eventData.committeeIds?.length ?? 0) > 0;
+      setEvaluationEnabled(Boolean(eventData.evaluationEnabled) || legacyEval);
+      setSubmissionWorkflowPreset(eventData.submissionWorkflowPreset || 'A');
+      setSelectedAbstractSubmissionFormIds(eventData.abstractSubmissionFormIds || []);
+      setAbstractSubmissionDeadline(
+        eventData.abstractSubmissionDeadline ? eventData.abstractSubmissionDeadline.split('T')[0] : ''
+      );
+      setPaymentDeadline(eventData.paymentDeadline ? eventData.paymentDeadline.split('T')[0] : '');
+      setRegistrationWorkflowPreset(eventData.registrationWorkflowPreset || 'A');
+      setRegistrationPaymentOfferId(eventData.registrationPaymentOfferId || '');
+      setSubmissionPaymentOfferId(eventData.submissionPaymentOfferId || '');
       setBanner(eventData.banner || {
         type: 'gradient',
         gradientColors: {
@@ -122,22 +159,28 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
       });
 
       // Load related resources
-      const [pages, certs, forms, evalForms, comms] = await Promise.all([
+      const [pages, certs, badges, forms, evalForms, comms, pays, methods] = await Promise.all([
         getUserLandingPages(currentUser.id),
         getUserCertificateTemplates(currentUser.id),
+        getUserBadgeTemplates(currentUser.id),
         getUserRegistrationForms(currentUser.id),
         getUserEvaluationForms(currentUser.id),
         getCommittees(currentUser.id),
+        getPayments(currentUser.id),
+        getPaymentMethods(currentUser.id),
       ]);
       
       setLandingPages(pages);
       setCertificates(certs);
+      setBadgeTemplates(badges);
       setRegistrationForms(forms);
       setEvaluationForms(evalForms);
       setCommittees(comms);
+      setPaymentOffers(pays);
+      setPaymentMethods(methods);
     } catch (err: any) {
       console.error('Error loading event data:', err);
-      setError(err.message || 'Failed to load event data');
+      setError(err.message || t('errLoadEventData'));
     } finally {
       setLoading(false);
     }
@@ -363,6 +406,16 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
     setSelectedCertificateIds(selectedCertificateIds.filter(id => id !== certificateId));
   };
 
+  const handleAddBadgeTemplate = (templateId: string) => {
+    if (!selectedBadgeTemplateIds.includes(templateId)) {
+      setSelectedBadgeTemplateIds([...selectedBadgeTemplateIds, templateId]);
+    }
+  };
+
+  const handleRemoveBadgeTemplate = (templateId: string) => {
+    setSelectedBadgeTemplateIds(selectedBadgeTemplateIds.filter((id) => id !== templateId));
+  };
+
   const handleAddRegistrationForm = (formId: string) => {
     if (!selectedRegistrationFormIds.includes(formId)) {
       setSelectedRegistrationFormIds([...selectedRegistrationFormIds, formId]);
@@ -403,6 +456,55 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
     setSelectedCommitteeIds(selectedCommitteeIds.filter(id => id !== committeeId));
   };
 
+  const handleAddAbstractSubmissionForm = (formId: string) => {
+    if (!selectedAbstractSubmissionFormIds.includes(formId)) {
+      setSelectedAbstractSubmissionFormIds([...selectedAbstractSubmissionFormIds, formId]);
+    }
+  };
+
+  const handleRemoveAbstractSubmissionForm = (formId: string) => {
+    setSelectedAbstractSubmissionFormIds(selectedAbstractSubmissionFormIds.filter(id => id !== formId));
+  };
+
+  const workflowNeedsAbstract = submissionWorkflowPreset === 'C' || submissionWorkflowPreset === 'D';
+  const workflowNeedsPayment = submissionWorkflowPreset === 'B' || submissionWorkflowPreset === 'D';
+  const registrationNeedsPayment = registrationWorkflowPreset === 'B';
+
+  const renderPaymentOfferDetails = (offerId: string) => {
+    const offer = paymentOffers.find((p) => p.id === offerId);
+    if (!offer) return null;
+    const methodNames = offer.selectedMethods
+      .map((mid) => paymentMethods.find((m) => m.id === mid)?.name)
+      .filter(Boolean) as string[];
+    const sortedComponents = [...offer.components].sort((a, b) => a.displayOrder - b.displayOrder);
+    return (
+      <div className="mt-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-4 text-sm space-y-2">
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{t('labelPaymentOfferDetails')}</p>
+        <p className="font-semibold text-slate-900">{offer.name}</p>
+        {offer.description ? <p className="text-slate-600">{offer.description}</p> : null}
+        {sortedComponents.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">{t('labelPaymentOfferComponents')}</p>
+            <ul className="space-y-1 list-disc list-inside text-slate-700">
+              {sortedComponents.map((c) => (
+                <li key={c.id}>
+                  {c.label}
+                  {c.value != null && c.value !== '' ? `: ${c.value}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {methodNames.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-slate-500 mb-1">{t('labelPaymentMethodsAccepted')}</p>
+            <p className="text-slate-700">{methodNames.join(', ')}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Helper function to remove prefix from form title
   const removePrefix = (title: string, prefix: string): string => {
     if (title.startsWith(prefix)) {
@@ -424,14 +526,38 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
     form.title.startsWith('Eval')
   );
 
+  const validateDeadlines = (): boolean => {
+    if (!registrationDeadline?.trim()) {
+      setError(t('errRegistrationDeadlineRequired'));
+      return false;
+    }
+    if (!submissionDeadline?.trim()) {
+      setError(t('errArticleDeadlineRequired'));
+      return false;
+    }
+    if (workflowNeedsAbstract && !abstractSubmissionDeadline?.trim()) {
+      setError(t('errAbstractDeadlineRequired'));
+      return false;
+    }
+    if (workflowNeedsPayment && !paymentDeadline?.trim()) {
+      setError(t('errPaymentDeadlineRequired'));
+      return false;
+    }
+    return true;
+  };
+
   const validateEvent = (): boolean => {
     if (!name.trim()) {
-      setError('Event name is required');
+      setError(t('errNameRequired'));
       return false;
     }
     
     if (!currentUser?.id) {
-      setError('User not authenticated');
+      setError(t('errUserNotAuth'));
+      return false;
+    }
+
+    if (!validateDeadlines()) {
       return false;
     }
     
@@ -464,19 +590,28 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
         landingPageIds: selectedLandingPageIds,
         registrationFormIds: selectedRegistrationFormIds,
         submissionFormIds: selectedSubmissionFormIds,
-        evaluationFormIds: selectedEvaluationFormIds,
+        evaluationFormIds: evaluationEnabled ? selectedEvaluationFormIds : [],
         certificateTemplateIds: selectedCertificateIds,
-        committeeIds: selectedCommitteeIds,
+        badgeTemplateIds: selectedBadgeTemplateIds,
+        committeeIds: evaluationEnabled ? selectedCommitteeIds : [],
+        evaluationEnabled,
         banner: banner,
-        registrationDeadline: registrationDeadline || undefined,
-        submissionDeadline: submissionDeadline || undefined,
+        registrationDeadline: registrationDeadline.trim(),
+        submissionDeadline: submissionDeadline.trim(),
+        submissionWorkflowPreset,
+        abstractSubmissionFormIds: workflowNeedsAbstract ? selectedAbstractSubmissionFormIds : [],
+        abstractSubmissionDeadline: workflowNeedsAbstract ? abstractSubmissionDeadline.trim() : '',
+        paymentDeadline: workflowNeedsPayment ? paymentDeadline.trim() : '',
+        registrationWorkflowPreset,
+        registrationPaymentOfferId: registrationNeedsPayment ? registrationPaymentOfferId : '',
+        submissionPaymentOfferId: workflowNeedsPayment ? submissionPaymentOfferId : '',
       };
 
       await updateEvent(eventId, eventData);
       onSave();
     } catch (err: any) {
       console.error('Error updating event:', err);
-      setError(err.message || 'Failed to update event');
+      setError(err.message || t('errUpdateEvent'));
     } finally {
       setIsSaving(false);
     }
@@ -529,7 +664,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
   const formatDate = (dateString: string): string => {
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { 
+      return date.toLocaleDateString(localeTag, { 
         year: 'numeric', 
         month: 'long', 
         day: 'numeric' 
@@ -540,9 +675,13 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
   };
 
   const handleOpenFullScreen = () => {
-    // Create a new window with the preview content
     const previewWindow = window.open('', '_blank', 'width=1920,height=1080');
     if (!previewWindow) return;
+
+    const escAttr = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const previewDocTitleSafe = escAttr(t('previewDocTitle', { name: name || t('untitledEvent') }));
+    const htmlLang = language === 'fr' ? 'fr' : 'en';
 
     // Get banner style as CSS string
     const bannerStyle = getBannerStyle();
@@ -561,11 +700,11 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
     // Generate the preview HTML
     const previewHTML = `
       <!DOCTYPE html>
-      <html lang="en">
+      <html lang="${htmlLang}">
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Event Preview - ${name || 'Untitled Event'}</title>
+        <title>${previewDocTitleSafe}</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <style>
           body { margin: 0; padding: 0; }
@@ -577,7 +716,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
           <div class="relative text-white" style="${bannerStyleString}">
             <div class="absolute inset-0 bg-black opacity-20"></div>
             <div class="relative max-w-7xl mx-auto px-6 py-20">
-              <h1 class="text-5xl font-bold mb-4 drop-shadow-lg">${(name || 'Event Name').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</h1>
+              <h1 class="text-5xl font-bold mb-4 drop-shadow-lg">${(name || t('defaultEventName')).replace(/</g, '&lt;').replace(/>/g, '&gt;')}</h1>
             </div>
           </div>
 
@@ -597,7 +736,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${fields.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Fields</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secFields')}</h2>
                     </div>
                     <div class="flex flex-wrap gap-2">
                       ${fields.map(field => `<span class="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-sm font-medium">${field.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`).join('')}
@@ -608,7 +747,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${keywords.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Keywords</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secKeywords')}</h2>
                     </div>
                     <div class="flex flex-wrap gap-2">
                       ${keywords.map(keyword => `<span class="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-full text-sm font-medium">${keyword.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</span>`).join('')}
@@ -622,7 +761,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       ${dates.filter(d => d.startDate && d.endDate).length > 0 ? `
                         <div>
                           <div class="flex items-center gap-2 mb-3">
-                            <h2 class="text-xl font-semibold text-slate-800">Event Dates</h2>
+                            <h2 class="text-xl font-semibold text-slate-800">${t('secEventDates')}</h2>
                           </div>
                           <div class="space-y-3">
                             ${dates.filter(d => d.startDate && d.endDate).map((dateRange, index) => `
@@ -641,7 +780,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       ${location ? `
                         <div>
                           <div class="flex items-center gap-2 mb-3">
-                            <h2 class="text-xl font-semibold text-slate-800">Location</h2>
+                            <h2 class="text-xl font-semibold text-slate-800">${t('secLocation')}</h2>
                           </div>
                           <p class="text-slate-700">${location.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
                         </div>
@@ -653,7 +792,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${partners.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Partners</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secPartners')}</h2>
                     </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                       ${partners.map((partner, index) => `
@@ -668,7 +807,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${links.filter(l => l.name && l.url).length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Links</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secLinks')}</h2>
                     </div>
                     <div class="space-y-2">
                       ${links.filter(l => l.name && l.url).map((link, index) => `
@@ -680,10 +819,10 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                   </section>
                 ` : ''}
 
-                ${selectedCommitteeIds.length > 0 ? `
+                ${evaluationEnabled && selectedCommitteeIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-4">
-                      <h2 class="text-xl font-semibold text-slate-800">Committees</h2>
+                      <h2 class="text-xl font-semibold text-slate-800">${t('secCommittees')}</h2>
                     </div>
                     <div class="space-y-4">
                       ${committees.filter(c => selectedCommitteeIds.includes(c.id)).map((committee) => `
@@ -711,10 +850,10 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedLandingPageIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Landing Pages</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secLandingPages')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedLandingPageIds.length} landing page${selectedLandingPageIds.length !== 1 ? 's' : ''} configured
+                      ${t('countLandingPagesConfigured', { n: selectedLandingPageIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -722,10 +861,10 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedRegistrationFormIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Registration Forms</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secRegistrationForms')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedRegistrationFormIds.length} form${selectedRegistrationFormIds.length !== 1 ? 's' : ''} configured
+                      ${t('countFormsConfigured', { n: selectedRegistrationFormIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -733,21 +872,32 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedSubmissionFormIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Submission Forms</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secSubmissionForms')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedSubmissionFormIds.length} form${selectedSubmissionFormIds.length !== 1 ? 's' : ''} configured
+                      ${t('countFormsConfigured', { n: selectedSubmissionFormIds.length })}
                     </p>
                   </section>
                 ` : ''}
 
-                ${selectedEvaluationFormIds.length > 0 ? `
+                ${evaluationEnabled && selectedEvaluationFormIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Evaluation Forms</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secEvaluationForms')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedEvaluationFormIds.length} form${selectedEvaluationFormIds.length !== 1 ? 's' : ''} configured
+                      ${t('countFormsConfigured', { n: selectedEvaluationFormIds.length })}
+                    </p>
+                  </section>
+                ` : ''}
+
+                ${selectedBadgeTemplateIds.length > 0 ? `
+                  <section class="bg-white rounded-lg shadow-sm p-6">
+                    <div class="flex items-center gap-2 mb-3">
+                      <h2 class="text-lg font-semibold text-slate-800">${t('labelBadges')}</h2>
+                    </div>
+                    <p class="text-sm text-slate-600">
+                      ${t('countTemplatesConfigured', { n: selectedBadgeTemplateIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -755,10 +905,10 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 ${selectedCertificateIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">Certificates</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secCertificates')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${selectedCertificateIds.length} template${selectedCertificateIds.length !== 1 ? 's' : ''} configured
+                      ${t('countTemplatesConfigured', { n: selectedCertificateIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -799,7 +949,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
           <div className="bg-white rounded-lg border border-slate-200 p-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
               <Info className="text-indigo-600" size={20} />
-              General Information
+              {t('sectionGeneralInfo')}
             </h2>
             
             <div className="space-y-6">
@@ -807,7 +957,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Tag className="text-slate-500" size={16} />
-                Event Name <span className="text-red-500">*</span>
+                {t('labelEventName')} <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -815,7 +965,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Enter event name"
+                placeholder={t('phEventName')}
                 required
               />
             </div>
@@ -825,7 +975,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
               <div className="flex items-center justify-between mb-2">
                 <label htmlFor="description" className="block text-sm font-medium text-slate-700 flex items-center gap-2">
                   <AlignLeft className="text-slate-500" size={16} />
-                  Description
+                  {t('labelDescription')}
                 </label>
                 <button
                   type="button"
@@ -833,7 +983,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                   className="flex items-center gap-2 px-3 py-1.5 text-sm text-indigo-600 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
                 >
                   <Edit size={14} />
-                  Use Text Editor
+                  {t('btnUseTextEditor')}
                 </button>
               </div>
               <textarea
@@ -842,7 +992,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Enter event description"
+                placeholder={t('phDescription')}
               />
             </div>
 
@@ -850,7 +1000,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Hash className="text-slate-500" size={16} />
-                Keywords
+                {t('labelKeywords')}
               </label>
               {keywords.length > 0 && (
                 <div className="mb-3 flex flex-wrap gap-2">
@@ -882,7 +1032,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                   }
                 }}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Add keywords (type comma to add)"
+                placeholder={t('phKeywords')}
               />
             </div>
 
@@ -892,7 +1042,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <Tag className="text-slate-500" size={16} />
-                  Fields
+                  {t('labelFields')}
                 </label>
                 {fields.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
@@ -924,7 +1074,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                     }
                   }}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Add fields (type comma to add)"
+                  placeholder={t('phFields')}
                 />
               </div>
 
@@ -932,7 +1082,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <Tag className="text-slate-500" size={16} />
-                  Subfields
+                  {t('labelSubfields')}
                 </label>
                 {subfields.length > 0 && (
                   <div className="mb-3 flex flex-wrap gap-2">
@@ -964,7 +1114,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                     }
                   }}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Add subfields (type comma to add)"
+                  placeholder={t('phSubfields')}
                 />
               </div>
             </div>
@@ -973,20 +1123,20 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Tag className="text-slate-500" size={16} />
-                Event Type
+                {t('labelEventType')}
               </label>
               <select
                 value={eventType}
                 onChange={(e) => setEventType(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">Select event type</option>
-                <option value="Conference">Conference</option>
-                <option value="Seminar">Seminar</option>
-                <option value="Workshop">Workshop</option>
-                <option value="Webinar">Webinar</option>
-                <option value="Continuing professional development event">Continuing professional development event</option>
-                <option value="Online conference">Online conference</option>
+                <option value="">{t('optSelectEventType')}</option>
+                <option value="Conference">{t('evtTypeConference')}</option>
+                <option value="Seminar">{t('evtTypeSeminar')}</option>
+                <option value="Workshop">{t('evtTypeWorkshop')}</option>
+                <option value="Webinar">{t('evtTypeWebinar')}</option>
+                <option value="Continuing professional development event">{t('evtTypeCpd')}</option>
+                <option value="Online conference">{t('evtTypeOnlineConference')}</option>
               </select>
             </div>
 
@@ -994,17 +1144,17 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Globe className="text-slate-500" size={16} />
-                Event Format
+                {t('labelEventFormat')}
               </label>
               <select
                 value={eventFormat}
                 onChange={(e) => setEventFormat(e.target.value)}
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">Select event format</option>
-                <option value="Virtual">Virtual</option>
-                <option value="In-Person">In-Person</option>
-                <option value="Hybrid">Hybrid</option>
+                <option value="">{t('optSelectFormat')}</option>
+                <option value="Virtual">{t('fmtVirtual')}</option>
+                <option value="In-Person">{t('fmtInPerson')}</option>
+                <option value="Hybrid">{t('fmtHybrid')}</option>
               </select>
             </div>
 
@@ -1012,7 +1162,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Building className="text-slate-500" size={16} />
-                Partners
+                {t('labelPartners')}
               </label>
               {partners.length > 0 && (
                 <div className="mb-3 space-y-2">
@@ -1039,7 +1189,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors text-slate-700 flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
-                Add Partner
+                {t('btnAddPartner')}
               </button>
             </div>
 
@@ -1047,7 +1197,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <Calendar className="text-slate-500" size={16} />
-                Dates
+                {t('labelDates')}
               </label>
               {dates.length > 0 && (
                 <div className="mb-3 space-y-3">
@@ -1058,7 +1208,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <div className="flex-1">
-                          <label className="block text-xs text-slate-500 mb-1">Start Date</label>
+                          <label className="block text-xs text-slate-500 mb-1">{t('labelStartDate')}</label>
                           <input
                             type="date"
                             value={date.startDate}
@@ -1067,7 +1217,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                           />
                         </div>
                         <div className="flex-1">
-                          <label className="block text-xs text-slate-500 mb-1">End Date</label>
+                          <label className="block text-xs text-slate-500 mb-1">{t('labelEndDate')}</label>
                           <input
                             type="date"
                             value={date.endDate}
@@ -1093,7 +1243,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors text-slate-700 flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
-                Add Date Range
+                {t('btnAddDateRange')}
               </button>
             </div>
 
@@ -1101,7 +1251,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label htmlFor="location" className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <MapPin className="text-slate-500" size={16} />
-                Location
+                {t('labelLocation')}
               </label>
               <div className="relative">
                 <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
@@ -1111,7 +1261,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  placeholder="Enter event location"
+                  placeholder={t('phLocation')}
                 />
               </div>
             </div>
@@ -1120,7 +1270,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                 <ExternalLink className="text-slate-500" size={16} />
-                Links
+                {t('labelLinks')}
               </label>
               {links.length > 0 && (
                 <div className="mb-3 space-y-3">
@@ -1131,23 +1281,23 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                     >
                       <div className="flex items-center gap-3 mb-2">
                         <div className="flex-1">
-                          <label className="block text-xs text-slate-500 mb-1">Link Name</label>
+                          <label className="block text-xs text-slate-500 mb-1">{t('labelLinkName')}</label>
                           <input
                             type="text"
                             value={link.name}
                             onChange={(e) => handleUpdateLink(link.id, 'name', e.target.value)}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                            placeholder="e.g., Website"
+                            placeholder={t('phLinkName')}
                           />
                         </div>
                         <div className="flex-1">
-                          <label className="block text-xs text-slate-500 mb-1">URL</label>
+                          <label className="block text-xs text-slate-500 mb-1">{t('labelUrl')}</label>
                           <input
                             type="url"
                             value={link.url}
                             onChange={(e) => handleUpdateLink(link.id, 'url', e.target.value)}
                             className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                            placeholder="https://example.com"
+                            placeholder={t('phUrl')}
                           />
                         </div>
                         <button
@@ -1168,7 +1318,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 className="w-full px-4 py-2 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors text-slate-700 flex items-center justify-center gap-2"
               >
                 <Plus size={16} />
-                Add Link
+                {t('btnAddLink')}
               </button>
             </div>
           </div>
@@ -1178,7 +1328,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
           <div className="bg-white rounded-lg border border-slate-200 p-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
               <Building className="text-indigo-600" size={20} />
-              Organization
+              {t('sectionOrganization')}
             </h2>
             
             <div className="space-y-6">
@@ -1186,7 +1336,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <Layers className="text-slate-500" size={16} />
-                  Banner Manager
+                  {t('labelBannerManager')}
                 </label>
                 
                 {/* Banner Type Selection */}
@@ -1202,7 +1352,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       }`}
                     >
                       <Image size={14} className="inline mr-1" />
-                      Image
+                      {t('bannerTypeImage')}
                     </button>
                     <button
                       type="button"
@@ -1214,7 +1364,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       }`}
                     >
                       <Palette size={14} className="inline mr-1" />
-                      Color
+                      {t('bannerTypeColor')}
                     </button>
                     <button
                       type="button"
@@ -1234,7 +1384,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       }`}
                     >
                       <Layers size={14} className="inline mr-1" />
-                      Gradient
+                      {t('bannerTypeGradient')}
                     </button>
                   </div>
                 </div>
@@ -1264,7 +1414,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         type="text"
                         value={banner.imageUrl || ''}
                         onChange={(e) => setBanner({ ...banner, imageUrl: e.target.value })}
-                        placeholder="Image URL or upload file"
+                        placeholder={t('bannerImageUrlPh')}
                         className="flex-1 px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                       />
                       <button
@@ -1272,7 +1422,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         onClick={() => bannerImageInputRef.current?.click()}
                         className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors text-sm"
                       >
-                        Upload
+                        {t('bannerUpload')}
                       </button>
                     </div>
                     {banner.imageUrl && (
@@ -1297,7 +1447,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         </div>
                         <div>
                           <label className="block text-xs text-slate-600 mb-2">
-                            Vertical Position: {banner.imagePositionY !== undefined ? banner.imagePositionY : 50}%
+                            {t('bannerVerticalPosition', { pct: banner.imagePositionY !== undefined ? banner.imagePositionY : 50 })}
                           </label>
                           <input
                             type="range"
@@ -1308,9 +1458,9 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600"
                           />
                           <div className="flex justify-between text-xs text-slate-500 mt-1">
-                            <span>Top</span>
-                            <span>Center</span>
-                            <span>Bottom</span>
+                            <span>{t('posTop')}</span>
+                            <span>{t('posCenter')}</span>
+                            <span>{t('posBottom')}</span>
                           </div>
                         </div>
                       </div>
@@ -1348,7 +1498,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs text-slate-600 mb-1">From Color</label>
+                        <label className="block text-xs text-slate-600 mb-1">{t('labelFromColor')}</label>
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
@@ -1377,7 +1527,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         </div>
                       </div>
                       <div>
-                        <label className="block text-xs text-slate-600 mb-1">To Color</label>
+                        <label className="block text-xs text-slate-600 mb-1">{t('labelToColor')}</label>
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
@@ -1407,7 +1557,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-600 mb-1">Direction</label>
+                      <label className="block text-xs text-slate-600 mb-1">{t('labelDirection')}</label>
                       <select
                         value={banner.gradientColors?.direction || 'to-r'}
                         onChange={(e) => setBanner({
@@ -1419,14 +1569,14 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         })}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
                       >
-                        <option value="to-r">Left to Right</option>
-                        <option value="to-l">Right to Left</option>
-                        <option value="to-b">Top to Bottom</option>
-                        <option value="to-t">Bottom to Top</option>
-                        <option value="to-br">Top Left to Bottom Right</option>
-                        <option value="to-bl">Top Right to Bottom Left</option>
-                        <option value="to-tr">Bottom Left to Top Right</option>
-                        <option value="to-tl">Bottom Right to Top Left</option>
+                        <option value="to-r">{t('gradToR')}</option>
+                        <option value="to-l">{t('gradToL')}</option>
+                        <option value="to-b">{t('gradToB')}</option>
+                        <option value="to-t">{t('gradToT')}</option>
+                        <option value="to-br">{t('gradToBr')}</option>
+                        <option value="to-bl">{t('gradToBl')}</option>
+                        <option value="to-tr">{t('gradToTr')}</option>
+                        <option value="to-tl">{t('gradToTl')}</option>
                       </select>
                     </div>
                     <div 
@@ -1448,129 +1598,251 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 )}
               </div>
 
-              {/* Landing Page Selection */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <Globe className="text-slate-500" size={16} />
-                  Landing Pages
-                </label>
-                  
-                  {selectedLandingPageIds.length > 0 && (
-                    <div className="mb-3 space-y-2">
-                      {selectedLandingPageIds.map(pageId => {
-                        const page = landingPages.find(p => p.id === pageId);
-                        return page ? (
-                          <div
-                            key={pageId}
-                            className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                          >
-                            <span className="text-sm font-medium text-slate-700">{page.title}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveLandingPage(pageId)}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        ) : null;
-                      })}
+              <div className="pt-4 border-t border-slate-100">
+                <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                  <Layers className="text-indigo-600" size={18} />
+                  {t('sectionStep3Tools')}
+                </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                        <Globe className="text-slate-500" size={16} />
+                        {t('labelLandingPages')}
+                      </label>
+
+                      {selectedLandingPageIds.length > 0 && (
+                        <div className="mb-3 space-y-2">
+                          {selectedLandingPageIds.map((pageId) => {
+                            const page = landingPages.find((p) => p.id === pageId);
+                            return page ? (
+                              <div
+                                key={pageId}
+                                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                              >
+                                <span className="text-sm font-medium text-slate-700">{page.title}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveLandingPage(pageId)}
+                                  className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+
+                      <div className="relative">
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleAddLandingPage(e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        >
+                          <option value="">{t('optAddLandingPage')}</option>
+                          {landingPages
+                            .filter((page) => !selectedLandingPageIds.includes(page.id))
+                            .map((page) => (
+                              <option key={page.id} value={page.id}>
+                                {page.title}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      {landingPages.length === 0 && (
+                        <p className="mt-2 text-sm text-slate-500">{t('emptyNoLandingPages')}</p>
+                      )}
                     </div>
-                  )}
-
-                  <div className="relative">
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleAddLandingPage(e.target.value);
-                          e.target.value = '';
-                        }
-                      }}
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    >
-                      <option value="">Add a landing page</option>
-                      {landingPages
-                        .filter(page => !selectedLandingPageIds.includes(page.id))
-                        .map(page => (
-                          <option key={page.id} value={page.id}>
-                            {page.title}
-                          </option>
-                        ))}
-                    </select>
                   </div>
-                  
-                  {landingPages.length === 0 && (
-                    <p className="mt-2 text-sm text-slate-500">
-                      No landing pages available. Create one in the Landing Pages section.
-                    </p>
-                  )}
-                </div>
 
-              {/* Certificate Selection */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <Award className="text-slate-500" size={16} />
-                  Certificates
-                </label>
-                  
-                  {selectedCertificateIds.length > 0 && (
-                    <div className="mb-3 space-y-2">
-                      {selectedCertificateIds.map(certId => {
-                        const cert = certificates.find(c => c.id === certId);
-                        return cert ? (
-                          <div
-                            key={certId}
-                            className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                          >
-                            <span className="text-sm font-medium text-slate-700">{cert.title}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveCertificate(certId)}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        ) : null;
-                      })}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                        <IdCard className="text-indigo-600" size={16} />
+                        {t('labelBadges')}
+                      </label>
+                      {selectedBadgeTemplateIds.length > 0 && (
+                        <div className="mb-3 space-y-2">
+                          {selectedBadgeTemplateIds.map((tid) => {
+                            const tpl = badgeTemplates.find((c) => c.id === tid);
+                            return tpl ? (
+                              <div
+                                key={tid}
+                                className="flex items-center justify-between gap-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100"
+                              >
+                                <span className="text-sm font-medium text-slate-700 flex-1 min-w-0 truncate">
+                                  {tpl.title}
+                                </span>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setTemplatePreview({ kind: 'badge', id: tid })}
+                                    className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded transition-colors"
+                                    title={t('btnPreviewTemplate')}
+                                    aria-label={t('btnPreviewTemplate')}
+                                  >
+                                    <Eye size={16} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveBadgeTemplate(tid)}
+                                    className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+                      <div className="relative">
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleAddBadgeTemplate(e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        >
+                          <option value="">{t('optAddBadgeTemplate')}</option>
+                          {badgeTemplates
+                            .filter((c) => !selectedBadgeTemplateIds.includes(c.id))
+                            .map((c) => (
+                              <option key={c.id} value={c.id}>
+                                {c.title}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      {badgeTemplates.length === 0 && (
+                        <p className="mt-2 text-sm text-slate-500">{t('emptyNoBadgeTemplates')}</p>
+                      )}
                     </div>
-                  )}
-
-                  <div className="relative">
-                    <select
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          handleAddCertificate(e.target.value);
-                          e.target.value = '';
-                        }
-                      }}
-                      className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    >
-                      <option value="">Add a certificate template</option>
-                      {certificates
-                        .filter(cert => !selectedCertificateIds.includes(cert.id))
-                        .map(cert => (
-                          <option key={cert.id} value={cert.id}>
-                            {cert.title}
-                          </option>
-                        ))}
-                    </select>
                   </div>
-                  
-                  {certificates.length === 0 && (
-                    <p className="mt-2 text-sm text-slate-500">
-                      No certificate templates available. Create one in the Certificates section.
-                    </p>
-                  )}
-                </div>
 
-              {/* Registration Form Selection */}
-              <div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                        <Award className="text-slate-500" size={16} />
+                        {t('labelCertificates')}
+                      </label>
+
+                      {selectedCertificateIds.length > 0 && (
+                        <div className="mb-3 space-y-2">
+                          {selectedCertificateIds.map((certId) => {
+                            const cert = certificates.find((c) => c.id === certId);
+                            return cert ? (
+                              <div
+                                key={certId}
+                                className="flex items-center justify-between gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200"
+                              >
+                                <span className="text-sm font-medium text-slate-700 flex-1 min-w-0 truncate">
+                                  {cert.title}
+                                </span>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setTemplatePreview({ kind: 'certificate', id: certId })}
+                                    className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded transition-colors"
+                                    title={t('btnPreviewTemplate')}
+                                    aria-label={t('btnPreviewTemplate')}
+                                  >
+                                    <Eye size={16} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveCertificate(certId)}
+                                    className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                  >
+                                    <Trash2 size={16} />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+
+                      <div className="relative">
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleAddCertificate(e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        >
+                          <option value="">{t('optAddCertificate')}</option>
+                          {certificates
+                            .filter((cert) => !selectedCertificateIds.includes(cert.id))
+                            .map((cert) => (
+                              <option key={cert.id} value={cert.id}>
+                                {cert.title}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      {certificates.length === 0 && (
+                        <p className="mt-2 text-sm text-slate-500">{t('emptyNoCertificates')}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 space-y-3">
+                <p className="text-sm font-medium text-slate-800">{t('labelRegistrationWorkflow')}</p>
+                <p className="text-xs text-slate-600">{t('regWorkflowHelp')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRegistrationWorkflowPreset('A');
+                      setRegistrationPaymentOfferId('');
+                    }}
+                    className={`text-left rounded-lg border-2 p-3 text-sm transition-all ${
+                      registrationWorkflowPreset === 'A'
+                        ? 'border-indigo-600 bg-white shadow-sm'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-900">A — {t('regWorkflowA_title')}</span>
+                    <span className="mt-1 block text-slate-600">{t('regWorkflowA_body')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRegistrationWorkflowPreset('B')}
+                    className={`text-left rounded-lg border-2 p-3 text-sm transition-all ${
+                      registrationWorkflowPreset === 'B'
+                        ? 'border-indigo-600 bg-white shadow-sm'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <span className="font-semibold text-slate-900">B — {t('regWorkflowB_title')}</span>
+                    <span className="mt-1 block text-slate-600">{t('regWorkflowB_body')}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Registration Form Selection + deadline */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-x-8 lg:gap-y-5 items-stretch">
+              <div className="min-w-0 w-full flex flex-col">
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <ClipboardList className="text-slate-500" size={16} />
-                  Registration Forms
+                  {t('labelRegistrationForms')}
                 </label>
               
               {selectedRegistrationFormIds.length > 0 && (
@@ -1609,7 +1881,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                     }}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   >
-                    <option value="">Add a registration form</option>
+                    <option value="">{t('optAddRegistrationForm')}</option>
                     {registrationFormsFiltered
                       .filter(form => !selectedRegistrationFormIds.includes(form.id))
                       .map(form => (
@@ -1621,11 +1893,28 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 </div>
               </div>
 
-              {/* Submission Form Selection */}
-              <div>
+              <div className="min-w-0 w-full flex flex-col">
+                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                  <Calendar className="text-slate-500" size={16} />
+                  {t('labelRegistrationDeadline')}
+                  <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={registrationDeadline}
+                  onChange={(e) => setRegistrationDeadline(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  required
+                />
+              </div>
+              </div>
+
+              {/* Submission Form Selection + article deadline */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-x-8 lg:gap-y-5 items-stretch">
+              <div className="min-w-0 w-full flex flex-col">
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                   <Send className="text-slate-500" size={16} />
-                  Submission Forms
+                  {t('labelSubmissionForms')}
                 </label>
               
               {selectedSubmissionFormIds.length > 0 && (
@@ -1664,7 +1953,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                     }}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   >
-                    <option value="">Add a submission form</option>
+                    <option value="">{t('optAddSubmissionForm')}</option>
                     {submissionFormsFiltered
                       .filter(form => !selectedSubmissionFormIds.includes(form.id))
                       .map(form => (
@@ -1675,145 +1964,335 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                   </select>
                 </div>
               </div>
-
-              {/* Registration Deadline */}
-              {selectedRegistrationFormIds.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                    <Calendar className="text-slate-500" size={16} />
-                    Registration Deadline
-                  </label>
-                  <input
-                    type="date"
-                    value={registrationDeadline}
-                    onChange={(e) => setRegistrationDeadline(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-              )}
-
-              {/* Submission Deadline */}
-              {selectedSubmissionFormIds.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                    <Calendar className="text-slate-500" size={16} />
-                    Submission Deadline
-                  </label>
-                  <input
-                    type="date"
-                    value={submissionDeadline}
-                    onChange={(e) => setSubmissionDeadline(e.target.value)}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-              )}
-
-              {/* Evaluation Form Selection */}
-              <div>
+              <div className="min-w-0 w-full flex flex-col">
                 <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <FileText className="text-orange-600" size={16} />
-                  Evaluation Forms
+                  <Calendar className="text-slate-500" size={16} />
+                  {t('labelArticleDeadline')}
+                  <span className="text-red-500">*</span>
                 </label>
-              
-              {selectedEvaluationFormIds.length > 0 && (
-                <div className="mb-3 space-y-2">
-                  {selectedEvaluationFormIds.map(formId => {
-                    const form = evaluationForms.find(f => f.id === formId);
-                    return form ? (
-                      <div
-                        key={formId}
-                        className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-200"
-                      >
-                        <span className="text-sm font-medium text-slate-700">
-                          {removePrefix(form.title, 'Eval')}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveEvaluationForm(formId)}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ) : null;
-                  })}
-                </div>
-              )}
-
-                <div className="relative">
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleAddEvaluationForm(e.target.value);
-                        e.target.value = '';
-                      }
-                    }}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value="">Add an evaluation form</option>
-                    {evaluationFormsFiltered
-                      .filter(form => !selectedEvaluationFormIds.includes(form.id))
-                      .map(form => (
-                        <option key={form.id} value={form.id}>
-                          {removePrefix(form.title, 'Eval')}
-                        </option>
-                      ))}
-                  </select>
-                </div>
+                <input
+                  type="date"
+                  value={submissionDeadline}
+                  onChange={(e) => setSubmissionDeadline(e.target.value)}
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  required
+                />
+              </div>
               </div>
 
-              {/* Committee Selection */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <UserCheck className="text-slate-500" size={16} />
-                  Committees
-                </label>
-              
-              {selectedCommitteeIds.length > 0 && (
-                <div className="mb-3 space-y-2">
-                  {selectedCommitteeIds.map(committeeId => {
-                    const committee = committees.find(c => c.id === committeeId);
-                    return committee ? (
-                      <div
-                        key={committeeId}
-                        className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                      >
-                        <span className="text-sm font-medium text-slate-700">{committee.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveCommittee(committeeId)}
-                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    ) : null;
-                  })}
+              {registrationNeedsPayment && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50/80 p-4 space-y-3">
+                  <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                    <CreditCard className="text-indigo-600" size={18} />
+                    {t('labelRegistrationPaymentOffer')}
+                  </label>
+                  <select
+                    value={registrationPaymentOfferId}
+                    onChange={(e) => setRegistrationPaymentOfferId(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white text-sm"
+                  >
+                    <option value="">{t('optSelectPaymentOffer')}</option>
+                    {paymentOffers.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.name}
+                      </option>
+                    ))}
+                  </select>
+                  {registrationPaymentOfferId ? renderPaymentOfferDetails(registrationPaymentOfferId) : null}
+                  {paymentOffers.length === 0 && (
+                    <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                      {t('emptyNoPaymentOffers')}
+                    </p>
+                  )}
                 </div>
               )}
 
-                <div className="relative">
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleAddCommittee(e.target.value);
-                        e.target.value = '';
-                      }
-                    }}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value="">Add a committee</option>
-                    {committees
-                      .filter(committee => !selectedCommitteeIds.includes(committee.id))
-                      .map(committee => (
-                        <option key={committee.id} value={committee.id}>
-                          {committee.name}
-                        </option>
-                      ))}
-                  </select>
+              {/* Submission workflow (preset A–D) */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4 space-y-4">
+                <p className="text-sm font-medium text-slate-800">{t('labelSubmissionWorkflow')}</p>
+                <p className="text-xs text-slate-600">{t('workflowHelp')}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {([
+                    ['A', 'workflowA_title', 'workflowA_body'],
+                    ['B', 'workflowB_title', 'workflowB_body'],
+                    ['C', 'workflowC_title', 'workflowC_body'],
+                    ['D', 'workflowD_title', 'workflowD_body'],
+                  ] as const).map(([key, titleKey, bodyKey]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setSubmissionWorkflowPreset(key);
+                        if (key === 'A' || key === 'C') {
+                          setSubmissionPaymentOfferId('');
+                        }
+                      }}
+                      className={`text-left rounded-lg border-2 p-3 text-sm transition-all ${
+                        submissionWorkflowPreset === key
+                          ? 'border-indigo-600 bg-white shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-slate-300'
+                      }`}
+                    >
+                      <span className="font-semibold text-slate-900">
+                        {key} — {t(titleKey)}
+                      </span>
+                      <span className="mt-1 block text-slate-600">{t(bodyKey)}</span>
+                    </button>
+                  ))}
                 </div>
+                {workflowNeedsAbstract && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-x-8 lg:gap-y-5 items-stretch pt-2 border-t border-slate-200">
+                    <div className="min-w-0 w-full flex flex-col space-y-3">
+                    <label className="block text-sm font-medium text-slate-700">{t('labelAbstractSubmissionForms')}</label>
+                    {selectedAbstractSubmissionFormIds.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedAbstractSubmissionFormIds.map((formId) => {
+                          const form = registrationForms.find((f) => f.id === formId);
+                          return form ? (
+                            <div
+                              key={formId}
+                              className="flex items-center justify-between p-2 bg-white rounded-lg border border-slate-200"
+                            >
+                              <span className="text-sm">{removePrefix(form.title, 'Sub')}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAbstractSubmissionForm(formId)}
+                                className="p-1 text-red-600 hover:bg-red-50 rounded"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          handleAddAbstractSubmissionForm(e.target.value);
+                          e.target.value = '';
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                    >
+                      <option value="">{t('optAddAbstractForm')}</option>
+                      {submissionFormsFiltered
+                        .filter((form) => !selectedAbstractSubmissionFormIds.includes(form.id))
+                        .map((form) => (
+                          <option key={form.id} value={form.id}>
+                            {removePrefix(form.title, 'Sub')}
+                          </option>
+                        ))}
+                    </select>
+                    </div>
+                    <div className="min-w-0 w-full flex flex-col">
+                      <label className="block text-xs text-slate-600 mb-1">
+                        {t('labelAbstractDeadline')}
+                        <span className="text-red-500"> *</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={abstractSubmissionDeadline}
+                        onChange={(e) => setAbstractSubmissionDeadline(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+                {workflowNeedsPayment && (
+                  <div className="pt-2 border-t border-slate-200">
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-x-8 lg:gap-y-5 items-stretch">
+                      <div className="min-w-0 w-full flex flex-col space-y-3">
+                      <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                        <CreditCard className="text-indigo-600" size={18} />
+                        {t('labelSubmissionPaymentOffer')}
+                      </label>
+                      <select
+                        value={submissionPaymentOfferId}
+                        onChange={(e) => setSubmissionPaymentOfferId(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                      >
+                        <option value="">{t('optSelectPaymentOffer')}</option>
+                        {paymentOffers.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </select>
+                      {submissionPaymentOfferId ? renderPaymentOfferDetails(submissionPaymentOfferId) : null}
+                      {paymentOffers.length === 0 && (
+                        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                          {t('emptyNoPaymentOffers')}
+                        </p>
+                      )}
+                      </div>
+                      <div className="min-w-0 w-full flex flex-col">
+                      <label className="block text-sm font-medium text-slate-700">
+                        {t('labelPaymentDeadline')}
+                        <span className="text-red-500"> *</span>
+                      </label>
+                      <p className="text-xs text-slate-500 mb-1">{t('paymentDeadlineHintSubmission')}</p>
+                      <input
+                        type="date"
+                        value={paymentDeadline}
+                        onChange={(e) => setPaymentDeadline(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                        required
+                      />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">
+                <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                  <FileText className="text-indigo-600" size={18} />
+                  {t('sectionStep2Evaluation')}
+                </h3>
+                <p className="text-xs text-slate-500">{t('evaluationSectionHint')}</p>
+                <div className="flex flex-wrap items-center gap-4">
+                  <span className="text-sm font-medium text-slate-700">{t('labelEvaluationInclude')}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={evaluationEnabled}
+                    onClick={() => {
+                      setEvaluationEnabled((v) => {
+                        const next = !v;
+                        if (!next) {
+                          setSelectedEvaluationFormIds([]);
+                          setSelectedCommitteeIds([]);
+                        }
+                        return next;
+                      });
+                    }}
+                    className={`relative inline-flex h-8 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                      evaluationEnabled ? 'bg-indigo-600' : 'bg-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-7 w-7 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                        evaluationEnabled ? 'translate-x-6' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                  <span className="text-sm text-slate-600">
+                    {evaluationEnabled ? t('evaluationToggleYes') : t('evaluationToggleNo')}
+                  </span>
+                </div>
+
+                {evaluationEnabled && (
+                  <div className="space-y-6 rounded-lg border border-slate-100 bg-slate-50/60 p-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                        <FileText className="text-orange-600" size={16} />
+                        {t('labelEvaluationForms')}
+                      </label>
+
+                      {selectedEvaluationFormIds.length > 0 && (
+                        <div className="mb-3 space-y-2">
+                          {selectedEvaluationFormIds.map((formId) => {
+                            const form = evaluationForms.find((f) => f.id === formId);
+                            return form ? (
+                              <div
+                                key={formId}
+                                className="flex items-center justify-between p-3 bg-orange-50 rounded-lg border border-orange-200"
+                              >
+                                <span className="text-sm font-medium text-slate-700">
+                                  {removePrefix(form.title, 'Eval')}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveEvaluationForm(formId)}
+                                  className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+
+                      <div className="relative">
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleAddEvaluationForm(e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        >
+                          <option value="">{t('optAddEvaluationForm')}</option>
+                          {evaluationFormsFiltered
+                            .filter((form) => !selectedEvaluationFormIds.includes(form.id))
+                            .map((form) => (
+                              <option key={form.id} value={form.id}>
+                                {removePrefix(form.title, 'Eval')}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+                        <UserCheck className="text-slate-500" size={16} />
+                        {t('labelCommittees')}
+                      </label>
+
+                      {selectedCommitteeIds.length > 0 && (
+                        <div className="mb-3 space-y-2">
+                          {selectedCommitteeIds.map((committeeId) => {
+                            const committee = committees.find((c) => c.id === committeeId);
+                            return committee ? (
+                              <div
+                                key={committeeId}
+                                className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                              >
+                                <span className="text-sm font-medium text-slate-700">{committee.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveCommittee(committeeId)}
+                                  className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+
+                      <div className="relative">
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleAddCommittee(e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
+                          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                        >
+                          <option value="">{t('optAddCommittee')}</option>
+                          {committees
+                            .filter((committee) => !selectedCommitteeIds.includes(committee.id))
+                            .map((committee) => (
+                              <option key={committee.id} value={committee.id}>
+                                {committee.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1833,7 +2312,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             onClick={onCancel}
             className="w-40 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
           >
-            Cancel
+            {t('btnCancel')}
           </button>
           <button
             type="button"
@@ -1841,7 +2320,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             className="w-40 px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors flex items-center justify-center gap-2"
           >
             <Eye size={16} />
-            Preview
+            {t('btnPreview')}
           </button>
           <button
             type="submit"
@@ -1851,12 +2330,12 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
             {isSaving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Updating...
+                {t('updating')}
               </>
             ) : (
               <>
                 <Save size={16} />
-                Update Event
+                {t('btnUpdateEvent')}
               </>
             )}
           </button>
@@ -1869,7 +2348,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 max-h-[80vh] overflow-hidden flex flex-col">
             <div className="p-6 border-b border-slate-200">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-slate-900">Add Partner</h3>
+                <h3 className="text-lg font-semibold text-slate-900">{t('partnerModalTitle')}</h3>
                 <button
                   type="button"
                   onClick={() => {
@@ -1889,7 +2368,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 {/* Search Existing Entities */}
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Search Existing Entities
+                    {t('partnerSearchLabel')}
                   </label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
@@ -1898,7 +2377,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       value={partnerSearchQuery}
                       onChange={(e) => setPartnerSearchQuery(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                      placeholder="Search entities..."
+                      placeholder={t('partnerSearchPh')}
                     />
                   </div>
                   {partnerSearchResults.length > 0 && (
@@ -1923,20 +2402,20 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                     <div className="w-full border-t border-slate-300"></div>
                   </div>
                   <div className="relative flex justify-center text-sm">
-                    <span className="px-2 bg-white text-slate-500">Or add new</span>
+                    <span className="px-2 bg-white text-slate-500">{t('partnerOrNew')}</span>
                   </div>
                 </div>
 
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Partner Name
+                    {t('partnerNameLabel')}
                   </label>
                   <input
                     type="text"
                     value={newPartnerName}
                     onChange={(e) => setNewPartnerName(e.target.value)}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                    placeholder="Enter partner name"
+                    placeholder={t('partnerNamePh')}
                   />
                 </div>
               </div>
@@ -1952,7 +2431,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 }}
                 className="px-4 py-2 text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
               >
-                Cancel
+                {t('btnCancel')}
               </button>
               <button
                 type="button"
@@ -1960,7 +2439,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 disabled={!newPartnerName.trim()}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Add Partner
+                {t('btnAddPartner')}
               </button>
             </div>
           </div>
@@ -1973,21 +2452,21 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
           <div className="bg-white rounded-xl shadow-xl max-w-7xl w-full my-8 flex flex-col max-h-[95vh]">
             {/* Modal Header */}
             <div className="flex items-center justify-between p-6 border-b border-slate-200">
-              <h2 className="text-2xl font-bold text-slate-900">Event Preview</h2>
+              <h2 className="text-2xl font-bold text-slate-900">{t('previewModalTitle')}</h2>
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleOpenFullScreen}
                   className="p-2 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-100 transition-colors"
-                  title="Open in full screen"
-                  aria-label="Open in full screen"
+                  title={t('previewOpenFullscreen')}
+                  aria-label={t('previewOpenFullscreen')}
                 >
                   <Maximize2 size={20} />
                 </button>
                 <button
                   onClick={() => setShowPreview(false)}
                   className="p-2 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
-                  title="Close preview"
-                  aria-label="Close preview"
+                  title={t('previewClose')}
+                  aria-label={t('previewClose')}
                 >
                   <X size={20} />
                 </button>
@@ -2001,7 +2480,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 <div className="relative text-white" style={getBannerStyle()}>
                   <div className="absolute inset-0 bg-black opacity-20"></div>
                   <div className="relative max-w-7xl mx-auto px-6 py-20">
-                    <h1 className="text-5xl font-bold drop-shadow-lg">{name || 'Event Name'}</h1>
+                    <h1 className="text-5xl font-bold drop-shadow-lg">{name || t('defaultEventName')}</h1>
                   </div>
                 </div>
 
@@ -2015,7 +2494,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <FileText className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Description</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secDescription')}</h2>
                           </div>
                           <div 
                             className="text-slate-700 leading-relaxed prose max-w-none"
@@ -2029,7 +2508,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <Hash className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Keywords</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secKeywords')}</h2>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {keywords.map((keyword, index) => (
@@ -2049,7 +2528,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <Tag className="w-5 h-5 text-purple-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Fields</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secFields')}</h2>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             {fields.map((field, index) => (
@@ -2069,7 +2548,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <Calendar className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Event Dates</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secEventDates')}</h2>
                           </div>
                           <div className="space-y-3">
                             {dates.filter(d => d.startDate && d.endDate).map((dateRange, index) => (
@@ -2094,7 +2573,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <Building className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Partners</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secPartners')}</h2>
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             {partners.map((partner, index) => (
@@ -2114,7 +2593,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <ExternalLink className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Links</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secLinks')}</h2>
                           </div>
                           <div className="space-y-2">
                             {links.filter(l => l.name && l.url).map((link, index) => (
@@ -2136,11 +2615,11 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       )}
 
                       {/* Committees */}
-                      {selectedCommitteeIds.length > 0 && (
+                      {evaluationEnabled && selectedCommitteeIds.length > 0 && (
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-4">
                             <UserCheck className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-xl font-semibold text-slate-800">Committees</h2>
+                            <h2 className="text-xl font-semibold text-slate-800">{t('secCommittees')}</h2>
                           </div>
                           <div className="space-y-4">
                             {committees
@@ -2177,7 +2656,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <MapPin className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Location</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secLocation')}</h2>
                           </div>
                           <p className="text-slate-700">{location}</p>
                         </section>
@@ -2188,10 +2667,10 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <Globe className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Landing Pages</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secLandingPages')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedLandingPageIds.length} landing page{selectedLandingPageIds.length !== 1 ? 's' : ''} configured
+                            {t('countLandingPagesConfigured', { n: selectedLandingPageIds.length })}
                           </p>
                         </section>
                       )}
@@ -2201,10 +2680,10 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <ClipboardList className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Registration Forms</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secRegistrationForms')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedRegistrationFormIds.length} form{selectedRegistrationFormIds.length !== 1 ? 's' : ''} configured
+                            {t('countFormsConfigured', { n: selectedRegistrationFormIds.length })}
                           </p>
                         </section>
                       )}
@@ -2214,23 +2693,36 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <Send className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Submission Forms</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secSubmissionForms')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedSubmissionFormIds.length} form{selectedSubmissionFormIds.length !== 1 ? 's' : ''} configured
+                            {t('countFormsConfigured', { n: selectedSubmissionFormIds.length })}
                           </p>
                         </section>
                       )}
 
                       {/* Evaluation Forms */}
-                      {selectedEvaluationFormIds.length > 0 && (
+                      {evaluationEnabled && selectedEvaluationFormIds.length > 0 && (
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <FileText className="w-5 h-5 text-orange-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Evaluation Forms</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secEvaluationForms')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedEvaluationFormIds.length} form{selectedEvaluationFormIds.length !== 1 ? 's' : ''} configured
+                            {t('countFormsConfigured', { n: selectedEvaluationFormIds.length })}
+                          </p>
+                        </section>
+                      )}
+
+                      {/* Badge templates */}
+                      {selectedBadgeTemplateIds.length > 0 && (
+                        <section className="bg-white rounded-lg shadow-sm p-6">
+                          <div className="flex items-center gap-2 mb-3">
+                            <IdCard className="w-5 h-5 text-indigo-600" />
+                            <h2 className="text-lg font-semibold text-slate-800">{t('labelBadges')}</h2>
+                          </div>
+                          <p className="text-sm text-slate-600">
+                            {t('countTemplatesConfigured', { n: selectedBadgeTemplateIds.length })}
                           </p>
                         </section>
                       )}
@@ -2240,10 +2732,10 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <Award className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">Certificates</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secCertificates')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {selectedCertificateIds.length} template{selectedCertificateIds.length !== 1 ? 's' : ''} configured
+                            {t('countTemplatesConfigured', { n: selectedCertificateIds.length })}
                           </p>
                         </section>
                       )}
@@ -2259,7 +2751,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 onClick={() => setShowPreview(false)}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
               >
-                Close Preview
+                {t('previewCloseFooter')}
               </button>
             </div>
           </div>
@@ -2272,6 +2764,16 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
         onClose={() => setShowTextEditor(false)}
         onInsert={(content) => setDescription(content)}
         initialContent={description}
+      />
+
+      <TemplatePreviewModal
+        isOpen={!!templatePreview?.id}
+        onClose={() => setTemplatePreview(null)}
+        kind={templatePreview?.kind ?? 'certificate'}
+        templateId={templatePreview?.id ?? ''}
+        titleBadge={t('templatePreviewBadge')}
+        titleCertificate={t('templatePreviewCertificate')}
+        closeLabel={t('previewClose')}
       />
     </div>
   );

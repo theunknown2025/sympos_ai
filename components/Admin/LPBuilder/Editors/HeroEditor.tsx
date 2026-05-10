@@ -3,6 +3,7 @@ import { HeroConfig, HeroButton, RegistrationForm } from '../../../../types';
 import { ImageIcon, Type, AlignLeft, AlignCenter, Clock, Plus, Trash2, Link as LinkIcon, FileText, Calendar, MapPin } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
 import { getUserRegistrationForms } from '../../../../services/registrationFormService';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface HeroEditorProps {
   config: HeroConfig;
@@ -15,14 +16,20 @@ interface HeroEditorProps {
   onLocationChange?: (location: string) => void;
 }
 
-const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitleChange, date, location, onDateChange, onLocationChange }) => {
+const HeroEditor: React.FC<HeroEditorProps> = ({
+  config,
+  onChange,
+  title,
+  onTitleChange,
+  date,
+  location,
+  onDateChange,
+  onLocationChange,
+}) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const [forms, setForms] = useState<RegistrationForm[]>([]);
   const { currentUser } = useAuth();
-  // Track button mode: 'url' or 'form'. If formId is defined (even if empty), mode is 'form', otherwise 'url'
   const getButtonMode = (btn: HeroButton): 'url' | 'form' => {
-    // If formId is defined (including empty string), we're in form mode
-    // Use a special check: if url is '#' and formId is undefined, it's URL mode
-    // If formId is defined (even as empty string), it's form mode
     return btn.formId !== undefined ? 'form' : 'url';
   };
 
@@ -37,7 +44,7 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
         }
       };
       loadForms();
-      }
+    }
   }, [currentUser]);
 
   const update = (field: keyof HeroConfig, value: any) => {
@@ -45,16 +52,19 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
   };
 
   const addButton = () => {
-    const newBtn: HeroButton = { id: Date.now().toString(), text: 'New Action', url: '#', style: 'secondary' };
+    const newBtn: HeroButton = { id: Date.now().toString(), text: t('edHeroNewAction'), url: '#', style: 'secondary' };
     update('buttons', [...config.buttons, newBtn]);
   };
 
   const removeButton = (id: string) => {
-    update('buttons', config.buttons.filter(b => b.id !== id));
+    update(
+      'buttons',
+      config.buttons.filter((b) => b.id !== id)
+    );
   };
 
   const updateButton = (id: string, field: keyof HeroButton, value: string | undefined) => {
-    const updatedButtons = config.buttons.map(b => {
+    const updatedButtons = config.buttons.map((b) => {
       if (b.id === id) {
         return { ...b, [field]: value };
       }
@@ -67,23 +77,23 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
     <div className="space-y-4">
       <div>
         <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-2">
-          <Type size={14}/> Main Title
+          <Type size={14} /> {t('edHeroMainTitle')}
         </label>
-        <input 
-          type="text" 
+        <input
+          type="text"
           value={title || ''}
           onChange={(e) => onTitleChange?.(e.target.value)}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-900"
-          placeholder="Conference Title"
+          placeholder={t('edHeroConferenceTitlePlaceholder')}
         />
       </div>
 
       <div>
         <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-2">
-          <Calendar size={14}/> Date
+          <Calendar size={14} /> {t('edHeroDate')}
         </label>
-        <input 
-          type="date" 
+        <input
+          type="date"
           value={date || ''}
           onChange={(e) => onDateChange?.(e.target.value)}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-900"
@@ -92,23 +102,23 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
 
       <div>
         <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-2">
-          <MapPin size={14}/> Location
+          <MapPin size={14} /> {t('edHeroLocation')}
         </label>
-        <input 
-          type="text" 
+        <input
+          type="text"
           value={location || ''}
           onChange={(e) => onLocationChange?.(e.target.value)}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-900"
-          placeholder="e.g. San Francisco, CA"
+          placeholder={t('edHeroLocationPlaceholder')}
         />
       </div>
 
       <div>
         <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-2">
-          <ImageIcon size={14}/> Background Image
+          <ImageIcon size={14} /> {t('edHeroBackgroundImage')}
         </label>
-        <input 
-          type="text" 
+        <input
+          type="text"
           value={config.backgroundImage}
           onChange={(e) => update('backgroundImage', e.target.value)}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-900"
@@ -117,43 +127,47 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
 
       <div>
         <label className="block text-xs font-medium text-slate-700 mb-1 flex items-center gap-2">
-          <Type size={14}/> Tagline / Subtitle
+          <Type size={14} /> {t('edHeroTagline')}
         </label>
-        <input 
-          type="text" 
+        <input
+          type="text"
           value={config.tagline}
           onChange={(e) => update('tagline', e.target.value)}
           className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none text-sm bg-white text-slate-900"
-          placeholder="e.g. Innovating the Future"
+          placeholder={t('edHeroTaglinePlaceholder')}
         />
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-slate-700 mb-2">Text Alignment</label>
+        <label className="block text-xs font-medium text-slate-700 mb-2">{t('edHeroTextAlignment')}</label>
         <div className="flex bg-slate-100 p-1 rounded-lg">
-          <button 
+          <button
             onClick={() => update('layout', 'left')}
-            className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-medium transition-all ${config.layout === 'left' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-medium transition-all ${
+              config.layout === 'left' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <AlignLeft size={14} /> Left
+            <AlignLeft size={14} /> {t('edHeroAlignLeft')}
           </button>
-          <button 
+          <button
             onClick={() => update('layout', 'center')}
-            className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-medium transition-all ${config.layout === 'center' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            className={`flex-1 flex items-center justify-center gap-2 py-1.5 rounded-md text-xs font-medium transition-all ${
+              config.layout === 'center' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
           >
-            <AlignCenter size={14} /> Center
+            <AlignCenter size={14} /> {t('edHeroAlignCenter')}
           </button>
         </div>
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-slate-700 mb-1">Overlay Opacity ({config.overlayOpacity}%)</label>
-        <input 
-          type="range" 
-          min="0" 
-          max="90" 
+        <label className="block text-xs font-medium text-slate-700 mb-1">{t('edHeroOverlayOpacity', { pct: config.overlayOpacity })}</label>
+        <input
+          type="range"
+          min="0"
+          max="90"
           value={config.overlayOpacity}
-          onChange={(e) => update('overlayOpacity', parseInt(e.target.value))}
+          onChange={(e) => update('overlayOpacity', parseInt(e.target.value, 10))}
           className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
         />
       </div>
@@ -162,11 +176,11 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
         <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
           <div className="flex items-center gap-2">
             <Clock size={16} className="text-slate-500" />
-            <span className="text-sm font-medium text-slate-700">Show Timer</span>
+            <span className="text-sm font-medium text-slate-700">{t('edHeroShowTimer')}</span>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
-            <input 
-              type="checkbox" 
+            <input
+              type="checkbox"
               className="sr-only peer"
               checked={config.showTimer}
               onChange={(e) => update('showTimer', e.target.checked)}
@@ -178,11 +192,11 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
         <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
           <div className="flex items-center gap-2">
             <Calendar size={16} className="text-slate-500" />
-            <span className="text-sm font-medium text-slate-700">Show Date</span>
+            <span className="text-sm font-medium text-slate-700">{t('edHeroShowDate')}</span>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
-            <input 
-              type="checkbox" 
+            <input
+              type="checkbox"
               className="sr-only peer"
               checked={config.showDate}
               onChange={(e) => update('showDate', e.target.checked)}
@@ -194,11 +208,11 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
         <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-100">
           <div className="flex items-center gap-2">
             <MapPin size={16} className="text-slate-500" />
-            <span className="text-sm font-medium text-slate-700">Show Location</span>
+            <span className="text-sm font-medium text-slate-700">{t('edHeroShowLocation')}</span>
           </div>
           <label className="relative inline-flex items-center cursor-pointer">
-            <input 
-              type="checkbox" 
+            <input
+              type="checkbox"
               className="sr-only peer"
               checked={config.showLocation}
               onChange={(e) => update('showLocation', e.target.checked)}
@@ -210,39 +224,37 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
 
       <div>
         <div className="flex justify-between items-center mb-2">
-          <label className="block text-xs font-medium text-slate-700">Action Buttons</label>
+          <label className="block text-xs font-medium text-slate-700">{t('edHeroActionButtons')}</label>
           <button onClick={addButton} className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800">
-            <Plus size={12} /> Add
+            <Plus size={12} /> {t('edHeroAdd')}
           </button>
         </div>
         <div className="space-y-3">
           {config.buttons.map((btn) => (
             <div key={btn.id} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
               <div className="flex justify-between items-center">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Button</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase">{t('edHeroButtonHeading')}</span>
                 <button onClick={() => removeButton(btn.id)} className="text-slate-400 hover:text-red-500">
                   <Trash2 size={14} />
                 </button>
               </div>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 value={btn.text}
                 onChange={(e) => updateButton(btn.id, 'text', e.target.value)}
-                placeholder="Button Text"
+                placeholder={t('edHeroButtonTextPlaceholder')}
                 className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
               />
               <div className="space-y-2">
-                {/* Button Type Selection */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-2">Button Type</label>
+                  <label className="block text-xs font-medium text-slate-700 mb-2">{t('edHeroButtonType')}</label>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        // Switch to URL mode - clear formId
-                        const updatedButtons = config.buttons.map(b => {
+                        const updatedButtons = config.buttons.map((b) => {
                           if (b.id === btn.id) {
                             return { ...b, formId: undefined, url: b.url || '#' };
                           }
@@ -257,15 +269,14 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
                       }`}
                     >
                       <LinkIcon size={14} />
-                      <span className="text-xs font-medium">URL</span>
+                      <span className="text-xs font-medium">{t('edHeroButtonTypeUrl')}</span>
                     </button>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        // Switch to Form mode - set formId to empty string to show selector, clear URL
-                        const updatedButtons = config.buttons.map(b => {
+                        const updatedButtons = config.buttons.map((b) => {
                           if (b.id === btn.id) {
                             return { ...b, formId: '' as string | undefined, url: '#' };
                           }
@@ -280,54 +291,52 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
                       }`}
                     >
                       <FileText size={14} />
-                      <span className="text-xs font-medium">Form</span>
+                      <span className="text-xs font-medium">{t('edHeroButtonTypeForm')}</span>
                     </button>
                   </div>
                 </div>
 
-                {/* Style Selection */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">Button Style</label>
-                  <select 
+                  <label className="block text-xs font-medium text-slate-700 mb-1">{t('edHeroButtonStyle')}</label>
+                  <select
                     value={btn.style}
                     onChange={(e) => updateButton(btn.id, 'style', e.target.value as any)}
                     className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
                   >
-                    <option value="primary">Primary</option>
-                    <option value="secondary">Secondary</option>
+                    <option value="primary">{t('edHeroStylePrimary')}</option>
+                    <option value="secondary">{t('edHeroStyleSecondary')}</option>
                   </select>
                 </div>
 
-                {/* URL Input - shown when URL mode is selected */}
                 {getButtonMode(btn) === 'url' && (
                   <div className="relative">
-                    <LinkIcon size={12} className="absolute left-2 top-2.5 text-slate-400"/>
-                    <input 
-                      type="text" 
+                    <LinkIcon size={12} className="absolute left-2 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
                       value={btn.url}
                       onChange={(e) => updateButton(btn.id, 'url', e.target.value)}
-                      placeholder="https://example.com or #section"
+                      placeholder={t('edHeroUrlPlaceholder')}
                       className="w-full pl-6 pr-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
                     />
                   </div>
                 )}
 
-                {/* Form Selection - shown when Form mode is selected */}
                 {getButtonMode(btn) === 'form' && (
                   <div className="relative">
-                    <FileText size={12} className="absolute left-2 top-2.5 text-slate-400 z-10"/>
+                    <FileText size={12} className="absolute left-2 top-2.5 text-slate-400 z-10" />
                     <select
                       value={btn.formId || ''}
                       onChange={(e) => {
                         const value = e.target.value;
-                        // Update formId with selected value (empty string if none selected)
                         updateButton(btn.id, 'formId', value || '');
                       }}
                       className="w-full pl-6 pr-2 py-1.5 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
                     >
-                      <option value="">Select a form...</option>
+                      <option value="">{t('edHeroSelectForm')}</option>
                       {forms.length === 0 ? (
-                        <option value="" disabled>No forms available. Create a form first.</option>
+                        <option value="" disabled>
+                          {t('edHeroNoFormsAvailable')}
+                        </option>
                       ) : (
                         forms.map((form) => (
                           <option key={form.id} value={form.id}>
@@ -336,9 +345,9 @@ const HeroEditor: React.FC<HeroEditorProps> = ({ config, onChange, title, onTitl
                         ))
                       )}
                     </select>
-                    {btn.formId && btn.formId !== '' && forms.find(f => f.id === btn.formId) && (
+                    {btn.formId && btn.formId !== '' && forms.find((f) => f.id === btn.formId) && (
                       <p className="text-xs text-slate-500 mt-1 ml-6">
-                        Selected: {forms.find(f => f.id === btn.formId)?.title}
+                        {t('edHeroSelected', { title: forms.find((f) => f.id === btn.formId)?.title ?? '' })}
                       </p>
                     )}
                   </div>

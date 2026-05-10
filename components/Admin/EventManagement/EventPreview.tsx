@@ -9,6 +9,8 @@ import {
 import { getEvent } from '../../../services/eventService';
 import { getCommittee } from '../../../services/committeeService';
 import { Event, Committee, EventBanner } from '../../../types';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
+import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 
 interface EventPreviewProps {
   eventId?: string;
@@ -16,6 +18,9 @@ interface EventPreviewProps {
 }
 
 const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClose }) => {
+  const { t } = useAdminTranslation('eventForm');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
   const { eventId: paramEventId } = useParams<{ eventId: string }>();
   const eventId = propEventId || paramEventId;
   const navigate = useNavigate();
@@ -36,12 +41,12 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
       setError('');
       
       if (!eventId) {
-        throw new Error('Event ID is required');
+        throw new Error(t('errEventIdRequired'));
       }
 
       const eventData = await getEvent(eventId);
       if (!eventData) {
-        throw new Error('Event not found');
+        throw new Error(t('errEventNotFound'));
       }
 
       setEvent(eventData);
@@ -54,7 +59,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
       }
     } catch (err: any) {
       console.error('Error loading event:', err);
-      setError(err.message || 'Failed to load event');
+      setError(err.message || t('errFailedLoadEvent'));
     } finally {
       setLoading(false);
     }
@@ -63,7 +68,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
   const formatDate = (dateString: string): string => {
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { 
+      return date.toLocaleDateString(localeTag, { 
         year: 'numeric', 
         month: 'long', 
         day: 'numeric' 
@@ -115,7 +120,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin text-indigo-600 mx-auto mb-4" />
-          <p className="text-slate-600">Loading event...</p>
+          <p className="text-slate-600">{t('loadingEvent')}</p>
         </div>
       </div>
     );
@@ -126,8 +131,8 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center max-w-md">
           <AlertCircle className="w-12 h-12 text-red-600 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-slate-800 mb-2">Event Not Found</h2>
-          <p className="text-slate-600 mb-6">{error || 'The event you are looking for does not exist.'}</p>
+          <h2 className="text-xl font-semibold text-slate-800 mb-2">{t('eventNotFoundTitle')}</h2>
+          <p className="text-slate-600 mb-6">{error || t('errEventMissing')}</p>
           <button
             onClick={() => {
               if (onClose) {
@@ -139,7 +144,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
             className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors inline-flex items-center gap-2"
           >
             <ArrowLeft size={16} />
-            Back to Events
+            {t('backToEvents')}
           </button>
         </div>
       </div>
@@ -163,7 +168,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
             className="mb-6 inline-flex items-center gap-2 text-white/90 hover:text-white transition-colors"
           >
             <ArrowLeft size={20} />
-            <span>Back to Events</span>
+            <span>{t('backToEvents')}</span>
           </button>
           <h1 className="text-5xl font-bold drop-shadow-lg">{event.name}</h1>
         </div>
@@ -179,7 +184,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <FileText className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-xl font-semibold text-slate-800">Description</h2>
+                  <h2 className="text-xl font-semibold text-slate-800">{t('secDescription')}</h2>
                 </div>
                 <div 
                   className="text-slate-700 leading-relaxed prose max-w-none"
@@ -193,7 +198,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Hash className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-xl font-semibold text-slate-800">Keywords</h2>
+                  <h2 className="text-xl font-semibold text-slate-800">{t('secKeywords')}</h2>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {event.keywords.map((keyword, index) => (
@@ -213,7 +218,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Calendar className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-xl font-semibold text-slate-800">Event Dates</h2>
+                  <h2 className="text-xl font-semibold text-slate-800">{t('secEventDates')}</h2>
                 </div>
                 <div className="space-y-3">
                   {event.dates.map((dateRange, index) => (
@@ -238,7 +243,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Building className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-xl font-semibold text-slate-800">Partners</h2>
+                  <h2 className="text-xl font-semibold text-slate-800">{t('secPartners')}</h2>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {event.partners.map((partner, index) => (
@@ -258,7 +263,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <LinkIcon className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-xl font-semibold text-slate-800">Links</h2>
+                  <h2 className="text-xl font-semibold text-slate-800">{t('secLinks')}</h2>
                 </div>
                 <div className="space-y-2">
                   {event.links.map((link, index) => (
@@ -284,7 +289,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <UserCheck className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-xl font-semibold text-slate-800">Committees</h2>
+                  <h2 className="text-xl font-semibold text-slate-800">{t('secCommittees')}</h2>
                 </div>
                 <div className="space-y-4">
                   {committees.map((committee) => (
@@ -319,7 +324,7 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-3">
                   <MapPin className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg font-semibold text-slate-800">Location</h2>
+                  <h2 className="text-lg font-semibold text-slate-800">{t('secLocation')}</h2>
                 </div>
                 <p className="text-slate-700">{event.location}</p>
               </section>
@@ -330,10 +335,10 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-3">
                   <Globe className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg font-semibold text-slate-800">Landing Pages</h2>
+                  <h2 className="text-lg font-semibold text-slate-800">{t('secLandingPages')}</h2>
                 </div>
                 <p className="text-sm text-slate-600">
-                  {event.landingPageIds.length} landing page{event.landingPageIds.length !== 1 ? 's' : ''} configured
+                  {t('countLandingPagesConfigured', { n: event.landingPageIds.length })}
                 </p>
               </section>
             )}
@@ -343,10 +348,10 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-3">
                   <ClipboardList className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg font-semibold text-slate-800">Registration Forms</h2>
+                  <h2 className="text-lg font-semibold text-slate-800">{t('secRegistrationForms')}</h2>
                 </div>
                 <p className="text-sm text-slate-600">
-                  {event.registrationFormIds.length} form{event.registrationFormIds.length !== 1 ? 's' : ''} configured
+                  {t('countFormsConfigured', { n: event.registrationFormIds.length })}
                 </p>
               </section>
             )}
@@ -356,10 +361,10 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-3">
                   <Send className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg font-semibold text-slate-800">Submission Forms</h2>
+                  <h2 className="text-lg font-semibold text-slate-800">{t('secSubmissionForms')}</h2>
                 </div>
                 <p className="text-sm text-slate-600">
-                  {event.submissionFormIds.length} form{event.submissionFormIds.length !== 1 ? 's' : ''} configured
+                  {t('countFormsConfigured', { n: event.submissionFormIds.length })}
                 </p>
               </section>
             )}
@@ -369,28 +374,28 @@ const EventPreview: React.FC<EventPreviewProps> = ({ eventId: propEventId, onClo
               <section className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center gap-2 mb-3">
                   <Award className="w-5 h-5 text-indigo-600" />
-                  <h2 className="text-lg font-semibold text-slate-800">Certificates</h2>
+                  <h2 className="text-lg font-semibold text-slate-800">{t('secCertificates')}</h2>
                 </div>
                 <p className="text-sm text-slate-600">
-                  {event.certificateTemplateIds.length} template{event.certificateTemplateIds.length !== 1 ? 's' : ''} configured
+                  {t('countTemplatesConfigured', { n: event.certificateTemplateIds.length })}
                 </p>
               </section>
             )}
 
             {/* Event Metadata */}
             <section className="bg-white rounded-lg shadow-sm p-6">
-              <h2 className="text-lg font-semibold text-slate-800 mb-3">Event Information</h2>
+              <h2 className="text-lg font-semibold text-slate-800 mb-3">{t('eventInfoSidebar')}</h2>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-slate-600">Created:</span>
+                  <span className="text-slate-600">{t('createdLabelShort')}</span>
                   <span className="text-slate-800 font-medium">
-                    {event.createdAt.toLocaleDateString()}
+                    {event.createdAt.toLocaleDateString(localeTag)}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-600">Last Updated:</span>
+                  <span className="text-slate-600">{t('updatedLabelShort')}</span>
                   <span className="text-slate-800 font-medium">
-                    {event.updatedAt.toLocaleDateString()}
+                    {event.updatedAt.toLocaleDateString(localeTag)}
                   </span>
                 </div>
               </div>

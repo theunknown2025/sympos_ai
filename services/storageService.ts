@@ -19,7 +19,7 @@ export const uploadImageToStorage = async (
       bucketId = STORAGE_BUCKETS.CERTIFICATE_TEMPLATES;
     } else if (folder === 'badges') {
       bucketId = STORAGE_BUCKETS.BADGES;
-    } else if (folder === 'landing-page-images') {
+    } else if (folder === 'landing-page-images' || folder === 'landing-page-cta-images') {
       bucketId = STORAGE_BUCKETS.MEDIA;
     } else if (folder === 'organizer-profiles') {
       bucketId = STORAGE_BUCKETS.ORGANIZER_PROFILES;
@@ -152,7 +152,10 @@ export const uploadFileToStorage = async (
   try {
     // Determine bucket based on folder
     // Use Sub_Files for submission files (papers, documents from submission forms)
-    const bucketId = folder === 'form-submissions' || folder === 'sub-files' || folder === 'submission-files'
+    const bucketId =
+      folder === 'landing-page-cta-documents'
+        ? STORAGE_BUCKETS.DOCUMENTS
+      : folder === 'form-submissions' || folder === 'sub-files' || folder === 'submission-files'
       ? STORAGE_BUCKETS.SUB_FILES 
       : folder === 'certificate-templates'
       ? STORAGE_BUCKETS.CERTIFICATE_TEMPLATES
@@ -167,9 +170,29 @@ export const uploadFileToStorage = async (
     // Debug: Log the bucket being used
     console.log('Uploading to bucket:', bucketId, 'for folder:', folder);
     
-    // Generate unique filename
-    const fileExt = file.name.split('.').pop();
+    // Generate unique filename (preserve extension when possible)
+    const lastDot = file.name.lastIndexOf('.');
+    const fileExt =
+      lastDot > 0 && lastDot < file.name.length - 1
+        ? file.name.slice(lastDot + 1).toLowerCase().replace(/[^a-z0-9]/gi, '') || 'bin'
+        : 'bin';
     const fileName = `${userId}/${Date.now()}-${Math.random().toString(36).substring(2)}.${fileExt}`;
+
+    const inferContentType = (): string => {
+      if (file.type && file.type.length > 0) return file.type;
+      const e = fileExt.toLowerCase();
+      if (e === 'pdf') return 'application/pdf';
+      if (e === 'doc') return 'application/msword';
+      if (e === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      if (e === 'txt') return 'text/plain';
+      if (e === 'csv') return 'text/csv';
+      if (e === 'xls') return 'application/vnd.ms-excel';
+      if (e === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      if (e === 'ppt') return 'application/vnd.ms-powerpoint';
+      if (e === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      if (e === 'zip') return 'application/zip';
+      return 'application/octet-stream';
+    };
     
     console.log('Upload details:', {
       bucket: bucketId,
@@ -184,7 +207,8 @@ export const uploadFileToStorage = async (
       .from(bucketId)
       .upload(fileName, file, {
         cacheControl: '3600',
-        upsert: false
+        upsert: false,
+        contentType: inferContentType(),
       });
     
     if (error) {

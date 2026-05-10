@@ -63,6 +63,7 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({
 export const isOrganizerOnlyView = (viewState: ViewState): boolean => {
   const organizerOnlyViews: ViewState[] = [
     ViewState.DASHBOARD,
+    ViewState.ORGANIZER_WORKSPACE,
     ViewState.BUILDER,
     ViewState.LANDING_PAGES,
     ViewState.REGISTRATIONS,

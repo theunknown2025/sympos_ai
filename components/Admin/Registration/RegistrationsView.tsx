@@ -34,9 +34,12 @@ import type { EmailRecipient } from '../Tools/EmailSender/EmailSender';
 import { generateAndSaveBadge, getBadgeForSubmission, ParticipantBadge } from '../../../services/badgeGeneratorService';
 import RegistrationApprovalModal from './RegistrationApprovalModal';
 import RegistrationEmailModal from './RegistrationEmailModal';
+import { useOrganizerScopedEventId } from '../../../contexts/OrganizerEventScopeContext';
 
 const RegistrationsView: React.FC = () => {
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const isEventScopeLocked = !!organizerScopedEventId;
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -65,6 +68,12 @@ const RegistrationsView: React.FC = () => {
       setLoading(false);
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (organizerScopedEventId) {
+      setSelectedEvent(organizerScopedEventId);
+    }
+  }, [organizerScopedEventId]);
 
   // Initialize header display fields with filter fields when forms are loaded
   useEffect(() => {
@@ -973,22 +982,28 @@ const RegistrationsView: React.FC = () => {
           <div className="flex items-center gap-3">
             <Filter size={18} className="text-slate-500" />
             <label className="text-sm font-medium text-slate-700">Filter by Event:</label>
-            <select
-              value={selectedEvent}
-              onChange={(e) => setSelectedEvent(e.target.value)}
-              className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="all">All Events ({getFilteredSubmissions().length})</option>
-              {uniqueEvents.map((event) => {
-                const filtered = getFilteredSubmissions();
-                const count = filtered.filter(s => s.eventId === event.id).length;
-                return (
-                  <option key={event.id} value={event.id}>
-                    {event.title} ({count})
-                  </option>
-                );
-              })}
-            </select>
+            {isEventScopeLocked ? (
+              <p className="flex-1 text-sm text-slate-600 py-2">
+                Showing only your selected event (change it from the header).
+              </p>
+            ) : (
+              <select
+                value={selectedEvent}
+                onChange={(e) => setSelectedEvent(e.target.value)}
+                className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All Events ({getFilteredSubmissions().length})</option>
+                {uniqueEvents.map((event) => {
+                  const filtered = getFilteredSubmissions();
+                  const count = filtered.filter(s => s.eventId === event.id).length;
+                  return (
+                    <option key={event.id} value={event.id}>
+                      {event.title} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            )}
           </div>
         </div>
 

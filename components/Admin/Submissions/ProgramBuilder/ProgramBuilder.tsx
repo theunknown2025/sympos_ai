@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
   Settings,
   Plus,
@@ -30,6 +30,8 @@ import type { FormSubmission } from '../../../../types';
 import { CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { getUserEvents } from '../../../../services/eventService';
 import type { Event } from '../../../../types';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
+import { formatDateRangeLabel, getDayCalendarLabel } from './programExportMeta';
 
 export interface Venue {
   id: string;
@@ -53,12 +55,21 @@ export interface ProgramCard {
   submission?: FormSubmission; // Optional: Full submission data
 }
 
+/** Stored inside `config` JSON so exports persist without extra DB columns */
+export interface ProgramDisplaySettings {
+  subtitle?: string;
+  /** ISO yyyy-mm-dd — conference / program dates for the header */
+  dateStart?: string;
+  dateEnd?: string;
+}
+
 export interface ProgramBuilderConfig {
   numVenues: number;
   numDays: number;
   startTime: string; // HH:mm format
   endTime: string; // HH:mm format
   timeSlotWidth: number; // Minutes (15, 30, 60, etc.)
+  display?: ProgramDisplaySettings;
 }
 
 const DEFAULT_COLORS = [
@@ -79,6 +90,7 @@ const ProgramBuilder: React.FC = () => {
     startTime: '09:00',
     endTime: '18:00',
     timeSlotWidth: 30,
+    display: {},
   });
 
   const [venues, setVenues] = useState<Venue[]>([
@@ -114,7 +126,39 @@ const ProgramBuilder: React.FC = () => {
   const [events, setEvents] = useState<Event[]>([]);
   const [loadingEvents, setLoadingEvents] = useState(false);
   const { currentUser: user } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const isEventScopeLocked = !!organizerScopedEventId;
   const gridRef = useRef<HTMLDivElement>(null);
+
+  const selectedEvent = useMemo(
+    () => events.find((e) => e.id === selectedEventId),
+    [events, selectedEventId]
+  );
+
+  const eventPrimaryRange = selectedEvent?.dates?.[0];
+  const eventDateStartIso = eventPrimaryRange?.startDate?.slice(0, 10);
+  const eventDateEndIso = eventPrimaryRange?.endDate?.slice(0, 10) || eventDateStartIso;
+
+  const programDateStartForExport = config.display?.dateStart || eventDateStartIso;
+  const programDateEndForExport = config.display?.dateEnd || eventDateEndIso;
+
+  const dateRangeLabel =
+    formatDateRangeLabel(config.display?.dateStart, config.display?.dateEnd) ??
+    formatDateRangeLabel(eventDateStartIso, eventDateEndIso);
+
+  const dayDateLabel = getDayCalendarLabel(programDateStartForExport, selectedDay);
+
+  const applyEventDatesToDisplay = () => {
+    if (!eventDateStartIso) return;
+    setConfig((c) => ({
+      ...c,
+      display: {
+        ...c.display,
+        dateStart: eventDateStartIso,
+        dateEnd: eventDateEndIso || eventDateStartIso,
+      },
+    }));
+  };
 
   // Generate time slots based on config
   const generateTimeSlots = useCallback(() => {
@@ -175,6 +219,12 @@ const ProgramBuilder: React.FC = () => {
 
     loadEvents();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (organizerScopedEventId) {
+      setSelectedEventId(organizerScopedEventId);
+    }
+  }, [organizerScopedEventId]);
 
   // Fetch approved submissions for selected event
   useEffect(() => {
@@ -775,6 +825,7 @@ const ProgramBuilder: React.FC = () => {
         startTime: '09:00',
         endTime: '18:00',
         timeSlotWidth: 30,
+        display: {},
       });
       setVenues([
         { id: 'venue-1', name: 'Main Hall' },
@@ -946,6 +997,8 @@ const ProgramBuilder: React.FC = () => {
                     <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
                     <span className="text-xs text-slate-500">Loading events...</span>
                   </div>
+                ) : isEventScopeLocked ? (
+                  <p className="text-xs text-slate-600 py-2">Event is set from your workspace header.</p>
                 ) : (
                   <select
                     value={selectedEventId}
@@ -990,6 +1043,75 @@ const ProgramBuilder: React.FC = () => {
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <p className="text-xs text-slate-500 mt-1">Optional description for your program</p>
+              </div>
+
+              <div className="pb-4 border-b border-slate-200">
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Program subtitle
+                </label>
+                <input
+                  type="text"
+                  value={config.display?.subtitle ?? ''}
+                  onChange={(e) =>
+                    setConfig((c) => ({
+                      ...c,
+                      display: { ...c.display, subtitle: e.target.value },
+                    }))
+                  }
+                  placeholder="e.g., Scientific sessions · Track A"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-xs text-slate-500 mt-1">Shown under the title in preview and exports</p>
+              </div>
+
+              <div className="pb-4 border-b border-slate-200 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-sm font-medium text-slate-700">
+                    Program dates
+                  </label>
+                  {eventDateStartIso ? (
+                    <button
+                      type="button"
+                      onClick={applyEventDatesToDisplay}
+                      className="text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                    >
+                      Use event dates
+                    </button>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Start</label>
+                    <input
+                      type="date"
+                      value={config.display?.dateStart ?? ''}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          display: { ...c.display, dateStart: e.target.value || undefined },
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">End</label>
+                    <input
+                      type="date"
+                      value={config.display?.dateEnd ?? ''}
+                      onChange={(e) =>
+                        setConfig((c) => ({
+                          ...c,
+                          display: { ...c.display, dateEnd: e.target.value || undefined },
+                        }))
+                      }
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Used for the header and day labels in preview, PDF, and PNG
+                </p>
               </div>
 
               <div>
@@ -1095,6 +1217,8 @@ const ProgramBuilder: React.FC = () => {
                         <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
                         <span className="text-xs text-slate-500">Loading events...</span>
                       </div>
+                    ) : isEventScopeLocked ? (
+                      <p className="text-xs text-slate-600 py-2">Event is set from your workspace header.</p>
                     ) : (
                       <select
                         value={selectedEventId}
@@ -1481,6 +1605,12 @@ const ProgramBuilder: React.FC = () => {
           timeSlots={timeSlots}
           config={config}
           selectedDay={selectedDay}
+          programTitle={programName.trim() || 'Program'}
+          programSubtitle={config.display?.subtitle}
+          programDescription={programDescription}
+          dateRangeLabel={dateRangeLabel}
+          dayDateLabel={dayDateLabel}
+          scheduleHoursLabel={`${config.startTime} – ${config.endTime}`}
         />
       )}
 

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Loader2, AlertCircle } from 'lucide-react';
 import { updateEventPublishStatus } from '../../../services/eventService';
 import { PublishStatus } from '../../../types';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
 
 interface PublishHandlerProps {
   eventId: string;
@@ -16,6 +17,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
   onStatusChange,
   onClose,
 }) => {
+  const { t } = useAdminTranslation('eventForm');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -28,7 +30,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
       onClose();
     } catch (err: any) {
       console.error('Error updating publish status:', err);
-      setError(err.message || 'Failed to update publish status');
+      setError(err.message || t('errPublishStatus'));
     } finally {
       setLoading(false);
     }
@@ -40,7 +42,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
           <div className="flex items-center justify-between p-6 border-b border-slate-200">
-            <h2 className="text-xl font-semibold text-slate-900">Publish Event</h2>
+            <h2 className="text-xl font-semibold text-slate-900">{t('publishModalTitle')}</h2>
             <button
               onClick={onClose}
               className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
@@ -59,7 +61,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
             )}
             
             <p className="text-slate-600 mb-6">
-              Are you sure you want to publish this event? Published events will be visible to participants.
+              {t('publishConfirmBody')}
             </p>
             
             <div className="flex gap-3">
@@ -68,7 +70,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
                 disabled={loading}
                 className="flex-1 px-4 py-2 text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50"
               >
-                Cancel
+                {t('btnCancel')}
               </button>
               <button
                 onClick={() => handleStatusChange('Published')}
@@ -78,10 +80,10 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Publishing...
+                    {t('publishPublishing')}
                   </>
                 ) : (
-                  'Publish'
+                  t('publishBtn')
                 )}
               </button>
             </div>
@@ -97,7 +99,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
         <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
           <div className="flex items-center justify-between p-6 border-b border-slate-200">
-            <h2 className="text-xl font-semibold text-slate-900">Change Publication Status</h2>
+            <h2 className="text-xl font-semibold text-slate-900">{t('changeStatusTitle')}</h2>
             <button
               onClick={onClose}
               className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
@@ -116,7 +118,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
             )}
             
             <p className="text-slate-600 mb-6">
-              Choose an action for this published event:
+              {t('changeStatusIntro')}
             </p>
             
             <div className="space-y-3">
@@ -128,12 +130,12 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Updating...
+                    {t('updating')}
                   </>
                 ) : (
                   <>
-                    <span className="font-medium">Unpublish</span>
-                    <span className="text-xs text-slate-500">(Change to Draft)</span>
+                    <span className="font-medium">{t('unpublishLabel')}</span>
+                    <span className="text-xs text-slate-500">{t('unpublishHint')}</span>
                   </>
                 )}
               </button>
@@ -146,12 +148,12 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Updating...
+                    {t('updating')}
                   </>
                 ) : (
                   <>
-                    <span className="font-medium">Close Event</span>
-                    <span className="text-xs text-white/80">(Mark as Closed)</span>
+                    <span className="font-medium">{t('closeEventLabel')}</span>
+                    <span className="text-xs text-white/80">{t('closeEventHint')}</span>
                   </>
                 )}
               </button>
@@ -162,7 +164,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
               disabled={loading}
               className="mt-4 w-full px-4 py-2 text-slate-600 hover:text-slate-700 transition-colors disabled:opacity-50"
             >
-              Cancel
+              {t('btnCancel')}
             </button>
           </div>
         </div>
@@ -175,7 +177,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4">
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
-          <h2 className="text-xl font-semibold text-slate-900">Reopen Event</h2>
+          <h2 className="text-xl font-semibold text-slate-900">{t('reopenTitle')}</h2>
           <button
             onClick={onClose}
             className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
@@ -194,7 +196,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
           )}
           
           <p className="text-slate-600 mb-6">
-            This event is currently closed. Choose how you want to reopen it:
+            {t('reopenIntro')}
           </p>
           
           <div className="space-y-3">
@@ -206,12 +208,12 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Updating...
+                  {t('updating')}
                 </>
               ) : (
                 <>
-                  <span className="font-medium">Reopen as Published</span>
-                  <span className="text-xs text-white/80">(Visible to participants)</span>
+                  <span className="font-medium">{t('reopenPublishedLabel')}</span>
+                  <span className="text-xs text-white/80">{t('reopenPublishedHint')}</span>
                 </>
               )}
             </button>
@@ -224,12 +226,12 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
               {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Updating...
+                  {t('updating')}
                 </>
               ) : (
                 <>
-                  <span className="font-medium">Reopen as Draft</span>
-                  <span className="text-xs text-slate-500">(Not visible to participants)</span>
+                  <span className="font-medium">{t('reopenDraftLabel')}</span>
+                  <span className="text-xs text-slate-500">{t('reopenDraftHint')}</span>
                 </>
               )}
             </button>
@@ -240,7 +242,7 @@ const PublishHandler: React.FC<PublishHandlerProps> = ({
             disabled={loading}
             className="mt-4 w-full px-4 py-2 text-slate-600 hover:text-slate-700 transition-colors disabled:opacity-50"
           >
-            Cancel
+            {t('btnCancel')}
           </button>
         </div>
       </div>

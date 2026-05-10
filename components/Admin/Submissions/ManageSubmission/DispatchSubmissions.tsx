@@ -20,9 +20,12 @@ import { getCommittees, Committee } from '../../../../services/committeeService'
 import { getCommitteeMembers } from '../../../../services/committeeMemberService';
 import { saveDispatchSubmission, getDispatchSubmission } from '../../../../services/dispatchService';
 import { DispatchSubmission, ReviewCommitteeMember } from '../../../../types';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
 
 const DispatchSubmissions: React.FC = () => {
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const isEventScopeLocked = !!organizerScopedEventId;
   const [events, setEvents] = useState<Event[]>([]);
   const [forms, setForms] = useState<RegistrationForm[]>([]);
   const [evaluationForms, setEvaluationForms] = useState<EvaluationForm[]>([]);
@@ -164,6 +167,12 @@ const DispatchSubmissions: React.FC = () => {
       loadInitialData();
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (organizerScopedEventId) {
+      setSelectedEventId(organizerScopedEventId);
+    }
+  }, [organizerScopedEventId]);
 
   // Auto-select first form when event is selected
   useEffect(() => {
@@ -449,26 +458,31 @@ const DispatchSubmissions: React.FC = () => {
           <label className="block text-sm font-medium text-slate-700 mb-2">
             Select Event
           </label>
-          <select
-            value={selectedEventId}
-            onChange={(e) => {
-              setSelectedEventId(e.target.value);
-              // Form will be auto-selected by useEffect if event has forms
-            }}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">-- Select an event --</option>
-            {events
-              .filter(event => 
-                (event.submissionFormIds && event.submissionFormIds.length > 0) ||
-                (event.evaluationFormIds && event.evaluationFormIds.length > 0)
-              )
-              .map(event => (
-                <option key={event.id} value={event.id}>
-                  {event.name}
-                </option>
-              ))}
-          </select>
+          {isEventScopeLocked ? (
+            <p className="text-sm text-slate-600 py-2">
+              Using your selected event from the workspace header.
+            </p>
+          ) : (
+            <select
+              value={selectedEventId}
+              onChange={(e) => {
+                setSelectedEventId(e.target.value);
+              }}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- Select an event --</option>
+              {events
+                .filter(event => 
+                  (event.submissionFormIds && event.submissionFormIds.length > 0) ||
+                  (event.evaluationFormIds && event.evaluationFormIds.length > 0)
+                )
+                .map(event => (
+                  <option key={event.id} value={event.id}>
+                    {event.name}
+                  </option>
+                ))}
+            </select>
+          )}
         </div>
 
         <div>

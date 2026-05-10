@@ -1,7 +1,9 @@
 import React from 'react';
 import { Bell, ArrowRight } from 'lucide-react';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
 
 const UpdatesCard: React.FC = () => {
+  const { t } = useAdminTranslation('eventForm');
   const handleClick = () => {
     // TODO: Navigate to updates page when implemented
     console.log('Updates clicked');
@@ -18,9 +20,9 @@ const UpdatesCard: React.FC = () => {
         </div>
         <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-purple-600 group-hover:translate-x-1 transition-all" />
       </div>
-      <h3 className="text-lg font-semibold text-slate-900 mb-2">Updates</h3>
+      <h3 className="text-lg font-semibold text-slate-900 mb-2">{t('cardUpdates')}</h3>
       <p className="text-sm text-slate-500">
-        Manage event announcements, notifications, and updates for participants.
+        {t('cardUpdatesBody')}
       </p>
     </div>
   );

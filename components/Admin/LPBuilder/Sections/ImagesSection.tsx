@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ImageGroup } from '../../../../types';
 import { Image, ChevronLeft, ChevronRight } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface ImagesSectionProps {
   groups: ImageGroup[];
@@ -14,6 +15,7 @@ const ImagesSection: React.FC<ImagesSectionProps> = ({
   title = "Gallery", 
   titleAlignment = 'center' 
 }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
   const containerAlignClass = titleAlignment === 'left' ? 'items-start' : titleAlignment === 'right' ? 'items-end' : 'items-center';
   const isTitleArabic = isArabic(title);
@@ -53,12 +55,13 @@ interface ImageGroupDisplayProps {
 
 const ImageGroupDisplay: React.FC<ImageGroupDisplayProps> = ({ group }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const { t } = useAdminTranslation('pageBuilder');
 
   if (!group.images || group.images.length === 0) {
     return (
       <div className="text-center py-12 text-slate-400">
         <Image size={48} className="mx-auto mb-4 opacity-20" />
-        <p className="text-sm">No images in this group</p>
+        <p className="text-sm">{t('edSecImagesNoImages')}</p>
       </div>
     );
   }
@@ -99,6 +102,7 @@ interface CatalogueDisplayProps {
 }
 
 const CatalogueDisplay: React.FC<CatalogueDisplayProps> = ({ group, currentIndex, setCurrentIndex }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const maxVisible = 5; // Maximum 5 images visible (1 main + 4 small)
   const mainImage = group.images[currentIndex];
   const smallImages = group.images.filter((_, idx) => idx !== currentIndex).slice(0, 4);
@@ -143,14 +147,14 @@ const CatalogueDisplay: React.FC<CatalogueDisplayProps> = ({ group, currentIndex
                   <button
                     onClick={() => setCurrentIndex((currentIndex - 1 + group.images.length) % group.images.length)}
                     className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 shadow-lg transition-all hover:scale-110"
-                    aria-label="Previous image"
+                    aria-label={t('edAriaPrevImage')}
                   >
                     <ChevronLeft size={22} className="text-indigo-600" />
                   </button>
                   <button
                     onClick={() => setCurrentIndex((currentIndex + 1) % group.images.length)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 shadow-lg transition-all hover:scale-110"
-                    aria-label="Next image"
+                    aria-label={t('edAriaNextImage')}
                   >
                     <ChevronRight size={22} className="text-indigo-600" />
                   </button>
@@ -177,14 +181,14 @@ const CatalogueDisplay: React.FC<CatalogueDisplayProps> = ({ group, currentIndex
                   <button
                     onClick={() => setCurrentIndex((currentIndex - 1 + group.images.length) % group.images.length)}
                     className="absolute left-3 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 shadow-lg transition-all hover:scale-110"
-                    aria-label="Previous image"
+                    aria-label={t('edAriaPrevImage')}
                   >
                     <ChevronLeft size={22} className="text-indigo-600" />
                   </button>
                   <button
                     onClick={() => setCurrentIndex((currentIndex + 1) % group.images.length)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-2 shadow-lg transition-all hover:scale-110"
-                    aria-label="Next image"
+                    aria-label={t('edAriaNextImage')}
                   >
                     <ChevronRight size={22} className="text-indigo-600" />
                   </button>
@@ -241,14 +245,14 @@ const CatalogueDisplay: React.FC<CatalogueDisplayProps> = ({ group, currentIndex
                     <button
                       onClick={() => setCurrentIndex((currentIndex - 1 + group.images.length) % group.images.length)}
                       className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-1.5 shadow-lg transition-all hover:scale-110"
-                      aria-label="Previous image"
+                      aria-label={t('edAriaPrevImage')}
                     >
                       <ChevronLeft size={20} className="text-indigo-600" />
                     </button>
                     <button
                       onClick={() => setCurrentIndex((currentIndex + 1) % group.images.length)}
                       className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-1.5 shadow-lg transition-all hover:scale-110"
-                      aria-label="Next image"
+                      aria-label={t('edAriaNextImage')}
                     >
                       <ChevronRight size={20} className="text-indigo-600" />
                     </button>
@@ -283,7 +287,7 @@ const CatalogueDisplay: React.FC<CatalogueDisplayProps> = ({ group, currentIndex
                     className={`w-2 h-2 rounded-full transition-all ${
                       idx === currentIndex ? 'bg-indigo-600 w-8' : 'bg-slate-300 hover:bg-slate-400'
                     }`}
-                    aria-label={`Go to image ${idx + 1}`}
+                    aria-label={t('edAriaGoToImage', { n: idx + 1 })}
                   />
                 ))}
               </div>
@@ -336,14 +340,14 @@ const CatalogueDisplay: React.FC<CatalogueDisplayProps> = ({ group, currentIndex
                       <button
                         onClick={() => setCurrentIndex((currentIndex - 1 + group.images.length) % group.images.length)}
                         className="absolute left-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-1.5 shadow-lg transition-all hover:scale-110"
-                        aria-label="Previous image"
+                        aria-label={t('edAriaPrevImage')}
                       >
                         <ChevronLeft size={20} className="text-indigo-600" />
                       </button>
                       <button
                         onClick={() => setCurrentIndex((currentIndex + 1) % group.images.length)}
                         className="absolute right-2 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-1.5 shadow-lg transition-all hover:scale-110"
-                        aria-label="Next image"
+                        aria-label={t('edAriaNextImage')}
                       >
                         <ChevronRight size={20} className="text-indigo-600" />
                       </button>
@@ -391,7 +395,7 @@ const CatalogueDisplay: React.FC<CatalogueDisplayProps> = ({ group, currentIndex
                     className={`w-2 h-2 rounded-full transition-all ${
                       idx === currentIndex ? 'bg-indigo-600 w-8' : 'bg-slate-300 hover:bg-slate-400'
                     }`}
-                    aria-label={`Go to image ${idx + 1}`}
+                    aria-label={t('edAriaGoToImage', { n: idx + 1 })}
                   />
                 ))}
               </div>
@@ -414,6 +418,7 @@ interface SliderDisplayProps {
 }
 
 const SliderDisplay: React.FC<SliderDisplayProps> = ({ group, currentIndex, setCurrentIndex }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const isRTL = group.format === 'slider-rtl';
 
   const nextImage = () => {
@@ -452,14 +457,14 @@ const SliderDisplay: React.FC<SliderDisplayProps> = ({ group, currentIndex, setC
             <button
               onClick={isRTL ? nextImage : prevImage}
               className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-3 shadow-lg transition-all hover:scale-110 z-10"
-              aria-label="Previous image"
+              aria-label={t('edAriaPrevImage')}
             >
               <ChevronLeft size={24} className="text-indigo-600" />
             </button>
             <button
               onClick={isRTL ? prevImage : nextImage}
               className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/90 hover:bg-white rounded-full p-3 shadow-lg transition-all hover:scale-110 z-10"
-              aria-label="Next image"
+              aria-label={t('edAriaNextImage')}
             >
               <ChevronRight size={24} className="text-indigo-600" />
             </button>
@@ -477,7 +482,7 @@ const SliderDisplay: React.FC<SliderDisplayProps> = ({ group, currentIndex, setC
               className={`w-2 h-2 rounded-full transition-all ${
                 idx === currentIndex ? 'bg-indigo-600 w-8' : 'bg-slate-300 hover:bg-slate-400'
               }`}
-              aria-label={`Go to image ${idx + 1}`}
+              aria-label={t('edAriaGoToImage', { n: idx + 1 })}
             />
           ))}
         </div>

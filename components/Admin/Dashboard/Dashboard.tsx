@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, Legend, AreaChart, Area
@@ -15,6 +15,9 @@ import { getSubmissionsForEvents } from '../../../services/registrationSubmissio
 import { getDashboardPaymentData } from '../../../services/paymentService';
 import { getReviewsForEvents } from '../../../services/reviewService';
 import { Event, FormSubmission, PaymentTransaction, ParticipantReview } from '../../../types';
+import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
+import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
+import { useOrganizerScopedEventId } from '../../../contexts/OrganizerEventScopeContext';
 
 const StatCard = ({ title, value, subtext, icon: Icon, color, trend }: any) => (
   <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-start justify-between hover:shadow-md transition-shadow">
@@ -54,6 +57,7 @@ const NotificationCard = ({ type, title, message, time, icon: Icon, color }: any
 
 const Dashboard: React.FC = () => {
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -95,6 +99,11 @@ const Dashboard: React.FC = () => {
   const [eventStatusData, setEventStatusData] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
 
+  const { t } = useAdminTranslation('dashboard');
+  const { t: tc } = useAdminTranslation('common');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
+
   useEffect(() => {
     if (currentUser?.id) {
       loadDashboardData();
@@ -102,7 +111,7 @@ const Dashboard: React.FC = () => {
       // User is not logged in, stop loading
       setLoading(false);
     }
-  }, [currentUser?.id]); // Use id only - prevents reload when Supabase refreshes session on window focus (new object ref, same user)
+  }, [currentUser?.id, organizerScopedEventId]);
 
   const loadDashboardData = async () => {
     if (!currentUser?.id) {
@@ -130,7 +139,10 @@ const Dashboard: React.FC = () => {
         }),
       ]);
 
-      const events = eventsData.status === 'fulfilled' ? eventsData.value : [];
+      let events = eventsData.status === 'fulfilled' ? eventsData.value : [];
+      if (organizerScopedEventId) {
+        events = events.filter((e) => e.id === organizerScopedEventId);
+      }
       const committees = committeesData.status === 'fulfilled' ? committeesData.value : [];
       const paymentBundle =
         paymentBundleData.status === 'fulfilled'
@@ -203,13 +215,13 @@ const Dashboard: React.FC = () => {
 
     } catch (err: any) {
       console.error('Error loading dashboard data:', err);
-      setError(err.message || 'Failed to load dashboard data');
+      setError(err.message || t('loadDataFailed'));
     } finally {
       setLoading(false);
     }
   };
 
-  const calculateStatistics = (
+  const calculateStatistics = useCallback((
     eventsData: Event[],
     registrationsData: FormSubmission[],
     submissionsData: FormSubmission[],
@@ -281,9 +293,9 @@ const Dashboard: React.FC = () => {
     
     setStats(statsData);
     return statsData;
-  };
+  }, []);
 
-  const prepareChartData = (
+  const prepareChartData = useCallback((
     registrationsData: FormSubmission[],
     submissionsData: FormSubmission[],
     transactionsData: PaymentTransaction[],
@@ -299,7 +311,7 @@ const Dashboard: React.FC = () => {
     for (let i = 5; i >= 0; i--) {
       const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
       monthBuckets.push({
-        name: start.toLocaleDateString('en-US', { month: 'short' }),
+        name: start.toLocaleDateString(localeTag, { month: 'short' }),
         start,
         registrations: 0,
         submissions: 0,
@@ -329,9 +341,9 @@ const Dashboard: React.FC = () => {
     );
 
     setSubmissionStatusData([
-      { name: 'Accepted', value: calculatedStats.acceptedSubmissions, color: '#10b981' },
-      { name: 'Rejected', value: calculatedStats.rejectedSubmissions, color: '#ef4444' },
-      { name: 'Pending', value: calculatedStats.pendingSubmissions, color: '#f59e0b' },
+      { name: t('submissionAccepted'), value: calculatedStats.acceptedSubmissions, color: '#10b981' },
+      { name: t('submissionRejected'), value: calculatedStats.rejectedSubmissions, color: '#ef4444' },
+      { name: t('submissionPending'), value: calculatedStats.pendingSubmissions, color: '#f59e0b' },
     ]);
 
     const paymentMonths = monthBuckets.map((b) => ({ name: b.name, revenue: 0 }));
@@ -344,13 +356,13 @@ const Dashboard: React.FC = () => {
     setPaymentChartData(paymentMonths);
 
     setEventStatusData([
-      { name: 'Published', value: calculatedStats.publishedEvents, color: '#10b981' },
-      { name: 'Draft', value: calculatedStats.draftEvents, color: '#f59e0b' },
-      { name: 'Closed', value: calculatedStats.closedEvents, color: '#6b7280' },
+      { name: t('eventPublished'), value: calculatedStats.publishedEvents, color: '#10b981' },
+      { name: t('eventDraft'), value: calculatedStats.draftEvents, color: '#f59e0b' },
+      { name: t('eventClosed'), value: calculatedStats.closedEvents, color: '#6b7280' },
     ]);
-  };
+  }, [t, localeTag]);
 
-  const prepareNotifications = (
+  const prepareNotifications = useCallback((
     eventsData: Event[],
     submissionsData: FormSubmission[],
     registrationsData: FormSubmission[],
@@ -364,9 +376,12 @@ const Dashboard: React.FC = () => {
     recentRegistrations.slice(0, 3).forEach(reg => {
       notifs.push({
         type: 'registration',
-        title: 'New Registration',
-        message: `${reg.generalInfo?.name || reg.submittedBy || 'Someone'} registered for ${reg.eventTitle || 'an event'}`,
-        time: new Date(reg.submittedAt).toLocaleString(),
+        title: t('notifNewRegistration'),
+        message: t('notifRegBody', {
+          name: String(reg.generalInfo?.name || reg.submittedBy || tc('someone')),
+          event: String(reg.eventTitle || t('eventGenericAn')),
+        }),
+        time: new Date(reg.submittedAt).toLocaleString(localeTag),
         icon: Users,
         color: 'bg-blue-500',
       });
@@ -377,9 +392,11 @@ const Dashboard: React.FC = () => {
     pendingSubs.forEach(sub => {
       notifs.push({
         type: 'submission',
-        title: 'Pending Submission',
-        message: `Submission from ${sub.generalInfo?.name || sub.submittedBy || 'Unknown'} needs review`,
-        time: new Date(sub.submittedAt).toLocaleString(),
+        title: t('notifPendingSubmission'),
+        message: t('notifSubBody', {
+          name: String(sub.generalInfo?.name || sub.submittedBy || tc('unknown')),
+        }),
+        time: new Date(sub.submittedAt).toLocaleString(localeTag),
         icon: FileText,
         color: 'bg-amber-500',
       });
@@ -400,9 +417,11 @@ const Dashboard: React.FC = () => {
     upcomingDeadlines.forEach(event => {
       notifs.push({
         type: 'deadline',
-        title: 'Upcoming Deadline',
-        message: `Registration deadline for ${event.name} is approaching`,
-        time: event.registrationDeadline ? new Date(event.registrationDeadline).toLocaleDateString() : '',
+        title: t('notifUpcomingDeadline'),
+        message: t('notifDeadlineBody', { event: event.name }),
+        time: event.registrationDeadline
+          ? new Date(event.registrationDeadline).toLocaleDateString(localeTag)
+          : '',
         icon: Calendar,
         color: 'bg-red-500',
       });
@@ -416,9 +435,13 @@ const Dashboard: React.FC = () => {
     recentPayments.forEach(trans => {
       notifs.push({
         type: 'payment',
-        title: 'Payment Received',
-        message: `${trans.amount} ${trans.currency} from ${trans.participantName || trans.participantEmail || 'Unknown'}`,
-        time: new Date(trans.transactionDate).toLocaleString(),
+        title: t('notifPaymentReceived'),
+        message: t('notifPayBody', {
+          amount: String(trans.amount),
+          currency: String(trans.currency),
+          from: String(trans.participantName || trans.participantEmail || tc('unknown')),
+        }),
+        time: new Date(trans.transactionDate).toLocaleString(localeTag),
         icon: DollarSign,
         color: 'bg-green-500',
       });
@@ -427,7 +450,24 @@ const Dashboard: React.FC = () => {
     // Sort by time (most recent first) and limit to 10
     notifs.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
     setNotifications(notifs.slice(0, 10));
-  };
+  }, [t, tc, localeTag]);
+
+  useEffect(() => {
+    if (loading || !currentUser?.id) return;
+    prepareChartData(registrations, submissions, transactions, stats);
+    prepareNotifications(events, submissions, registrations, transactions);
+  }, [
+    language,
+    loading,
+    currentUser?.id,
+    registrations,
+    submissions,
+    transactions,
+    stats,
+    events,
+    prepareChartData,
+    prepareNotifications,
+  ]);
 
   const eventProgressCounts = useMemo(() => {
     const regBy = new Map<string, number>();
@@ -449,12 +489,59 @@ const Dashboard: React.FC = () => {
     return { regBy, subBy, revBy };
   }, [registrations, submissions, reviews]);
 
+  const safeRegistrationChartData = useMemo(
+    () =>
+      registrationChartData.length > 0
+        ? registrationChartData
+        : [
+            { name: t('monthJan'), registrations: 0, submissions: 0 },
+            { name: t('monthFeb'), registrations: 0, submissions: 0 },
+            { name: t('monthMar'), registrations: 0, submissions: 0 },
+            { name: t('monthApr'), registrations: 0, submissions: 0 },
+            { name: t('monthMay'), registrations: 0, submissions: 0 },
+            { name: t('monthJun'), registrations: 0, submissions: 0 },
+          ],
+    [registrationChartData, t]
+  );
+
+  const safeSubmissionStatusData = useMemo(
+    () =>
+      submissionStatusData.length > 0
+        ? submissionStatusData
+        : [
+            { name: t('submissionAccepted'), value: 0, color: '#10b981' },
+            { name: t('submissionRejected'), value: 0, color: '#ef4444' },
+            { name: t('submissionPending'), value: 0, color: '#f59e0b' },
+          ],
+    [submissionStatusData, t]
+  );
+
+  const safePaymentChartData = useMemo(
+    () =>
+      paymentChartData.length > 0
+        ? paymentChartData
+        : safeRegistrationChartData.map((m) => ({ ...m, revenue: 0 })),
+    [paymentChartData, safeRegistrationChartData]
+  );
+
+  const safeEventStatusData = useMemo(
+    () =>
+      eventStatusData.length > 0
+        ? eventStatusData
+        : [
+            { name: t('eventPublished'), value: 0, color: '#10b981' },
+            { name: t('eventDraft'), value: 0, color: '#f59e0b' },
+            { name: t('eventClosed'), value: 0, color: '#6b7280' },
+          ],
+    [eventStatusData, t]
+  );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="mt-4 text-slate-600">Loading dashboard...</p>
+          <p className="mt-4 text-slate-600">{t('loadingDashboard')}</p>
         </div>
       </div>
     );
@@ -463,108 +550,94 @@ const Dashboard: React.FC = () => {
   if (error) {
     return (
       <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-        <p className="text-red-800">Error: {error}</p>
-        <button 
+        <p className="text-red-800">
+          {tc('errorPrefix')} {error}
+        </p>
+        <button
+          type="button"
           onClick={loadDashboardData}
           className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
         >
-          Retry
+          {tc('retry')}
         </button>
       </div>
     );
   }
 
-  // Ensure chart data has at least empty arrays
-  const safeRegistrationChartData = registrationChartData.length > 0 ? registrationChartData : [
-    { name: 'Jan', registrations: 0, submissions: 0 },
-    { name: 'Feb', registrations: 0, submissions: 0 },
-    { name: 'Mar', registrations: 0, submissions: 0 },
-    { name: 'Apr', registrations: 0, submissions: 0 },
-    { name: 'May', registrations: 0, submissions: 0 },
-    { name: 'Jun', registrations: 0, submissions: 0 },
-  ];
-  
-  const safeSubmissionStatusData = submissionStatusData.length > 0 ? submissionStatusData : [
-    { name: 'Accepted', value: 0, color: '#10b981' },
-    { name: 'Rejected', value: 0, color: '#ef4444' },
-    { name: 'Pending', value: 0, color: '#f59e0b' },
-  ];
-  
-  const safePaymentChartData = paymentChartData.length > 0 ? paymentChartData : safeRegistrationChartData.map(m => ({ ...m, revenue: 0 }));
-  
-  const safeEventStatusData = eventStatusData.length > 0 ? eventStatusData : [
-    { name: 'Published', value: 0, color: '#10b981' },
-    { name: 'Draft', value: 0, color: '#f59e0b' },
-    { name: 'Closed', value: 0, color: '#6b7280' },
-  ];
-
   return (
     <div className="h-full w-full overflow-auto">
       <div className="max-w-[1920px] mx-auto space-y-6 animate-fade-in p-4">
         <header className="mb-8">
-          <h1 className="text-3xl font-bold text-slate-900">Organizer Dashboard</h1>
-          <p className="text-slate-500 mt-2">Comprehensive overview of all your events, registrations, submissions, and activities</p>
+          <h1 className="text-3xl font-bold text-slate-900">{t('organizerTitle')}</h1>
+          <p className="text-slate-500 mt-2">{t('organizerSubtitle')}</p>
         </header>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
-          title="Total Events" 
+          title={t('statTotalEvents')} 
           value={stats.totalEvents}
-          subtext={`${stats.publishedEvents} Published, ${stats.draftEvents} Draft`}
+          subtext={t('statPublishedDraft', { published: stats.publishedEvents, draft: stats.draftEvents })}
           icon={Calendar} 
           color="bg-blue-500"
           trend={stats.publishedEvents > 0 ? 'up' : undefined}
         />
         <StatCard 
-          title="Total Registrations" 
+          title={t('statTotalRegistrations')} 
           value={stats.totalRegistrations}
           subtext={safeRegistrationChartData.length > 0 && safeRegistrationChartData[safeRegistrationChartData.length - 1]?.registrations > 0 ? 
-            `+${safeRegistrationChartData[safeRegistrationChartData.length - 1]?.registrations || 0} this month` : 
-            'No recent activity'}
+            t('statThisMonth', { n: safeRegistrationChartData[safeRegistrationChartData.length - 1]?.registrations || 0 }) : 
+            t('statNoRecentActivity')}
           icon={Users} 
           color="bg-indigo-500"
           trend={safeRegistrationChartData.length > 0 && safeRegistrationChartData[safeRegistrationChartData.length - 1]?.registrations > 0 ? 'up' : undefined}
         />
         <StatCard 
-          title="Submissions Received" 
+          title={t('statSubmissionsReceived')} 
           value={stats.totalSubmissions}
-          subtext={`${stats.pendingSubmissions} Pending Review`}
+          subtext={t('statPendingReview', { n: stats.pendingSubmissions })}
           icon={FileText} 
           color="bg-purple-500"
         />
         <StatCard 
-          title="Reviews Completed" 
+          title={t('statReviewsCompleted')} 
           value={stats.completedReviews}
-          subtext={`${stats.totalReviews > 0 ? Math.round((stats.completedReviews / stats.totalReviews) * 100) : 0}% Completion Rate`}
+          subtext={t('statCompletionRate', {
+            pct: stats.totalReviews > 0 ? Math.round((stats.completedReviews / stats.totalReviews) * 100) : 0,
+          })}
           icon={CheckCircle} 
           color="bg-emerald-500"
         />
         <StatCard 
-          title="Committees" 
+          title={t('statCommittees')} 
           value={stats.totalCommittees}
-          subtext={`${stats.totalCommitteeMembers} Total Members`}
+          subtext={t('statTotalMembers', { n: stats.totalCommitteeMembers })}
           icon={ClipboardList} 
           color="bg-cyan-500"
         />
         <StatCard 
-          title="Total Revenue" 
-          value={`$${stats.totalRevenue.toLocaleString()}`}
-          subtext={`$${stats.pendingRevenue.toLocaleString()} Pending`}
+          title={t('statTotalRevenue')} 
+          value={`$${stats.totalRevenue.toLocaleString(localeTag)}`}
+          subtext={t('statPendingRevenue', { amount: `$${stats.pendingRevenue.toLocaleString(localeTag)}` })}
           icon={DollarSign} 
           color="bg-green-500"
         />
         <StatCard 
-          title="Payment Methods" 
+          title={t('statPaymentMethods')} 
           value={stats.totalPayments}
-          subtext={`${transactions.filter(t => t.status === 'completed').length} Completed Transactions`}
+          subtext={t('statCompletedTransactions', {
+            n: transactions.filter((tr) => tr.status === 'completed').length,
+          })}
           icon={Activity} 
           color="bg-teal-500"
         />
         <StatCard 
-          title="Submission Status" 
+          title={t('statSubmissionStatus')} 
           value={`${stats.acceptedSubmissions}/${stats.totalSubmissions}`}
-          subtext={`${stats.rejectedSubmissions} Rejected, ${stats.pendingSubmissions} Pending`}
+          subtext={t('statRejectedPending', {
+            rejected: stats.rejectedSubmissions,
+            pending: stats.pendingSubmissions,
+          })}
           icon={CheckCircle2} 
           color="bg-orange-500"
         />
@@ -574,7 +647,7 @@ const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Registration & Submission Growth */}
         <div key="chart-registration-growth" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Registration & Submission Growth</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">{t('chartRegistrationGrowth')}</h3>
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={safeRegistrationChartData}>
@@ -619,7 +692,7 @@ const Dashboard: React.FC = () => {
 
         {/* Submission Status Distribution */}
         <div key="chart-submission-status" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Submission Status</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">{t('chartSubmissionStatus')}</h3>
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -646,7 +719,7 @@ const Dashboard: React.FC = () => {
 
         {/* Payment Revenue */}
         <div key="chart-payment-revenue" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Revenue Trend</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">{t('chartRevenueTrend')}</h3>
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={safePaymentChartData}>
@@ -655,7 +728,7 @@ const Dashboard: React.FC = () => {
                 <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b'}} />
                 <Tooltip 
                   contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
-                  formatter={(value: any) => `$${value.toLocaleString()}`}
+                  formatter={(value: any) => `$${Number(value).toLocaleString(localeTag)}`}
                 />
                 <Bar key="revenue" dataKey="revenue" fill="#10b981" radius={[8, 8, 0, 0]} />
               </BarChart>
@@ -665,7 +738,7 @@ const Dashboard: React.FC = () => {
 
         {/* Event Status */}
         <div key="chart-event-status" className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Event Status Distribution</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">{t('chartEventStatusDistribution')}</h3>
           <div className="h-80 w-full">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -697,9 +770,11 @@ const Dashboard: React.FC = () => {
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
               <Bell className="w-5 h-5" />
-              Recent Notifications
+              {t('recentNotifications')}
             </h3>
-            <span className="text-sm text-slate-500">{notifications.length} notifications</span>
+            <span className="text-sm text-slate-500">
+              {t('notificationsCount', { n: notifications.length })}
+            </span>
           </div>
           <div className="space-y-3 max-h-96 overflow-y-auto">
             {notifications.length > 0 ? (
@@ -715,47 +790,47 @@ const Dashboard: React.FC = () => {
                 />
               ))
             ) : (
-              <p className="text-sm text-slate-500 text-center py-8">No recent notifications</p>
+              <p className="text-sm text-slate-500 text-center py-8">{t('noRecentNotifications')}</p>
             )}
           </div>
         </div>
 
         {/* Quick Stats Summary */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Quick Summary</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">{t('quickSummary')}</h3>
           <div className="space-y-4">
             <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-blue-600" />
-                <span className="text-sm font-medium text-slate-700">Accepted Submissions</span>
+                <span className="text-sm font-medium text-slate-700">{t('quickAcceptedSubmissions')}</span>
               </div>
               <span className="text-sm font-bold text-blue-600">{stats.acceptedSubmissions}</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-amber-50 rounded-lg">
               <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-amber-600" />
-                <span className="text-sm font-medium text-slate-700">Pending Reviews</span>
+                <span className="text-sm font-medium text-slate-700">{t('quickPendingReviews')}</span>
               </div>
               <span className="text-sm font-bold text-amber-600">{stats.draftReviews}</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
               <div className="flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-green-600" />
-                <span className="text-sm font-medium text-slate-700">Completed Revenue</span>
+                <span className="text-sm font-medium text-slate-700">{t('quickCompletedRevenue')}</span>
               </div>
-              <span className="text-sm font-bold text-green-600">${stats.completedRevenue.toLocaleString()}</span>
+              <span className="text-sm font-bold text-green-600">${stats.completedRevenue.toLocaleString(localeTag)}</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-purple-600" />
-                <span className="text-sm font-medium text-slate-700">Committee Members</span>
+                <span className="text-sm font-medium text-slate-700">{t('quickCommitteeMembers')}</span>
               </div>
               <span className="text-sm font-bold text-purple-600">{stats.totalCommitteeMembers}</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 text-red-600" />
-                <span className="text-sm font-medium text-slate-700">Pending Submissions</span>
+                <span className="text-sm font-medium text-slate-700">{t('quickPendingSubmissions')}</span>
               </div>
               <span className="text-sm font-bold text-red-600">{stats.pendingSubmissions}</span>
             </div>
@@ -766,14 +841,21 @@ const Dashboard: React.FC = () => {
       {/* Event Progress Overview */}
       {events.length > 0 && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-800 mb-6">Event Progress Overview</h3>
+          <h3 className="text-lg font-semibold text-slate-800 mb-6">{t('eventProgressOverview')}</h3>
           <div className="space-y-4">
-            {events.slice(0, 5).map(event => {
+            {events.slice(0, 5).map((event) => {
               const eventRegistrations = eventProgressCounts.regBy.get(event.id) || 0;
               const eventSubmissions = eventProgressCounts.subBy.get(event.id) || 0;
               const rev = eventProgressCounts.revBy.get(event.id);
               const completedEventReviews = rev?.completed ?? 0;
               const eventReviewsTotal = rev?.total ?? 0;
+              const ps = event.publishStatus;
+              const statusLabel =
+                ps === 'Published'
+                  ? t('eventPublished')
+                  : ps === 'Closed'
+                    ? t('eventClosed')
+                    : t('eventDraft');
 
               return (
                 <div key={event.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow">
@@ -781,34 +863,42 @@ const Dashboard: React.FC = () => {
                     <div>
                       <h4 className="font-semibold text-slate-800">{event.name}</h4>
                       <p className="text-sm text-slate-500 mt-1">
-                        {event.publishStatus || 'Draft'} • {event.eventType || 'Event'} • {event.eventFormat || 'Format'}
+                        {t('eventMetaFallback', {
+                          status: statusLabel,
+                          type: event.eventType || t('eventTypeFallback'),
+                          format: event.eventFormat || t('formatFallback'),
+                        })}
                       </p>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                      event.publishStatus === 'Published' ? 'bg-green-100 text-green-700' :
-                      event.publishStatus === 'Closed' ? 'bg-gray-100 text-gray-700' :
-                      'bg-amber-100 text-amber-700'
-                    }`}>
-                      {event.publishStatus || 'Draft'}
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        event.publishStatus === 'Published'
+                          ? 'bg-green-100 text-green-700'
+                          : event.publishStatus === 'Closed'
+                            ? 'bg-gray-100 text-gray-700'
+                            : 'bg-amber-100 text-amber-700'
+                      }`}
+                    >
+                      {statusLabel}
                     </span>
                   </div>
                   <div className="grid grid-cols-4 gap-4 mt-4">
                     <div>
-                      <p className="text-xs text-slate-500">Registrations</p>
+                      <p className="text-xs text-slate-500">{t('colRegistrations')}</p>
                       <p className="text-lg font-bold text-slate-800">{eventRegistrations}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-500">Submissions</p>
+                      <p className="text-xs text-slate-500">{t('colSubmissions')}</p>
                       <p className="text-lg font-bold text-slate-800">{eventSubmissions}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-500">Reviews</p>
+                      <p className="text-xs text-slate-500">{t('colReviews')}</p>
                       <p className="text-lg font-bold text-slate-800">
                         {completedEventReviews}/{eventReviewsTotal}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-slate-500">Committees</p>
+                      <p className="text-xs text-slate-500">{t('colCommittees')}</p>
                       <p className="text-lg font-bold text-slate-800">
                         {event.committeeIds?.length || 0}
                       </p>

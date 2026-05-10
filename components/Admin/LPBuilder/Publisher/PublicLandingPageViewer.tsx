@@ -346,9 +346,25 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
           />
         );
       case 'submission':
-        return <SubmissionSection key={section.id} config={config?.submission || {}} title={section.title} />;
+        return (
+          <SubmissionSection
+            key={section.id}
+            config={config.submission ?? { steps: [], buttons: [] }}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+            formModalEventId={slug || 'public'}
+            formModalEventTitle={config?.title || ''}
+          />
+        );
       case 'committee':
-        return <ScientificCommitteeSection key={section.id} members={config?.committee || []} title={section.title} />;
+        return (
+          <ScientificCommitteeSection
+            key={section.id}
+            members={config?.committee || []}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+          />
+        );
       case 'pricing':
         return <PricingSection key={section.id} offers={config?.pricing || []} title={section.title} />;
       case 'partners':

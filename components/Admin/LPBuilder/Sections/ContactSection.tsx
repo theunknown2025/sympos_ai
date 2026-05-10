@@ -2,6 +2,7 @@ import React from 'react';
 import { ContactConfig } from '../../../../types';
 import { Mail, Phone, MapPin, User, Send } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface ContactSectionProps {
   config: ContactConfig;
@@ -10,6 +11,7 @@ interface ContactSectionProps {
 }
 
 const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contact Us", titleAlignment = 'center' }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
   const containerAlignClass = titleAlignment === 'left' ? 'items-start' : titleAlignment === 'right' ? 'items-end' : 'items-center';
   const isTitleArabic = isArabic(title);
@@ -32,7 +34,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
             )}
           </h2>
            <p className="text-slate-500 max-w-2xl mx-auto">
-             Have questions? Reach out to our organizing team.
+             {t('edSecContactIntro')}
            </p>
         </div>
 
@@ -40,7 +42,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
            {/* Left Column: Info & Map */}
            <div className="space-y-8 flex flex-col">
               <div className="bg-slate-50 p-8 rounded-2xl border border-slate-100 space-y-6">
-                 <h3 className="text-xl font-bold text-slate-900">Conference Information</h3>
+                 <h3 className="text-xl font-bold text-slate-900">{t('edSecContactConferenceInfo')}</h3>
                  
                  <div className="space-y-4">
                     {config.contactPerson && (
@@ -49,7 +51,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
                              <User size={18} />
                           </div>
                           <div>
-                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Contact Person</p>
+                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">{t('edSecContactPerson')}</p>
                              <p className="text-slate-800 font-medium">{config.contactPerson}</p>
                           </div>
                        </div>
@@ -61,7 +63,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
                              <Mail size={18} />
                           </div>
                           <div>
-                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Email</p>
+                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">{t('edSecContactEmailLabel')}</p>
                              <a href={`mailto:${config.email}`} className="text-slate-800 font-medium hover:text-indigo-600 transition-colors">{config.email}</a>
                           </div>
                        </div>
@@ -73,7 +75,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
                              <Phone size={18} />
                           </div>
                           <div>
-                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Phone</p>
+                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">{t('edSecContactPhoneLabel')}</p>
                              <p className="text-slate-800 font-medium">{config.phone}</p>
                           </div>
                        </div>
@@ -85,7 +87,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
                              <MapPin size={18} />
                           </div>
                           <div>
-                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Address</p>
+                             <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">{t('edSecContactAddress')}</p>
                              <p className="text-slate-800 font-medium leading-relaxed">{config.address}</p>
                           </div>
                        </div>
@@ -103,7 +105,7 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
                     allowFullScreen 
                     loading="lazy" 
                     referrerPolicy="no-referrer-when-downgrade"
-                    title="Conference Location"
+                    title={t('edSecContactMapTitle')}
                   ></iframe>
                 </div>
               )}
@@ -112,37 +114,37 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
            {/* Right Column: Form */}
            {config.showForm && (
              <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100 flex flex-col h-full">
-                <h3 className="text-2xl font-bold text-slate-900 mb-6">Send us a Message</h3>
+                <h3 className="text-2xl font-bold text-slate-900 mb-6">{t('edSecContactSendMessage')}</h3>
                 <form className="space-y-5 flex-1 flex flex-col" onSubmit={(e) => e.preventDefault()}>
                    <div className="grid grid-cols-2 gap-5">
                       <div className="space-y-2">
-                         <label className="text-sm font-medium text-slate-700">First Name</label>
-                         <input type="text" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all bg-white" placeholder="John" />
+                         <label className="text-sm font-medium text-slate-700">{t('edSecContactFirstName')}</label>
+                         <input type="text" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all bg-white" placeholder={t('edSecContactPhFirstName')} />
                       </div>
                       <div className="space-y-2">
-                         <label className="text-sm font-medium text-slate-700">Last Name</label>
-                         <input type="text" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all bg-white" placeholder="Doe" />
+                         <label className="text-sm font-medium text-slate-700">{t('edSecContactLastName')}</label>
+                         <input type="text" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all bg-white" placeholder={t('edSecContactPhLastName')} />
                       </div>
                    </div>
                    
                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-700">Email Address</label>
-                      <input type="email" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all bg-white" placeholder="john@example.com" />
+                      <label className="text-sm font-medium text-slate-700">{t('edSecContactEmail')}</label>
+                      <input type="email" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all bg-white" placeholder={t('edSecContactPhEmail')} />
                    </div>
 
                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-slate-700">Subject</label>
-                      <input type="text" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all bg-white" placeholder="Message Subject" />
+                      <label className="text-sm font-medium text-slate-700">{t('edSecContactSubject')}</label>
+                      <input type="text" className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all bg-white" placeholder={t('edSecContactPhSubject')} />
                    </div>
 
                    <div className="space-y-2 flex-1">
-                      <label className="text-sm font-medium text-slate-700">Message</label>
-                      <textarea className="w-full h-full min-h-[120px] px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all resize-none bg-white" placeholder="How can we help you?"></textarea>
+                      <label className="text-sm font-medium text-slate-700">{t('edSecContactMessage')}</label>
+                      <textarea className="w-full h-full min-h-[120px] px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all resize-none bg-white" placeholder={t('edSecContactPhMessage')}></textarea>
                    </div>
 
                    <button className="w-full bg-indigo-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-200 mt-4">
                       <Send size={18} />
-                      Send Message
+                      {t('edSecContactSendButton')}
                    </button>
                 </form>
              </div>
@@ -152,8 +154,8 @@ const ContactSection: React.FC<ContactSectionProps> = ({ config, title = "Contac
               <div className="flex items-center justify-center bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 p-12 text-center text-slate-400">
                  <div>
                     <Mail size={48} className="mx-auto mb-4 opacity-50" />
-                    <p className="text-lg font-medium">Message Form is Disabled</p>
-                    <p className="text-sm">Enable it in the editor to accept inquiries.</p>
+                    <p className="text-lg font-medium">{t('edSecContactFormDisabled')}</p>
+                    <p className="text-sm">{t('edSecContactFormDisabledHint')}</p>
                  </div>
               </div>
            )}

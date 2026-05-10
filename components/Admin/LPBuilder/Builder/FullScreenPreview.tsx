@@ -3,6 +3,8 @@ import { ConferenceConfig } from '../../../../types';
 import { X, Type, Calendar, MapPin } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
 import FormModal from '../../Tools/FormBuilder/FormModal';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
+import { useAdminDisplaySettings } from '../../../../contexts/AdminDisplaySettingsContext';
 
 // Import all preview sections
 import FaqSection from '../Sections/FaqSection';
@@ -34,6 +36,9 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
 }) => {
   const [showFormModal, setShowFormModal] = useState(false);
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
+  const { t } = useAdminTranslation('pageBuilder');
+  const { language } = useAdminDisplaySettings();
+  const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
   const renderPreviewSection = (section: any) => {
     if (!section.isVisible) return null;
 
@@ -55,7 +60,7 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
                     <div className="flex items-center gap-2 text-white/90">
                       <Calendar size={20} className="text-indigo-300" />
                       <span className="text-lg font-medium">
-                        {new Date(config.date).toLocaleDateString('en-US', { 
+                        {new Date(config.date).toLocaleDateString(localeTag, { 
                           year: 'numeric', 
                           month: 'long', 
                           day: 'numeric' 
@@ -75,10 +80,10 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
               {config.hero.showTimer && (
                 <div className={`flex gap-4 mb-10 ${config.hero.layout === 'center' ? 'justify-center' : 'justify-start'}`}>
                   {[
-                    { label: 'Days', value: timeLeft.days },
-                    { label: 'Hours', value: timeLeft.hours },
-                    { label: 'Min', value: timeLeft.minutes },
-                    { label: 'Sec', value: timeLeft.seconds }
+                    { label: t('previewCountdownDays'), value: timeLeft.days },
+                    { label: t('previewCountdownHours'), value: timeLeft.hours },
+                    { label: t('previewCountdownMin'), value: timeLeft.minutes },
+                    { label: t('previewCountdownSec'), value: timeLeft.seconds }
                   ].map((unit, i) => (
                     <div key={i} className="flex flex-col items-center justify-center bg-white/10 backdrop-blur-md rounded-xl p-3 min-w-[70px] border border-white/20 shadow-xl">
                       <span className="text-2xl font-bold text-white font-mono">{String(unit.value).padStart(2, '0')}</span>
@@ -244,9 +249,24 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
           />
         );
       case 'submission':
-        return <SubmissionSection key={section.id} config={config.submission} title={section.title} />;
+        return (
+          <SubmissionSection
+            key={section.id}
+            config={config.submission}
+            title={section.title}
+            formModalEventId={pageId || 'preview'}
+            formModalEventTitle={config.title}
+          />
+        );
       case 'committee':
-        return <ScientificCommitteeSection key={section.id} members={config.committee} title={section.title} />;
+        return (
+          <ScientificCommitteeSection
+            key={section.id}
+            members={config.committee}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+          />
+        );
       case 'pricing':
         return <PricingSection key={section.id} offers={config.pricing} title={section.title} />;
       case 'partners':
@@ -266,7 +286,7 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
       <button
         onClick={onClose}
         className="fixed top-4 right-4 z-[10000] w-10 h-10 bg-slate-800 text-white rounded-full flex items-center justify-center hover:bg-slate-700 transition-colors shadow-lg"
-        aria-label="Close full screen"
+        aria-label={t('closeFullscreenPreview')}
       >
         <X size={20} />
       </button>
@@ -308,7 +328,7 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
             <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center font-bold">S</div>
             <span className="font-bold uppercase tracking-widest">{config.title}</span>
           </div>
-          <p className="text-slate-500">© 2024 Built with Sympose AI Platform.</p>
+          <p className="text-slate-500">{t('previewFooterBuiltWith', { year: 2024 })}</p>
         </div>
       </footer>
 

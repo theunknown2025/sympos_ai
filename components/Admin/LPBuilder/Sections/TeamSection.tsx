@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { TeamMember } from '../../../../types';
 import { User, Phone, Mail, Linkedin, Twitter, Globe, Facebook, Instagram, Github, Youtube } from 'lucide-react';
 import { isArabic } from '../../../../utils/languageDetection';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface TeamSectionProps {
   members: TeamMember[];
@@ -12,6 +13,7 @@ interface TeamSectionProps {
 const TeamSection: React.FC<TeamSectionProps> = ({ members, title = "Meet Our Team", titleAlignment = 'center' }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [hoveredMemberId, setHoveredMemberId] = useState<string | null>(null);
+  const { t } = useAdminTranslation('pageBuilder');
   const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
   const containerAlignClass = titleAlignment === 'left' ? 'items-start' : titleAlignment === 'right' ? 'items-end' : 'items-center';
   const isTitleArabic = isArabic(title);
@@ -171,7 +173,7 @@ const TeamSection: React.FC<TeamSectionProps> = ({ members, title = "Meet Our Te
                         ? 'bg-slate-800 w-8'
                         : 'bg-slate-400 hover:bg-slate-600'
                     }`}
-                    aria-label={`Go to slide ${index + 1}`}
+                    aria-label={t('edAriaTeamGoToSlide', { n: index + 1 })}
                   />
                 ))}
               </div>
@@ -180,8 +182,8 @@ const TeamSection: React.FC<TeamSectionProps> = ({ members, title = "Meet Our Te
         ) : (
           <div className="h-64 rounded-2xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 bg-slate-200">
             <User size={48} className="mb-4 opacity-20"/>
-            <p className="font-medium">No team members added yet.</p>
-            <p className="text-sm">Use the Team Editor to populate this list.</p>
+            <p className="font-medium">{t('edSecTeamEmpty')}</p>
+            <p className="text-sm">{t('edSecTeamEmptyHint')}</p>
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 import React from 'react';
-import { HeaderConfig } from '../../../../../types';
+import { HeaderConfig } from '../../../../types';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 
 interface HeaderEditorProps {
   config: HeaderConfig;
@@ -7,6 +8,7 @@ interface HeaderEditorProps {
 }
 
 const HeaderEditor: React.FC<HeaderEditorProps> = ({ config, onChange }) => {
+  const { t } = useAdminTranslation('pageBuilder');
   const update = (field: keyof HeaderConfig, value: any) => {
     onChange({ ...config, [field]: value });
   };
@@ -14,10 +16,10 @@ const HeaderEditor: React.FC<HeaderEditorProps> = ({ config, onChange }) => {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-700">Show Logo</span>
+        <span className="text-xs font-medium text-slate-700">{t('edHeaderShowLogo')}</span>
         <label className="relative inline-flex items-center cursor-pointer">
-          <input 
-            type="checkbox" 
+          <input
+            type="checkbox"
             className="sr-only peer"
             checked={config.showLogo}
             onChange={(e) => update('showLogo', e.target.checked)}
@@ -26,10 +28,10 @@ const HeaderEditor: React.FC<HeaderEditorProps> = ({ config, onChange }) => {
         </label>
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-700">Show Title</span>
+        <span className="text-xs font-medium text-slate-700">{t('edHeaderShowTitle')}</span>
         <label className="relative inline-flex items-center cursor-pointer">
-          <input 
-            type="checkbox" 
+          <input
+            type="checkbox"
             className="sr-only peer"
             checked={config.showTitle}
             onChange={(e) => update('showTitle', e.target.checked)}
@@ -39,10 +41,10 @@ const HeaderEditor: React.FC<HeaderEditorProps> = ({ config, onChange }) => {
       </div>
       <div className="space-y-3 pt-2 border-t border-slate-100">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-slate-700">Show Action Button</span>
+          <span className="text-xs font-medium text-slate-700">{t('edHeaderShowActionButton')}</span>
           <label className="relative inline-flex items-center cursor-pointer">
-            <input 
-              type="checkbox" 
+            <input
+              type="checkbox"
               className="sr-only peer"
               checked={config.showActionButton}
               onChange={(e) => update('showActionButton', e.target.checked)}
@@ -53,18 +55,18 @@ const HeaderEditor: React.FC<HeaderEditorProps> = ({ config, onChange }) => {
         {config.showActionButton && (
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[10px] font-medium text-slate-500 mb-1">Button Text</label>
-              <input 
-                type="text" 
+              <label className="block text-[10px] font-medium text-slate-500 mb-1">{t('edHeaderButtonText')}</label>
+              <input
+                type="text"
                 value={config.actionButtonText}
                 onChange={(e) => update('actionButtonText', e.target.value)}
                 className="w-full px-2 py-1.5 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-slate-500 mb-1">Button Link</label>
-              <input 
-                type="text" 
+              <label className="block text-[10px] font-medium text-slate-500 mb-1">{t('edHeaderButtonLink')}</label>
+              <input
+                type="text"
                 value={config.actionButtonUrl}
                 onChange={(e) => update('actionButtonUrl', e.target.value)}
                 className="w-full px-2 py-1.5 border border-slate-200 rounded text-xs focus:ring-1 focus:ring-indigo-500 outline-none bg-white text-slate-900"

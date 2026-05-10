@@ -22,6 +22,7 @@ import { updateSubmissionDecision } from '../../../../services/registrationSubmi
 import { supabase, TABLES } from '../../../../supabase';
 import { Event, ParticipantReview, ReviewCommitteeMember, EvaluationForm, FormSubmission, DecisionStatus, ApprovalStatus } from '../../../../types';
 import SubmissionApprovalModal from './SubmissionApprovalModal';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
 
 interface ReviewWithDetails extends ParticipantReview {
   reviewer?: ReviewCommitteeMember;
@@ -33,6 +34,8 @@ interface ReviewWithDetails extends ParticipantReview {
 
 const SubmissionsEvaluation: React.FC = () => {
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const isEventScopeLocked = !!organizerScopedEventId;
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<string>('all');
   const [loading, setLoading] = useState(true);
@@ -51,6 +54,12 @@ const SubmissionsEvaluation: React.FC = () => {
       loadData();
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (organizerScopedEventId) {
+      setSelectedEvent(organizerScopedEventId);
+    }
+  }, [organizerScopedEventId]);
 
   const loadData = async () => {
     if (!currentUser?.id) return;
@@ -516,26 +525,30 @@ const SubmissionsEvaluation: React.FC = () => {
       </header>
 
       {/* Event Filter */}
-      {events.length > 0 && (
+      {(events.length > 0 || isEventScopeLocked) && (
         <div className="mb-6 bg-white rounded-xl shadow-sm border border-slate-200 p-4">
           <div className="flex items-center gap-3">
             <Filter size={18} className="text-slate-500" />
             <label className="text-sm font-medium text-slate-700">Filter by Event:</label>
-            <select
-              value={selectedEvent}
-              onChange={(e) => setSelectedEvent(e.target.value)}
-              className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="all">All Events ({allReviews.length})</option>
-              {events.map((event) => {
-                const count = allReviews.filter(r => r.eventId === event.id).length;
-                return (
-                  <option key={event.id} value={event.id}>
-                    {event.name} ({count})
-                  </option>
-                );
-              })}
-            </select>
+            {isEventScopeLocked ? (
+              <p className="text-sm text-slate-600">Showing only your selected event (change it from the header).</p>
+            ) : (
+              <select
+                value={selectedEvent}
+                onChange={(e) => setSelectedEvent(e.target.value)}
+                className="px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All Events ({allReviews.length})</option>
+                {events.map((event) => {
+                  const count = allReviews.filter(r => r.eventId === event.id).length;
+                  return (
+                    <option key={event.id} value={event.id}>
+                      {event.name} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            )}
           </div>
         </div>
       )}

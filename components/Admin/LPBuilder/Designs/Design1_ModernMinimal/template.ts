@@ -236,16 +236,51 @@ export const MODERN_MINIMAL_TEMPLATE: ConferenceConfig = {
   },
   submission: {
     steps: [
-      { id: 'step-1', date: 'Jan 15, 2024', title: 'Submissions Open', description: 'The submission portal opens for all tracks. Early submissions are encouraged.' },
-      { id: 'step-2', date: 'Mar 30, 2024', title: 'Abstract Deadline', description: 'Final deadline for abstract submissions. No extensions will be granted.' },
-      { id: 'step-3', date: 'Apr 20, 2024', title: 'Review Results', description: 'Notification of acceptance or rejection will be sent to all authors.' },
-      { id: 'step-4', date: 'May 10, 2024', title: 'Camera Ready', description: 'Final versions of accepted papers must be uploaded.' },
-      { id: 'step-5', date: 'Jun 15, 2024', title: 'Conference', description: 'Present your work at the conference!' },
+      {
+        id: 'step-1',
+        title: 'Submissions Open',
+        description: 'Portal opens for all tracks; early submissions encouraged.',
+        deadline: '2024-01-15',
+        date: 'Jan 15, 2024',
+        icon: 'upload',
+      },
+      {
+        id: 'step-2',
+        title: 'Abstract Deadline',
+        description: 'Final deadline for abstracts. No extensions.',
+        deadline: '2024-03-30',
+        date: 'Mar 30, 2024',
+        icon: 'calendar',
+      },
+      {
+        id: 'step-3',
+        title: 'Review Results',
+        description: 'Authors receive acceptance notifications by email.',
+        deadline: '2024-04-20',
+        date: 'Apr 20, 2024',
+        icon: 'send',
+      },
+      {
+        id: 'step-4',
+        title: 'Camera Ready',
+        description: 'Upload final versions of accepted papers.',
+        deadline: '2024-05-10',
+        date: 'May 10, 2024',
+        icon: 'file-text',
+      },
+      {
+        id: 'step-5',
+        title: 'Conference',
+        description: 'Present your work at the conference.',
+        deadline: '2024-06-15',
+        date: 'Jun 15, 2024',
+        icon: 'award',
+      },
     ],
     buttons: [
-      { id: 'sub-btn-1', text: 'Download Template', url: '#template', style: 'secondary' },
-      { id: 'sub-btn-2', text: 'Submit Paper', url: '#submit', style: 'primary' }
-    ]
+      { id: 'sub-btn-1', text: 'Download Template', url: '#template', style: 'secondary', actionTarget: 'document' },
+      { id: 'sub-btn-2', text: 'Submit Paper', url: '#submit', style: 'primary', actionTarget: 'link' },
+    ],
   },
   partners: [
     {

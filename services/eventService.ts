@@ -88,12 +88,22 @@ export const saveEvent = async (
     insertData.submission_form_ids = JSON.stringify(cleanedEvent.submissionFormIds || []);
     insertData.evaluation_form_ids = JSON.stringify(cleanedEvent.evaluationFormIds || []);
     insertData.certificate_template_ids = JSON.stringify(cleanedEvent.certificateTemplateIds || []);
+    insertData.badge_template_ids = JSON.stringify(cleanedEvent.badgeTemplateIds || []);
     insertData.committee_ids = JSON.stringify(cleanedEvent.committeeIds || []);
+    insertData.evaluation_enabled =
+      cleanedEvent.evaluationEnabled === undefined ? false : Boolean(cleanedEvent.evaluationEnabled);
     insertData.banner = cleanedEvent.banner ? JSON.stringify(cleanedEvent.banner) : null;
     insertData.publish_status = cleanedEvent.publishStatus || 'Draft';
     insertData.registration_deadline = cleanedEvent.registrationDeadline || null;
     insertData.submission_deadline = cleanedEvent.submissionDeadline || null;
-    
+    insertData.submission_workflow_preset = cleanedEvent.submissionWorkflowPreset || null;
+    insertData.abstract_submission_form_ids = JSON.stringify(cleanedEvent.abstractSubmissionFormIds || []);
+    insertData.abstract_submission_deadline = cleanedEvent.abstractSubmissionDeadline || null;
+    insertData.payment_deadline = cleanedEvent.paymentDeadline || null;
+    insertData.registration_workflow_preset = cleanedEvent.registrationWorkflowPreset || null;
+    insertData.registration_payment_offer_id = cleanedEvent.registrationPaymentOfferId || null;
+    insertData.submission_payment_offer_id = cleanedEvent.submissionPaymentOfferId || null;
+
     // Backward compatibility: Also populate old columns with first value from arrays
     // This ensures compatibility during migration period
     if (cleanedEvent.landingPageIds && cleanedEvent.landingPageIds.length > 0) {
@@ -169,6 +179,39 @@ export const updateEvent = async (
     if (cleanedEvent.links !== undefined) updateData.links = JSON.stringify(cleanedEvent.links);
     if (cleanedEvent.registrationDeadline !== undefined) updateData.registration_deadline = cleanedEvent.registrationDeadline || null;
     if (cleanedEvent.submissionDeadline !== undefined) updateData.submission_deadline = cleanedEvent.submissionDeadline || null;
+    if (cleanedEvent.submissionWorkflowPreset !== undefined) {
+      updateData.submission_workflow_preset = cleanedEvent.submissionWorkflowPreset || null;
+    }
+    if (cleanedEvent.abstractSubmissionFormIds !== undefined) {
+      updateData.abstract_submission_form_ids = JSON.stringify(cleanedEvent.abstractSubmissionFormIds);
+    }
+    if (cleanedEvent.abstractSubmissionDeadline !== undefined) {
+      updateData.abstract_submission_deadline =
+        cleanedEvent.abstractSubmissionDeadline === '' || !cleanedEvent.abstractSubmissionDeadline
+          ? null
+          : cleanedEvent.abstractSubmissionDeadline;
+    }
+    if (cleanedEvent.paymentDeadline !== undefined) {
+      updateData.payment_deadline =
+        cleanedEvent.paymentDeadline === '' || !cleanedEvent.paymentDeadline
+          ? null
+          : cleanedEvent.paymentDeadline;
+    }
+    if (cleanedEvent.registrationWorkflowPreset !== undefined) {
+      updateData.registration_workflow_preset = cleanedEvent.registrationWorkflowPreset || null;
+    }
+    if (cleanedEvent.registrationPaymentOfferId !== undefined) {
+      updateData.registration_payment_offer_id =
+        cleanedEvent.registrationPaymentOfferId === '' || !cleanedEvent.registrationPaymentOfferId
+          ? null
+          : cleanedEvent.registrationPaymentOfferId;
+    }
+    if (cleanedEvent.submissionPaymentOfferId !== undefined) {
+      updateData.submission_payment_offer_id =
+        cleanedEvent.submissionPaymentOfferId === '' || !cleanedEvent.submissionPaymentOfferId
+          ? null
+          : cleanedEvent.submissionPaymentOfferId;
+    }
     if (cleanedEvent.landingPageIds !== undefined) {
       updateData.landing_page_ids = JSON.stringify(cleanedEvent.landingPageIds);
       // Backward compatibility: Also update old column with first value
@@ -202,8 +245,14 @@ export const updateEvent = async (
     if (cleanedEvent.certificateTemplateIds !== undefined) {
       updateData.certificate_template_ids = JSON.stringify(cleanedEvent.certificateTemplateIds);
     }
+    if (cleanedEvent.badgeTemplateIds !== undefined) {
+      updateData.badge_template_ids = JSON.stringify(cleanedEvent.badgeTemplateIds);
+    }
     if (cleanedEvent.committeeIds !== undefined) {
       updateData.committee_ids = JSON.stringify(cleanedEvent.committeeIds);
+    }
+    if (cleanedEvent.evaluationEnabled !== undefined) {
+      updateData.evaluation_enabled = Boolean(cleanedEvent.evaluationEnabled);
     }
     if (cleanedEvent.banner !== undefined) {
       updateData.banner = cleanedEvent.banner ? JSON.stringify(cleanedEvent.banner) : null;
@@ -295,11 +344,20 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
       submissionFormIds: getArrayOrFallback(data.submission_form_ids, data.submission_form_id),
       evaluationFormIds: deserializeArray(data.evaluation_form_ids),
       certificateTemplateIds: deserializeArray(data.certificate_template_ids),
+      badgeTemplateIds: deserializeArray(data.badge_template_ids) as string[],
       committeeIds: deserializeArray(data.committee_ids),
+      evaluationEnabled: Boolean(data.evaluation_enabled),
       banner: data.banner ? (typeof data.banner === 'string' ? JSON.parse(data.banner) : data.banner) : undefined,
       publishStatus: (data.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
       registrationDeadline: data.registration_deadline || undefined,
       submissionDeadline: data.submission_deadline || undefined,
+      submissionWorkflowPreset: (data.submission_workflow_preset as 'A' | 'B' | 'C' | 'D') || undefined,
+      abstractSubmissionFormIds: deserializeArray(data.abstract_submission_form_ids) as string[],
+      abstractSubmissionDeadline: data.abstract_submission_deadline || undefined,
+      paymentDeadline: data.payment_deadline || undefined,
+      registrationWorkflowPreset: (data.registration_workflow_preset as 'A' | 'B') || undefined,
+      registrationPaymentOfferId: data.registration_payment_offer_id || undefined,
+      submissionPaymentOfferId: data.submission_payment_offer_id || undefined,
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
     };
@@ -400,11 +458,20 @@ export const getUserEvents = async (userId: string, userRole?: SubscriptionRole 
       submissionFormIds: getArrayOrFallback(doc.submission_form_ids, doc.submission_form_id),
       evaluationFormIds: deserializeArray(doc.evaluation_form_ids),
       certificateTemplateIds: deserializeArray(doc.certificate_template_ids),
+      badgeTemplateIds: deserializeArray(doc.badge_template_ids) as string[],
       committeeIds: deserializeArray(doc.committee_ids),
+      evaluationEnabled: Boolean(doc.evaluation_enabled),
       banner: doc.banner ? (typeof doc.banner === 'string' ? JSON.parse(doc.banner) : doc.banner) : undefined,
       publishStatus: (doc.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
       registrationDeadline: doc.registration_deadline || undefined,
       submissionDeadline: doc.submission_deadline || undefined,
+      submissionWorkflowPreset: (doc.submission_workflow_preset as 'A' | 'B' | 'C' | 'D') || undefined,
+      abstractSubmissionFormIds: deserializeArray(doc.abstract_submission_form_ids) as string[],
+      abstractSubmissionDeadline: doc.abstract_submission_deadline || undefined,
+      paymentDeadline: doc.payment_deadline || undefined,
+      registrationWorkflowPreset: (doc.registration_workflow_preset as 'A' | 'B') || undefined,
+      registrationPaymentOfferId: doc.registration_payment_offer_id || undefined,
+      submissionPaymentOfferId: doc.submission_payment_offer_id || undefined,
       createdAt: new Date(doc.created_at),
       updatedAt: new Date(doc.updated_at),
     }));

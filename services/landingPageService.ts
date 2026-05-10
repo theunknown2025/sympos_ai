@@ -1,5 +1,5 @@
 import { supabase, TABLES } from '../supabase';
-import { ConferenceConfig } from '../types';
+import { CommitteeMember, ConferenceConfig, SubmissionSectionConfig } from '../types';
 
 export interface SavedLandingPage {
   id: string;
@@ -14,6 +14,59 @@ export interface SavedLandingPage {
 }
 
 const TABLE_NAME = TABLES.LANDING_PAGES;
+
+/**
+ * Normalize Call-for-Papers block after JSON parse or before save.
+ * Keeps publish/public views stable when older rows omit fields or use null.
+ */
+const ensureSubmissionSection = (raw: unknown): SubmissionSectionConfig => {
+  if (!raw || typeof raw !== 'object') {
+    return { steps: [], buttons: [] };
+  }
+  const o = raw as Record<string, unknown>;
+  const steps = Array.isArray(o.steps) ? o.steps.filter((x) => x != null && typeof x === 'object') : [];
+  const buttons = Array.isArray(o.buttons) ? o.buttons.filter((x) => x != null && typeof x === 'object') : [];
+  return { steps: steps as SubmissionSectionConfig['steps'], buttons: buttons as SubmissionSectionConfig['buttons'] };
+};
+
+/** Preserve committee layout tiers when loading JSON from DB (published + draft views). */
+function normalizeCommitteeMembersFromStorage(raw: CommitteeMember[] | undefined): CommitteeMember[] {
+  if (!Array.isArray(raw)) return [];
+  const tiers = new Set(['president', 'subcommittee_chair', 'member']);
+  return raw
+    .filter((m) => m != null && typeof m === 'object')
+    .map((m) => {
+      const landingTier =
+        typeof (m as CommitteeMember).landingTier === 'string' &&
+        tiers.has((m as CommitteeMember).landingTier as string)
+          ? ((m as CommitteeMember).landingTier as CommitteeMember['landingTier'])
+          : undefined;
+      const sn = (m as CommitteeMember).subcommitteeName;
+      const subcommitteeName =
+        typeof sn === 'string' && sn.trim() ? sn.trim() : undefined;
+      return {
+        ...(m as CommitteeMember),
+        landingTier,
+        subcommitteeName,
+      };
+    });
+}
+
+/** Apply submission + hero CTA normalization (arrays, non-null entries). */
+const normalizeConferenceConfigFromStorage = (config: ConferenceConfig): ConferenceConfig => {
+  const next: ConferenceConfig = {
+    ...config,
+    submission: ensureSubmissionSection(config.submission),
+    committee: normalizeCommitteeMembersFromStorage(config.committee),
+  };
+  if (next.hero) {
+    next.hero = {
+      ...next.hero,
+      buttons: Array.isArray(next.hero.buttons) ? next.hero.buttons.filter((b) => b != null && typeof b === 'object') : [],
+    };
+  }
+  return next;
+};
 
 /**
  * Remove undefined values from an object recursively
@@ -49,8 +102,9 @@ const removeUndefined = (obj: any): any => {
  */
 const validateAndCleanConfig = (config: ConferenceConfig): ConferenceConfig => {
   // Ensure all required fields exist
-  const cleaned = {
+  const cleaned: ConferenceConfig = {
     ...config,
+    committee: normalizeCommitteeMembersFromStorage(config.committee),
     // Ensure sections have titleAlignment
     sections: config.sections.map(section => ({
       ...section,
@@ -61,9 +115,19 @@ const validateAndCleanConfig = (config: ConferenceConfig): ConferenceConfig => {
       includeImage: false,
       imageUrl: '',
       layout: 'top'
-    }
+    },
+    submission: ensureSubmissionSection(config.submission),
   };
-  
+
+  if (cleaned.hero) {
+    cleaned.hero = {
+      ...cleaned.hero,
+      buttons: Array.isArray(cleaned.hero.buttons)
+        ? cleaned.hero.buttons.filter((b) => b != null && typeof b === 'object')
+        : [],
+    };
+  }
+
   return removeUndefined(cleaned) as ConferenceConfig;
 };
 
@@ -173,15 +237,16 @@ export const getLandingPage = async (pageId: string): Promise<SavedLandingPage |
     }
     
     // Deserialize config from JSON string
-    const config = typeof data.config === 'string' 
+    const rawConfig = typeof data.config === 'string' 
       ? JSON.parse(data.config) 
       : data.config;
+    const config = normalizeConferenceConfigFromStorage(rawConfig as ConferenceConfig);
     
     return {
       id: data.id,
       userId: data.user_id,
       title: data.title,
-      config: config as ConferenceConfig,
+      config,
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
       isPublished: data.is_published || false,
@@ -220,15 +285,16 @@ export const getUserLandingPages = async (userId: string): Promise<SavedLandingP
     return data.map(doc => {
       try {
         // Deserialize config from JSON string
-        const config = typeof doc.config === 'string' 
+        const rawConfig = typeof doc.config === 'string' 
           ? JSON.parse(doc.config) 
           : doc.config;
+        const config = normalizeConferenceConfigFromStorage(rawConfig as ConferenceConfig);
         
         return {
           id: doc.id,
           userId: doc.user_id,
           title: doc.title,
-          config: config as ConferenceConfig,
+          config,
           createdAt: new Date(doc.created_at),
           updatedAt: new Date(doc.updated_at),
           isPublished: doc.is_published || false,
@@ -529,9 +595,9 @@ export const getPublishedLandingPage = async (slug: string): Promise<SavedLandin
     // Deserialize config from JSON string
     let config: ConferenceConfig;
     try {
-      config = typeof data.config === 'string' 
-        ? JSON.parse(data.config) 
-        : data.config;
+      config = normalizeConferenceConfigFromStorage(
+        (typeof data.config === 'string' ? JSON.parse(data.config) : data.config) as ConferenceConfig
+      );
     } catch (parseError) {
       console.error('Error parsing config:', parseError);
       throw new Error('Invalid page configuration');
