@@ -1,7 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { User, Mail, Calendar, CheckCircle2, XCircle, Clock, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import { getJuryMemberProfile, getJuryMemberInvitations, getJuryMemberEvents } from '../../services/juryMemberService';
+import {
+  getJuryMemberProfile,
+  getJuryMemberEvents,
+  getParticipantInvitationsForUser,
+  resolveParticipantJuryMemberIds,
+} from '../../services/juryMemberService';
 import { JuryMember, CommitteeInvitation, InvitationStatus, EventAttendance } from '../../types';
 import { useNavigate } from 'react-router-dom';
 import { getRoutePath } from '../../routes';
@@ -23,24 +28,32 @@ const Dashboard: React.FC = () => {
   }, [currentUser]);
 
   const loadData = async () => {
-    if (!currentUser?.id) return;
+    if (!currentUser?.id || !currentUser.email) return;
 
     try {
       setLoading(true);
       setError('');
 
-      // Load profile first to get jury member ID
       const profileData = await getJuryMemberProfile(currentUser.id);
       setProfile(profileData);
 
-      if (profileData) {
-        // Load invitations and events
-        const [invitationsData, eventsData] = await Promise.all([
-          getJuryMemberInvitations(profileData.id),
-          getJuryMemberEvents(profileData.id),
-        ]);
-        setInvitations(invitationsData);
-        setEvents(eventsData);
+      const invitationsData = await getParticipantInvitationsForUser(
+        currentUser.id,
+        currentUser.email
+      );
+      setInvitations(invitationsData);
+
+      const juryMemberIds = await resolveParticipantJuryMemberIds(
+        currentUser.id,
+        currentUser.email
+      );
+      if (juryMemberIds.length > 0) {
+        const eventsByMember = await Promise.all(
+          juryMemberIds.map((id) => getJuryMemberEvents(id))
+        );
+        setEvents(eventsByMember.flat());
+      } else {
+        setEvents([]);
       }
     } catch (err: any) {
       console.error('Error loading dashboard data:', err);

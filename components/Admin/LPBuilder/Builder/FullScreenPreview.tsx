@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
-import { ConferenceConfig } from '../../../../types';
-import { X, Type, Calendar, MapPin } from 'lucide-react';
-import { isArabic } from '../../../../utils/languageDetection';
+import { ConferenceConfig, Event } from '../../../../types';
+import { X, Calendar, MapPin } from 'lucide-react';
+import type { AboutDesignId } from '../../../../types';
 import FormModal from '../../Tools/FormBuilder/FormModal';
 import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 import { useAdminDisplaySettings } from '../../../../contexts/AdminDisplaySettingsContext';
 
 // Import all preview sections
 import FaqSection from '../Sections/FaqSection';
+import EventTopicsSection from '../Sections/EventTopicsSection';
 import ScientificCommitteeSection from '../Sections/ScientificCommitteeSection';
 import ContactSection from '../Sections/ContactSection';
 import SubmissionSection from '../Sections/SubmissionSection';
@@ -16,6 +17,13 @@ import PricingSection from '../Sections/PricingSection';
 import AgendaSection from '../Sections/AgendaSection';
 import SpeakersSection from '../Sections/SpeakersSection';
 import TeamSection from '../Sections/TeamSection';
+import ImagesSection from '../Sections/ImagesSection';
+import AboutSection from '../Sections/AboutSection';
+import SectionActionButtonWrap from '../Sections/SectionActionButtonWrap';
+import { useLandingPageActionHandler } from '../shared/useLandingPageActionHandler';
+import { resolveScientificCommittee } from '../../../../utils/scientificCommitteeUtils';
+import { EventPage, LandingPageHeader, LandingPageFooter } from '../Pages';
+import type { LandingPageView } from '../Pages';
 
 interface FullScreenPreviewProps {
   config: ConferenceConfig;
@@ -24,6 +32,10 @@ interface FullScreenPreviewProps {
   timeLeft: { days: number; hours: number; minutes: number; seconds: number };
   onClose: () => void;
   pageId?: string;
+  linkedEvent?: Event | null;
+  homeLabel?: string;
+  aboutNavLabel?: string;
+  onAboutDesignChange?: (design: AboutDesignId) => void;
 }
 
 const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
@@ -32,15 +44,40 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
   onDayChange,
   timeLeft,
   onClose,
-  pageId
+  pageId,
+  linkedEvent = null,
+  homeLabel = 'Home',
+  aboutNavLabel = 'About',
+  onAboutDesignChange,
 }) => {
-  const [showFormModal, setShowFormModal] = useState(false);
-  const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
   const { t } = useAdminTranslation('pageBuilder');
+  const landingPageActions = useLandingPageActionHandler({
+    evaluationUnavailable: t('edSecActionEvaluationUnavailable'),
+  });
   const { language } = useAdminDisplaySettings();
   const localeTag = language === 'fr' ? 'fr-FR' : 'en-US';
+  const [activeView, setActiveView] = useState<LandingPageView>('home');
+  const showAbout = Boolean(linkedEvent);
+
+  const visibleNavSections = config.sections
+    .filter((s) => s.isVisible && s.type !== 'hero')
+    .map((s) => ({ id: s.id, title: s.title }));
+
   const renderPreviewSection = (section: any) => {
     if (!section.isVisible) return null;
+
+    const wrapSectionPreview = (node: React.ReactNode) => {
+      if (section.type === 'hero') return node;
+      return (
+        <SectionActionButtonWrap
+          key={section.id}
+          section={section}
+          onActionClick={landingPageActions.handleActionClick}
+        >
+          {node}
+        </SectionActionButtonWrap>
+      );
+    };
 
     switch (section.type) {
       case 'hero':
@@ -97,14 +134,7 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
                 {config.hero.buttons.map(b => (
                   <button 
                     key={b.id} 
-                    onClick={() => {
-                      if (b.formId) {
-                        setSelectedFormId(b.formId);
-                        setShowFormModal(true);
-                      } else if (b.url && b.url !== '#') {
-                        window.open(b.url, '_blank');
-                      }
-                    }}
+                    onClick={() => landingPageActions.handleActionClick(b)}
                     className={`px-8 py-3 rounded-full font-bold transition-all transform hover:-translate-y-0.5 ${b.style === 'primary' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40 hover:bg-indigo-500' : 'bg-white/10 text-white border border-white/30 backdrop-blur-md hover:bg-white/20'}`}
                   >
                     {b.text}
@@ -114,144 +144,48 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
             </div>
           </div>
         );
-      case 'about': {
-        const aboutConfig = config.about || { includeImage: false, imageUrl: '', layout: 'top' };
-        const titleAlignment = section.titleAlignment || 'center';
-        const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
-        const isTitleArabic = isArabic(section.title);
-        
-        if (aboutConfig.includeImage && aboutConfig.imageUrl) {
-          if (aboutConfig.layout === 'top') {
-            return (
-              <div key={section.id} className="py-24 px-8 max-w-6xl mx-auto">
-                <h2 className={`text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="mb-8">
-                  <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                </div>
-                <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config.description}</p>
-              </div>
-            );
-          } else if (aboutConfig.layout === 'left-right') {
-            return (
-              <div key={section.id} className="py-24 px-8 max-w-6xl mx-auto">
-                <h2 className={`text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config.description}</p>
-                  </div>
-                  <div>
-                    <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                  </div>
-                </div>
-              </div>
-            );
-          } else {
-            return (
-              <div key={section.id} className="py-24 px-8 max-w-6xl mx-auto">
-                <h2 className={`text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                  </div>
-                  <div>
-                    <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config.description}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          }
-        } else {
-          return (
-            <div key={section.id} className="py-24 px-8 max-w-4xl mx-auto">
-              <h2 className={`text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                {isTitleArabic ? (
-                  <>
-                    <span>{section.title}</span>
-                    <span className="text-indigo-600">T</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-indigo-600">T</span>
-                    <span>{section.title}</span>
-                  </>
-                )}
-              </h2>
-              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config.description}</p>
-            </div>
-          );
-        }
-      }
+      case 'about':
+        return wrapSectionPreview(
+          <AboutSection
+            title={section.title}
+            description={config.description}
+            titleAlignment={section.titleAlignment || 'center'}
+            aboutConfig={config.about}
+            showDesignPicker={Boolean(onAboutDesignChange)}
+            onDesignChange={onAboutDesignChange}
+          />
+        );
       case 'speakers':
-        return (
-          <SpeakersSection 
-            key={section.id} 
-            speakers={config.speakers} 
+        return wrapSectionPreview(
+          <SpeakersSection
+            speakers={config.speakers}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'team':
-        return (
-          <TeamSection 
-            key={section.id} 
-            members={config.team || []} 
+        return wrapSectionPreview(
+          <TeamSection
+            members={config.team || []}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'agenda':
-        return (
-          <AgendaSection 
-            key={section.id}
-            agenda={config.agenda} 
-            speakers={config.speakers} 
-            activeDayId={activePreviewDay} 
-            onDayChange={onDayChange} 
+        return wrapSectionPreview(
+          <AgendaSection
+            agenda={config.agenda}
+            speakers={config.speakers}
+            activeDayId={activePreviewDay}
+            onDayChange={onDayChange}
             title={section.title}
             programId={section.programId}
             showDownloadButton={section.showDownloadButton}
           />
         );
       case 'submission':
-        return (
+        return wrapSectionPreview(
           <SubmissionSection
-            key={section.id}
             config={config.submission}
             title={section.title}
             formModalEventId={pageId || 'preview'}
@@ -259,22 +193,51 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
           />
         );
       case 'committee':
-        return (
+        return wrapSectionPreview(
           <ScientificCommitteeSection
-            key={section.id}
-            members={config.committee}
+            scientificCommittee={resolveScientificCommittee(config)}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'pricing':
-        return <PricingSection key={section.id} offers={config.pricing} title={section.title} />;
+        return wrapSectionPreview(
+          <PricingSection
+            offers={config.pricing}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+            eventId={pageId}
+            refreshKey={landingPageActions.pricingRefreshKey}
+            registrationFormId={section.registrationFormId}
+            onSelectOffer={(offer) => {
+              if (pageId && section.registrationFormId) {
+                landingPageActions.openPricingOffer(offer, section.registrationFormId, pageId);
+              }
+            }}
+          />
+        );
       case 'partners':
-        return <PartnersSection key={section.id} groups={config.partners} title={section.title} />;
+        return wrapSectionPreview(<PartnersSection groups={config.partners} title={section.title} />);
       case 'faq':
-        return <FaqSection key={section.id} items={config.faq} title={section.title} />;
+        return wrapSectionPreview(<FaqSection items={config.faq} title={section.title} />);
+      case 'eventTopics':
+        return wrapSectionPreview(
+          <EventTopicsSection
+            items={config.eventTopics || []}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+          />
+        );
       case 'contact':
-        return <ContactSection key={section.id} config={config.contact} title={section.title} />;
+        return wrapSectionPreview(<ContactSection config={config.contact} title={section.title} />);
+      case 'images':
+        return wrapSectionPreview(
+          <ImagesSection
+            groups={config.imageGroups || []}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+          />
+        );
       default:
         return null;
     }
@@ -291,59 +254,47 @@ const FullScreenPreview: React.FC<FullScreenPreviewProps> = ({
         <X size={20} />
       </button>
 
-      {/* Header / Navigation Preview */}
-      <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {config.header.showLogo && <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">S</div>}
-            {config.header.showTitle && <span className="font-bold text-slate-800 truncate max-w-[150px]">{config.title}</span>}
-          </div>
-          
-          {/* NAVIGATION MENU */}
-          <div className="hidden md:flex items-center gap-6">
-            {config.sections
-              .filter(s => s.isVisible && s.type !== 'hero')
-              .map(section => (
-                <a key={section.id} href="#" className="text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors uppercase tracking-wider">
-                  {section.title}
-                </a>
-              ))
-            }
-          </div>
+      {activeView === 'about' && linkedEvent ? (
+        <EventPage
+          event={linkedEvent}
+          config={config}
+          homeLabel={homeLabel}
+          aboutLabel={aboutNavLabel}
+          onNavigateHome={() => setActiveView('home')}
+          onNavigateAbout={() => setActiveView('about')}
+          onSectionClick={() => undefined}
+          sections={visibleNavSections}
+        />
+      ) : (
+        <>
+          <LandingPageHeader
+            config={config}
+            activeView="home"
+            homeLabel={homeLabel}
+            aboutLabel={aboutNavLabel}
+            showAbout={showAbout}
+            sections={visibleNavSections}
+            onNavigateHome={() => setActiveView('home')}
+            onNavigateAbout={() => setActiveView('about')}
+            onSectionClick={() => undefined}
+          />
 
-          {config.header.showActionButton && (
-            <button className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100">
-              {config.header.actionButtonText}
-            </button>
-          )}
-        </div>
-      </nav>
+          {config.sections.map((section) => renderPreviewSection(section))}
 
-      {/* Sections Rendering Loop */}
-      {config.sections.map(section => renderPreviewSection(section))}
-
-      <footer className="bg-slate-900 text-white py-12 text-center text-xs border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-6 flex flex-col items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center font-bold">S</div>
-            <span className="font-bold uppercase tracking-widest">{config.title}</span>
-          </div>
-          <p className="text-slate-500">{t('previewFooterBuiltWith', { year: 2024 })}</p>
-        </div>
-      </footer>
+          <LandingPageFooter title={config.title} />
+        </>
+      )}
 
       {/* Form Modal */}
-      {showFormModal && selectedFormId && (
+      {landingPageActions.showFormModal && landingPageActions.selectedFormId && (
         <FormModal
-          formId={selectedFormId}
+          formId={landingPageActions.selectedFormId}
           eventId={pageId || 'new'}
           eventTitle={config.title}
-          onClose={() => {
-            setShowFormModal(false);
-            setSelectedFormId(null);
-          }}
+          ticketContext={landingPageActions.ticketContext}
+          onClose={landingPageActions.closeFormModal}
           onSuccess={() => {
-            // Optionally refresh or show success message
+            landingPageActions.notifyPricingChanged();
           }}
         />
       )}

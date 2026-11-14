@@ -12,19 +12,25 @@ import SubmissionManager from '../SubmissionManager';
 import SubmissionsDashboard from '../Submissions/Dashboard';
 import FollowUp from '../Submissions/FollowUp';
 import ManageSubmissions from '../Submissions/ManageSubmissions';
+import ParticipantsManagement from '../Submissions/ParticipantsManagement/ParticipantsManagement';
 import ManageCommittee from '../Submissions/ManageCommittee';
 import Reporting from '../Submissions/Reporting';
 import CertificateTemplateList from '../Certificates/CertificateTemplateList';
 import GenerateCertificates from '../Certificates/GenerateCertificates';
 import ViewCertificate from '../Certificates/ViewCertificate';
 import CanvaButton from '../Tools/Designer/CanvaButton';
-import CampusDashboard from '../SuperAdmin/CampusDashboard';
+import SuperAdminDashboard from '../SuperAdmin/Dashboard/Dashboard';
+import SuperAdminProfile from '../SuperAdmin/Profile/Profile';
+import SuperAdminAccounts from '../SuperAdmin/Accounts/Accounts';
+import SuperAdminPerformance from '../SuperAdmin/Performance/Performance';
+import SuperAdminSecurity from '../SuperAdmin/Security/Security';
 import SubscriptionManager from '../SuperAdmin/SubscriptionManager';
 import ProgramBuilder from '../Submissions/ProgramBuilder/ProgramBuilder';
 import FilesManager from '../Tools/FilesManager/FilesManager';
 import Emailer from '../Tools/Emailer';
 import Blogs from '../Tools/Blogs';
 import Presenter from '../Tools/Presenter';
+import PosterManager from '../Tools/PosterManager';
 import EventManagement from '../EventManagement/EventManagement';
 import EventPreview from '../EventManagement/EventPreview';
 import PersonnelManagement from '../ProjectManagement/Personnel/PersonnelManagement';
@@ -34,11 +40,13 @@ import JuryDashboard from '../../Participant/Dashboard';
 import JuryProfile from '../../Participant/Profile';
 import ParticipantProfile from '../../Participant/profile/Profile';
 import JuryInvitations from '../../Participant/Invitations';
+import ParticipantInvitationDetailPage from '../../Participant/Invitations/ParticipantInvitationDetailPage';
 import JuryEvents from '../../Participant/Events/Events';
 import ParticipantEventPreview from '../../Participant/Events/EventPreview';
 import ReviewsList from '../../Participant/reviews/ReviewsList';
 import ParticipantRegistrations from '../../Participant/Registrations/Registrations';
 import ParticipantSubmissions from '../../Participant/Submissions/Submissions';
+import ParticipantCertificates from '../../Participant/Certificates/ParticipantCertificates';
 import LaTeXEditor from '../../Participant/Tools/LaTeXEditor/LaTeXEditor';
 import CVBuilder from '../../Participant/Tools/CVBuilder/CVBuilder';
 import ProfileBuilder from '../../Participant/Tools/ProfileBuilder/ProfileBuilder';
@@ -48,6 +56,9 @@ import CoursePlayer from '../../Participant/Academy/CoursePlayer';
 import ParticipantCoursesList from '../../Participant/Academy/Courses/CoursesList';
 import ParticipantCourseDetail from '../../Participant/Academy/Courses/CourseDetail';
 import EntityProfile from '../EntityProfile/EntityProfile';
+import OrganizerAccountLogin from '../AccountManagement/OrganizerAccountLogin';
+import OrganizerAccountSubscriptions from '../AccountManagement/OrganizerAccountSubscriptions';
+import OrganizerProCheckout from '../AccountManagement/OrganizerProCheckout';
 import PaymentInformation from '../PaiementManagement/PaymentInformation/index';
 import NewOffer from '../PaiementManagement/NewOffer/index';
 import PaymentFollowUp from '../PaiementManagement/FollowUp';
@@ -61,15 +72,36 @@ import CourseFullScreenPage from '../Academy/CourseFullScreenPage';
 import { CheckSquare, Settings, GraduationCap } from 'lucide-react';
 import { useOrganizerEventScope } from '../../../contexts/OrganizerEventScopeContext';
 import OrganizerWorkspaceHub from './OrganizerWorkspaceHub';
+import OpportunitiesDashboard from '../Opportunities/OpportunitiesDashboard';
+import OpportunityManage from '../Opportunities/OpportunityManage';
+import OpportunityPreviewPage from '../Opportunities/OpportunityPreviewPage';
+import PublicOpportunityPage from '../Opportunities/PublicOpportunityPage';
+import PublicEventPage from '../EventManagement/PublicEventPage';
+import PublicEventsBrowsePage from '../../Public/Events/PublicEventsBrowsePage';
+import OpportunityApplications from '../Opportunities/OpportunityApplications';
+import ParticipantOpportunities from '../../Participant/Opportunities/ParticipantOpportunities';
+import ParticipantOpportunityApplications from '../../Participant/Opportunities/ParticipantOpportunityApplications';
+import OrganizerMorchidPage from '../Morchid/OrganizerMorchidPage';
+import ParticipantMorchidPage from '../../Participant/Morchid/ParticipantMorchidPage';
+import { useOrganizerPlatformSubscription } from '../../../contexts/OrganizerPlatformSubscriptionContext';
 
 const OrganizerHomeRedirect: React.FC<{
   isOrganizer: boolean;
   userRole: SubscriptionRole | null;
 }> = ({ isOrganizer, userRole }) => {
   const { isOrganizerWorkspaceEnabled, mode, focusedEventId } = useOrganizerEventScope();
+  const { needsPackage, loading: subLoading } = useOrganizerPlatformSubscription();
 
   if (!isOrganizer) {
     return <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />;
+  }
+
+  if (userRole === 'SuperAdmin') {
+    return <Navigate to={getRoutePath(ViewState.SUPERADMIN_DASHBOARD)} replace />;
+  }
+
+  if (userRole === 'Organizer' && !subLoading && needsPackage) {
+    return <Navigate to={getRoutePath(ViewState.ACCOUNT_SUBSCRIPTIONS)} replace />;
   }
 
   if (userRole === 'Organizer' && isOrganizerWorkspaceEnabled) {
@@ -130,8 +162,20 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       <Route path="/dashboard" element={
         isOrganizer ? <Dashboard /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
       } />
-      <Route path="/entity-profile" element={
+      <Route path="/account/profile" element={
         isOrganizer ? <EntityProfile /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
+      <Route path="/entity-profile" element={
+        <Navigate to={getRoutePath(ViewState.ENTITY_PROFILE)} replace />
+      } />
+      <Route path="/account/login" element={
+        isOrganizer ? <OrganizerAccountLogin /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
+      <Route path="/account/subscriptions" element={
+        isOrganizer ? <OrganizerAccountSubscriptions /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
+      <Route path="/account/pro" element={
+        isOrganizer ? <OrganizerProCheckout /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
       } />
 
       {/* Organizer-only routes */}
@@ -201,6 +245,9 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       <Route path="/submissions/manage" element={
         isOrganizer ? <ManageSubmissions /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
       } />
+      <Route path="/submissions/participants" element={
+        isOrganizer ? <ParticipantsManagement /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
       <Route path="/submissions/committee" element={
         isOrganizer ? <ManageCommittee /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
       } />
@@ -265,6 +312,21 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       <Route path="/submissions/program-builder" element={
         isOrganizer ? <ProgramBuilder /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
       } />
+      <Route path="/opportunities/dashboard" element={
+        isOrganizer ? <OpportunitiesDashboard /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
+      <Route path="/opportunities/manage" element={
+        isOrganizer ? <OpportunityManage /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
+      <Route path="/opportunities/preview/:opportunityId" element={
+        isOrganizer ? <OpportunityPreviewPage /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
+      <Route path="/o/:slug" element={<PublicOpportunityPage />} />
+      <Route path="/e/:slug" element={<PublicEventPage />} />
+      <Route path="/events/browse" element={<PublicEventsBrowsePage />} />
+      <Route path="/opportunities/applications" element={
+        isOrganizer ? <OpportunityApplications /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
       <Route path="/files-manager" element={
         isOrganizer ? <FilesManager /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
       } />
@@ -276,6 +338,9 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       } />
       <Route path="/presenter" element={
         isOrganizer ? <Presenter /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
+      <Route path="/poster-manager" element={
+        isOrganizer ? <PosterManager /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
       } />
       <Route path="/event-management" element={
         isOrganizer ? <EventManagement /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
@@ -342,6 +407,9 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       <Route path="/messaging" element={
         isOrganizer ? <Messaging /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
       } />
+      <Route path="/morchid" element={
+        isOrganizer ? <OrganizerMorchidPage /> : <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />
+      } />
       <Route path="/settings" element={
         isOrganizer ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-400">
@@ -359,28 +427,77 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
       <Route path="/jury/dashboard" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <JuryDashboard />} />
       <Route path="/jury/profile" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantProfile />} />
       <Route path="/jury/invitations" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <JuryInvitations />} />
+      <Route path="/jury/invitations/:invitationId" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantInvitationDetailPage />} />
       <Route path="/jury/events" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <JuryEvents />} />
       <Route path="/jury/events/preview/:eventId" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantEventPreview />} />
       <Route path="/jury/reviews" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ReviewsList />} />
       <Route path="/jury/registrations" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantRegistrations />} />
       <Route path="/jury/submissions" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantSubmissions />} />
+      <Route path="/jury/certificates" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantCertificates />} />
+      <Route path="/jury/opportunities" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantOpportunities />} />
+      <Route path="/jury/opportunity-applications" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantOpportunityApplications />} />
       <Route path="/jury/tools/latex-editor" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <LaTeXEditor />} />
       <Route path="/jury/tools/cv-builder" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <CVBuilder />} />
       <Route path="/jury/tools/profile-builder" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ProfileBuilder />} />
       <Route path="/jury/tools/profile-builder/preview/:profileId" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ProfilePreviewPage />} />
       <Route path="/jury/tools/blog" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantBlogs />} />
       <Route path="/jury/messaging" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantMessaging />} />
+      <Route path="/jury/morchid" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantMorchidPage />} />
       <Route path="/jury/academy" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <Navigate to="/jury/academy/courses" replace />} />
       <Route path="/jury/academy/courses" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantCoursesList />} />
       <Route path="/jury/academy/courses/:courseId" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <ParticipantCourseDetail />} />
       <Route path="/jury/academy/courses/:courseId/learn" element={isOrganizer ? <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace /> : <CoursePlayer />} />
 
-      {/* Super Admin routes (MVP placeholders) */}
+      {/* Super Admin portal */}
       <Route
         path="/superadmin"
         element={
-          userRole === 'SuperAdmin' || userRole === 'SubSuperAdmin' ? (
-            <CampusDashboard />
+          userRole === 'SuperAdmin' ? (
+            <SuperAdminDashboard />
+          ) : userRole === 'SubSuperAdmin' ? (
+            <Navigate to={getRoutePath(ViewState.SUPERADMIN_SUBSCRIPTIONS)} replace />
+          ) : (
+            <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
+          )
+        }
+      />
+      <Route
+        path="/superadmin/profile"
+        element={
+          userRole === 'SuperAdmin' ? (
+            <SuperAdminProfile />
+          ) : (
+            <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
+          )
+        }
+      />
+      <Route
+        path="/superadmin/accounts"
+        element={
+          userRole === 'SuperAdmin' ? (
+            <div className="w-[calc(100%+4rem)] max-w-none -mx-8 px-4 sm:px-6">
+              <SuperAdminAccounts />
+            </div>
+          ) : (
+            <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
+          )
+        }
+      />
+      <Route
+        path="/superadmin/performance"
+        element={
+          userRole === 'SuperAdmin' ? (
+            <SuperAdminPerformance />
+          ) : (
+            <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
+          )
+        }
+      />
+      <Route
+        path="/superadmin/security"
+        element={
+          userRole === 'SuperAdmin' ? (
+            <SuperAdminSecurity />
           ) : (
             <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
           )
@@ -399,7 +516,9 @@ export const AppRoutes: React.FC<AppRoutesProps> = ({
 
       {/* Fallback redirect based on role */}
       <Route path="*" element={
-        isOrganizer ? (
+        userRole === 'SuperAdmin' ? (
+          <Navigate to={getRoutePath(ViewState.SUPERADMIN_DASHBOARD)} replace />
+        ) : isOrganizer ? (
           <Navigate to={getRoutePath(ViewState.DASHBOARD)} replace />
         ) : (
           <Navigate to={getRoutePath(ViewState.JURY_DASHBOARD)} replace />

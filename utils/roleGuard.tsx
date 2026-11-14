@@ -74,6 +74,7 @@ export const isOrganizerOnlyView = (viewState: ViewState): boolean => {
     ViewState.SUBMISSIONS_DASHBOARD,
     ViewState.SUBMISSIONS_FOLLOW_UP,
     ViewState.SUBMISSIONS_MANAGE,
+    ViewState.SUBMISSIONS_PARTICIPANTS,
     ViewState.SUBMISSIONS_MANAGE_COMMITTEE,
     ViewState.SUBMISSIONS_REPORTING,
     ViewState.CERTIFICATES,
@@ -88,7 +89,13 @@ export const isOrganizerOnlyView = (viewState: ViewState): boolean => {
     ViewState.ACADEMY_ENROLLMENT_MANAGER,
     ViewState.ACADEMY_PAYMENT_MANAGER,
     ViewState.ENTITY_PROFILE,
+    ViewState.ACCOUNT_LOGIN,
+    ViewState.ACCOUNT_SUBSCRIPTIONS,
+    ViewState.ACCOUNT_PRO,
     ViewState.SETTINGS,
+    ViewState.OPPORTUNITIES_DASHBOARD,
+    ViewState.OPPORTUNITIES_MANAGE,
+    ViewState.OPPORTUNITIES_APPLICATIONS,
   ];
   
   return organizerOnlyViews.includes(viewState);
@@ -108,8 +115,23 @@ export const isParticipantOnlyView = (viewState: ViewState): boolean => {
     ViewState.PARTICIPANT_SUBMISSIONS,
     ViewState.PARTICIPANT_ACADEMY,
     ViewState.PARTICIPANT_ACADEMY_COURSES,
+    ViewState.PARTICIPANT_OPPORTUNITIES,
+    ViewState.PARTICIPANT_OPPORTUNITY_APPLICATIONS,
   ];
   
   return participantOnlyViews.includes(viewState);
+};
+
+/** Views available in the root super admin portal (dedicated sidebar). */
+export const isSuperAdminPortalView = (viewState: ViewState): boolean => {
+  const portalViews: ViewState[] = [
+    ViewState.SUPERADMIN_DASHBOARD,
+    ViewState.SUPERADMIN_PROFILE,
+    ViewState.SUPERADMIN_ACCOUNTS,
+    ViewState.SUPERADMIN_PERFORMANCE,
+    ViewState.SUPERADMIN_SECURITY,
+    ViewState.SUPERADMIN_SUBSCRIPTIONS,
+  ];
+  return portalViews.includes(viewState);
 };
 

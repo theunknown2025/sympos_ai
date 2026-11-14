@@ -2,14 +2,26 @@ import React, { useState } from 'react';
 import { PricingOffer } from '../../../../types';
 import { Plus, Trash2, Tag, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
+import { useAuth } from '../../../../hooks/useAuth';
+import { useLandingPageFormCatalog } from '../shared/useLandingPageFormCatalog';
+import { filterFormsByCategory } from '../shared/landingPageActionButton';
 
 interface PricingEditorProps {
   pricing: PricingOffer[];
   onChange: (offers: PricingOffer[]) => void;
+  registrationFormId?: string;
+  onRegistrationFormIdChange?: (formId: string | undefined) => void;
 }
 
-const PricingEditor: React.FC<PricingEditorProps> = ({ pricing, onChange }) => {
+const PricingEditor: React.FC<PricingEditorProps> = ({
+  pricing,
+  onChange,
+  registrationFormId,
+  onRegistrationFormIdChange,
+}) => {
   const { t } = useAdminTranslation('pageBuilder');
+  const { currentUser } = useAuth();
+  const { options: formOptions, loading: formsLoading } = useLandingPageFormCatalog(currentUser?.id);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const addOffer = () => {
@@ -63,8 +75,31 @@ const PricingEditor: React.FC<PricingEditorProps> = ({ pricing, onChange }) => {
     }
   };
 
+  const registrationForms = filterFormsByCategory(formOptions, 'registration');
+
   return (
     <div className="space-y-4">
+      <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-2">
+        <label className="block text-xs font-medium text-slate-700">{t('edPricingRegistrationForm')}</label>
+        <p className="text-[10px] text-slate-500">{t('edPricingRegistrationFormHint')}</p>
+        <select
+          value={registrationFormId || ''}
+          onChange={(e) => onRegistrationFormIdChange?.(e.target.value || undefined)}
+          disabled={formsLoading}
+          className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900 disabled:opacity-60"
+        >
+          <option value="">{t('edPricingSelectForm')}</option>
+          {registrationForms.map((form) => (
+            <option key={form.id} value={form.id}>
+              {form.title}
+            </option>
+          ))}
+        </select>
+        {!formsLoading && registrationForms.length === 0 && (
+          <p className="text-[10px] text-amber-600">{t('edPricingNoRegistrationForms')}</p>
+        )}
+      </div>
+
       <div className="flex justify-between items-center mb-3">
         <span className="text-xs text-slate-500">{t('edPricingOffersSummary', { count: pricing.length })}</span>
         <button onClick={addOffer} className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800">
@@ -86,8 +121,7 @@ const PricingEditor: React.FC<PricingEditorProps> = ({ pricing, onChange }) => {
                 <div>
                   <h5 className="text-sm font-semibold text-slate-800">{offer.name || t('edPricingUnnamedOffer')}</h5>
                   <span className="text-xs text-slate-500">
-                    {offer.currency}
-                    {offer.price}
+                    {offer.isFree ? t('edPricingFree') : `${offer.currency}${offer.price}`}
                   </span>
                 </div>
               </div>
@@ -121,9 +155,57 @@ const PricingEditor: React.FC<PricingEditorProps> = ({ pricing, onChange }) => {
                   />
                   <input
                     type="text"
-                    value={offer.price}
+                    value={offer.isFree ? '' : offer.price}
                     onChange={(e) => updateOffer(offer.id, 'price', e.target.value)}
                     placeholder={t('edPricingPricePlaceholder')}
+                    disabled={Boolean(offer.isFree)}
+                    className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white disabled:bg-slate-100 disabled:text-slate-400"
+                  />
+                </div>
+                <div className="flex items-center justify-between p-2 bg-white border border-slate-200 rounded-lg">
+                  <div>
+                    <span className="text-xs font-medium text-slate-700">{t('edPricingFree')}</span>
+                    <p className="text-[10px] text-slate-500 mt-0.5 max-w-[16rem]">{t('edPricingFreeHint')}</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={Boolean(offer.isFree)}
+                      onChange={(e) => {
+                        const isFree = e.target.checked;
+                        onChange(
+                          pricing.map((o) =>
+                            o.id === offer.id
+                              ? {
+                                  ...o,
+                                  isFree,
+                                  price: isFree ? '' : o.price,
+                                }
+                              : o
+                          )
+                        );
+                      }}
+                    />
+                    <div className="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:bg-indigo-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all"></div>
+                  </label>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">{t('edPricingPlaces')}</label>
+                  <p className="text-[10px] text-slate-500 mb-1">{t('edPricingPlacesHint')}</p>
+                  <input
+                    type="number"
+                    min={0}
+                    value={offer.capacity ?? ''}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      updateOffer(
+                        offer.id,
+                        'capacity',
+                        raw === '' ? undefined : Math.max(0, Number.parseInt(raw, 10) || 0)
+                      );
+                    }}
+                    placeholder={t('edPricingPlacesPlaceholder')}
                     className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white"
                   />
                 </div>

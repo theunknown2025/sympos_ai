@@ -1,0 +1,7 @@
+{
+  "label": "Stress profile",
+  "description": "Higher concurrency and more loops than smoke tests. Use on staging or local only.",
+  "threads": 50,
+  "rampUpSeconds": 60,
+  "loops": 15
+}

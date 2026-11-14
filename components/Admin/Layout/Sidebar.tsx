@@ -31,29 +31,38 @@ import {
   Code,
   BookOpen,
   Presentation,
+  ImageIcon,
   CreditCard,
   Plus,
-  MessageSquare
+  MessageSquare,
+  Flower2,
+  Lock
 } from 'lucide-react';
 import { SubscriptionRole, ViewState } from '../../../types';
 import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 import { getAdminNavLabels } from '../../../i18n/adminNavLabels';
 import { useOrganizerChooserLayout } from '../../../contexts/OrganizerEventScopeContext';
+import { useOrganizerPlatformSubscription } from '../../../contexts/OrganizerPlatformSubscriptionContext';
 
 interface SidebarItemProps {
   icon: React.ComponentType<{ size?: number }>;
   label: string;
   active: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }
 
-const SidebarItem: React.FC<SidebarItemProps> = ({ icon: Icon, label, active, onClick }) => (
+const SidebarItem: React.FC<SidebarItemProps> = ({ icon: Icon, label, active, onClick, disabled }) => (
   <button 
+    type="button"
     onClick={onClick}
+    disabled={disabled}
     className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors rounded-lg mb-1
-      ${active 
-        ? 'bg-indigo-50 text-indigo-700' 
-        : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+      ${disabled
+        ? 'text-slate-300 cursor-not-allowed opacity-50'
+        : active 
+          ? 'bg-indigo-50 text-indigo-700' 
+          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
       }`}
   >
     <Icon size={20} />
@@ -66,6 +75,7 @@ interface SubItem {
   label: string;
   view: ViewState;
   active: boolean;
+  disabled?: boolean;
 }
 
 interface ExpandableSidebarItemProps {
@@ -76,6 +86,7 @@ interface ExpandableSidebarItemProps {
   expanded: boolean;
   onToggle: () => void;
   onSubItemClick: (viewState: ViewState) => void;
+  disabled?: boolean;
 }
 
 const ExpandableSidebarItem: React.FC<ExpandableSidebarItemProps> = ({ 
@@ -85,18 +96,23 @@ const ExpandableSidebarItem: React.FC<ExpandableSidebarItemProps> = ({
   active, 
   expanded, 
   onToggle,
-  onSubItemClick 
+  onSubItemClick,
+  disabled,
 }) => {
   const hasActiveSubItem = subItems?.some((item) => item.active);
   
   return (
-    <div className="mb-1">
+    <div className={`mb-1 ${disabled ? 'opacity-50' : ''}`}>
       <button
-        onClick={onToggle}
+        type="button"
+        onClick={disabled ? undefined : onToggle}
+        disabled={disabled}
         className={`w-full flex items-center justify-between px-4 py-3 text-sm font-medium transition-colors rounded-lg
-          ${active || hasActiveSubItem
-            ? 'bg-indigo-50 text-indigo-700' 
-            : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+          ${disabled
+            ? 'text-slate-300 cursor-not-allowed'
+            : active || hasActiveSubItem
+              ? 'bg-indigo-50 text-indigo-700' 
+              : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
           }`}
       >
         <div className="flex items-center gap-3">
@@ -110,11 +126,18 @@ const ExpandableSidebarItem: React.FC<ExpandableSidebarItemProps> = ({
           {subItems.map((item, index) => (
             <button
               key={index}
-              onClick={() => onSubItemClick(item.view)}
+              type="button"
+              disabled={item.disabled}
+              onClick={() => {
+                if (item.disabled) return;
+                onSubItemClick(item.view);
+              }}
               className={`w-full flex items-center gap-3 px-4 py-2 text-xs font-medium transition-colors rounded-lg
-                ${item.active
-                  ? 'bg-indigo-100 text-indigo-700' 
-                  : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
+                ${item.disabled
+                  ? 'text-slate-300 cursor-not-allowed'
+                  : item.active
+                    ? 'bg-indigo-100 text-indigo-700' 
+                    : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900'
                 }`}
             >
               <item.icon size={16} />
@@ -132,6 +155,7 @@ interface SidebarProps {
   currentView: ViewState;
   userRole: SubscriptionRole | null;
   isOrganizer: boolean;
+  accountManagementExpanded: boolean;
   dashboardExpanded: boolean;
   registrationsExpanded: boolean;
   certificatesExpanded: boolean;
@@ -143,7 +167,10 @@ interface SidebarProps {
   participantToolsExpanded: boolean;
   paiementManagementExpanded: boolean;
   academyExpanded: boolean;
+  opportunitiesExpanded: boolean;
+  participantOpportunitiesExpanded: boolean;
   onNavigateToView: (viewState: ViewState, routeParams?: Record<string, string>) => void;
+  onToggleAccountManagement: () => void;
   onToggleDashboard: () => void;
   onToggleRegistrations: () => void;
   onToggleCertificates: () => void;
@@ -155,6 +182,8 @@ interface SidebarProps {
   onToggleParticipantTools: () => void;
   onTogglePaiementManagement: () => void;
   onToggleAcademy: () => void;
+  onToggleOpportunities: () => void;
+  onToggleParticipantOpportunities: () => void;
   onSignOut: () => void;
 }
 
@@ -163,6 +192,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   userRole,
   isOrganizer,
+  accountManagementExpanded,
   dashboardExpanded,
   registrationsExpanded,
   certificatesExpanded,
@@ -174,7 +204,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   participantToolsExpanded,
   paiementManagementExpanded,
   academyExpanded,
+  opportunitiesExpanded,
+  participantOpportunitiesExpanded,
   onNavigateToView,
+  onToggleAccountManagement,
   onToggleDashboard,
   onToggleRegistrations,
   onToggleCertificates,
@@ -186,17 +219,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleParticipantTools,
   onTogglePaiementManagement,
   onToggleAcademy,
+  onToggleOpportunities,
+  onToggleParticipantOpportunities,
   onSignOut,
 }) => {
   const { language } = useAdminDisplaySettings();
   const nav = getAdminNavLabels(language);
   const hideForOrganizerChooser = useOrganizerChooserLayout();
-  if (hideForOrganizerChooser) return null;
+  const { needsPackage, loading: subscriptionLoading } = useOrganizerPlatformSubscription();
+  /** Until an offer is selected, only Subscriptions is usable. */
+  const navLocked =
+    isOrganizer && userRole === 'Organizer' && !subscriptionLoading && needsPackage;
+
+  if (hideForOrganizerChooser && !navLocked) return null;
+
+  const handleNavigate = (viewState: ViewState) => {
+    if (
+      navLocked &&
+      viewState !== ViewState.ACCOUNT_SUBSCRIPTIONS &&
+      viewState !== ViewState.ACCOUNT_PRO
+    ) {
+      return;
+    }
+    onNavigateToView(viewState);
+  };
 
   return (
     <aside 
       className={`${sidebarOpen ? 'w-64' : 'w-20'} 
-      bg-white border-r border-slate-200 transition-all duration-300 flex flex-col fixed h-full z-20`}
+      bg-white border-r border-slate-200 transition-all duration-300 flex flex-col h-full shrink-0 z-20`}
     >
       <div className="h-16 flex items-center px-6 border-b border-slate-100">
         <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center mr-3 shrink-0">
@@ -209,11 +260,70 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      <nav className="flex-1 p-4 overflow-y-auto">
-        <div className="space-y-1">
+      <nav className="flex-1 p-4 overflow-y-auto flex flex-col">
+        <div className="space-y-1 flex-1">
           {/* Show different navigation based on user role */}
           {isOrganizer ? (
             <>
+              {/* Account Management — first in sidebar */}
+              {sidebarOpen ? (
+                <ExpandableSidebarItem
+                  icon={UserCog}
+                  label={nav.accountManagement}
+                  active={
+                    currentView === ViewState.ENTITY_PROFILE ||
+                    currentView === ViewState.ACCOUNT_LOGIN ||
+                    currentView === ViewState.ACCOUNT_SUBSCRIPTIONS
+                  }
+                  expanded={accountManagementExpanded || navLocked}
+                  onToggle={onToggleAccountManagement}
+                  subItems={[
+                    {
+                      icon: User,
+                      label: nav.profile,
+                      view: ViewState.ENTITY_PROFILE,
+                      active: currentView === ViewState.ENTITY_PROFILE,
+                      disabled: navLocked,
+                    },
+                    {
+                      icon: Lock,
+                      label: nav.accountLogin,
+                      view: ViewState.ACCOUNT_LOGIN,
+                      active: currentView === ViewState.ACCOUNT_LOGIN,
+                      disabled: navLocked,
+                    },
+                    {
+                      icon: CreditCard,
+                      label: nav.accountSubscriptions,
+                      view: ViewState.ACCOUNT_SUBSCRIPTIONS,
+                      active: currentView === ViewState.ACCOUNT_SUBSCRIPTIONS,
+                      disabled: false,
+                    },
+                  ]}
+                  onSubItemClick={handleNavigate}
+                />
+              ) : (
+                <SidebarItem
+                  icon={UserCog}
+                  label=""
+                  active={
+                    currentView === ViewState.ENTITY_PROFILE ||
+                    currentView === ViewState.ACCOUNT_LOGIN ||
+                    currentView === ViewState.ACCOUNT_SUBSCRIPTIONS
+                  }
+                  onClick={() => {
+                    if (navLocked) {
+                      handleNavigate(ViewState.ACCOUNT_SUBSCRIPTIONS);
+                      return;
+                    }
+                    onToggleAccountManagement();
+                  }}
+                />
+              )}
+              <div
+                className={navLocked ? 'opacity-40 pointer-events-none select-none' : undefined}
+                aria-disabled={navLocked || undefined}
+              >
               {/* Organizer/Admin Navigation */}
               {sidebarOpen ? (
                 <ExpandableSidebarItem
@@ -222,37 +332,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   active={currentView === ViewState.DASHBOARD}
                   expanded={dashboardExpanded}
                   onToggle={onToggleDashboard}
+                  disabled={navLocked}
                   subItems={[
                     {
                       icon: LayoutDashboard,
                       label: nav.overview,
                       view: ViewState.DASHBOARD,
                       active: currentView === ViewState.DASHBOARD,
+                      disabled: navLocked,
                     },
                   ]}
-                  onSubItemClick={onNavigateToView}
+                  onSubItemClick={handleNavigate}
                 />
               ) : (
                 <SidebarItem 
                   icon={LayoutDashboard} 
                   label="" 
-                  active={currentView === ViewState.DASHBOARD} 
+                  active={currentView === ViewState.DASHBOARD}
+                  disabled={navLocked}
                   onClick={onToggleDashboard} 
-                />
-              )}
-              {sidebarOpen ? (
-                <SidebarItem
-                  icon={FolderOpen}
-                  label={nav.profileFolder}
-                  active={currentView === ViewState.ENTITY_PROFILE}
-                  onClick={() => onNavigateToView(ViewState.ENTITY_PROFILE)}
-                />
-              ) : (
-                <SidebarItem 
-                  icon={FolderOpen} 
-                  label="" 
-                  active={currentView === ViewState.ENTITY_PROFILE} 
-                  onClick={() => onNavigateToView(ViewState.ENTITY_PROFILE)} 
                 />
               )}
               {sidebarOpen ? (
@@ -260,86 +358,256 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   icon={Calendar}
                   label={nav.eventManagement}
                   active={currentView === ViewState.EVENT_MANAGEMENT}
-                  onClick={() => onNavigateToView(ViewState.EVENT_MANAGEMENT)}
+                  disabled={navLocked}
+                  onClick={() => handleNavigate(ViewState.EVENT_MANAGEMENT)}
                 />
               ) : (
                 <SidebarItem 
                   icon={Calendar} 
                   label="" 
-                  active={currentView === ViewState.EVENT_MANAGEMENT} 
-                  onClick={() => onNavigateToView(ViewState.EVENT_MANAGEMENT)} 
+                  active={currentView === ViewState.EVENT_MANAGEMENT}
+                  disabled={navLocked}
+                  onClick={() => handleNavigate(ViewState.EVENT_MANAGEMENT)} 
                 />
               )}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Participant navigation */}
               {sidebarOpen ? (
                 <ExpandableSidebarItem
-                  icon={GraduationCap}
-                  label={nav.academyLms}
-                  active={currentView === ViewState.ACADEMY_COURSE_MANAGER ||
-                         currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER ||
-                         currentView === ViewState.ACADEMY_PAYMENT_MANAGER}
-                  expanded={academyExpanded}
-                  onToggle={onToggleAcademy}
+                  icon={LayoutDashboard}
+                  label={nav.dashboard}
+                  active={
+                    currentView === ViewState.JURY_DASHBOARD ||
+                    currentView === ViewState.JURY_PROFILE
+                  }
+                  expanded={dashboardExpanded}
+                  onToggle={onToggleDashboard}
                   subItems={[
                     {
-                      icon: BookOpen,
-                      label: nav.courseManager,
-                      view: ViewState.ACADEMY_COURSE_MANAGER,
-                      active: currentView === ViewState.ACADEMY_COURSE_MANAGER,
+                      icon: LayoutDashboard,
+                      label: nav.dashboard,
+                      view: ViewState.JURY_DASHBOARD,
+                      active: currentView === ViewState.JURY_DASHBOARD,
                     },
                     {
-                      icon: Users,
-                      label: nav.enrollmentManager,
-                      view: ViewState.ACADEMY_ENROLLMENT_MANAGER,
-                      active: currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER,
-                    },
-                    {
-                      icon: CreditCard,
-                      label: nav.paymentManager,
-                      view: ViewState.ACADEMY_PAYMENT_MANAGER,
-                      active: currentView === ViewState.ACADEMY_PAYMENT_MANAGER,
+                      icon: User,
+                      label: nav.profile,
+                      view: ViewState.JURY_PROFILE,
+                      active: currentView === ViewState.JURY_PROFILE,
                     },
                   ]}
                   onSubItemClick={onNavigateToView}
                 />
               ) : (
-                <SidebarItem 
-                  icon={GraduationCap} 
-                  label="" 
-                  active={currentView === ViewState.ACADEMY_COURSE_MANAGER ||
-                         currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER ||
-                         currentView === ViewState.ACADEMY_PAYMENT_MANAGER} 
-                  onClick={onToggleAcademy} 
+                <SidebarItem
+                  icon={LayoutDashboard}
+                  label=""
+                  active={
+                    currentView === ViewState.JURY_DASHBOARD ||
+                    currentView === ViewState.JURY_PROFILE
+                  }
+                  onClick={onToggleDashboard}
                 />
               )}
-            </>
-          ) : (
-            <>
-              {/* Participant/Jury Member Navigation */}
-              <SidebarItem 
-                icon={LayoutDashboard} 
-                label={sidebarOpen ? nav.dashboard : ""} 
-                active={currentView === ViewState.JURY_DASHBOARD} 
-                onClick={() => onNavigateToView(ViewState.JURY_DASHBOARD)} 
-              />
+
               {sidebarOpen ? (
                 <ExpandableSidebarItem
+                  icon={Award}
+                  label={nav.reviews}
+                  active={
+                    currentView === ViewState.JURY_INVITATIONS ||
+                    currentView === ViewState.JURY_REVIEWS
+                  }
+                  expanded={juryExpanded}
+                  onToggle={onToggleJury}
+                  subItems={[
+                    {
+                      icon: Bell,
+                      label: nav.invitations,
+                      view: ViewState.JURY_INVITATIONS,
+                      active: currentView === ViewState.JURY_INVITATIONS,
+                    },
+                    {
+                      icon: FileText,
+                      label: nav.reviews,
+                      view: ViewState.JURY_REVIEWS,
+                      active: currentView === ViewState.JURY_REVIEWS,
+                    },
+                  ]}
+                  onSubItemClick={onNavigateToView}
+                />
+              ) : (
+                <SidebarItem
+                  icon={Award}
+                  label=""
+                  active={
+                    currentView === ViewState.JURY_INVITATIONS ||
+                    currentView === ViewState.JURY_REVIEWS
+                  }
+                  onClick={onToggleJury}
+                />
+              )}
+
+              {sidebarOpen ? (
+                <ExpandableSidebarItem
+                  icon={Calendar}
+                  label={nav.participations}
+                  active={
+                    currentView === ViewState.JURY_EVENTS ||
+                    currentView === ViewState.PARTICIPANT_REGISTRATIONS ||
+                    currentView === ViewState.PARTICIPANT_SUBMISSIONS ||
+                    currentView === ViewState.PARTICIPANT_CERTIFICATES
+                  }
+                  expanded={eventsExpanded}
+                  onToggle={onToggleEvents}
+                  subItems={[
+                    {
+                      icon: Calendar,
+                      label: nav.events,
+                      view: ViewState.JURY_EVENTS,
+                      active: currentView === ViewState.JURY_EVENTS,
+                    },
+                    {
+                      icon: ClipboardList,
+                      label: nav.registrations,
+                      view: ViewState.PARTICIPANT_REGISTRATIONS,
+                      active: currentView === ViewState.PARTICIPANT_REGISTRATIONS,
+                    },
+                    {
+                      icon: Send,
+                      label: nav.submissions,
+                      view: ViewState.PARTICIPANT_SUBMISSIONS,
+                      active: currentView === ViewState.PARTICIPANT_SUBMISSIONS,
+                    },
+                    {
+                      icon: Certificate,
+                      label: nav.participantCertificates,
+                      view: ViewState.PARTICIPANT_CERTIFICATES,
+                      active: currentView === ViewState.PARTICIPANT_CERTIFICATES,
+                    },
+                  ]}
+                  onSubItemClick={onNavigateToView}
+                />
+              ) : (
+                <SidebarItem
+                  icon={Calendar}
+                  label=""
+                  active={
+                    currentView === ViewState.JURY_EVENTS ||
+                    currentView === ViewState.PARTICIPANT_REGISTRATIONS ||
+                    currentView === ViewState.PARTICIPANT_SUBMISSIONS ||
+                    currentView === ViewState.PARTICIPANT_CERTIFICATES
+                  }
+                  onClick={onToggleEvents}
+                />
+              )}
+
+              {sidebarOpen ? (
+                <ExpandableSidebarItem
+                  icon={FolderKanban}
+                  label={nav.opportunities}
+                  active={
+                    currentView === ViewState.PARTICIPANT_OPPORTUNITIES ||
+                    currentView === ViewState.PARTICIPANT_OPPORTUNITY_APPLICATIONS
+                  }
+                  expanded={participantOpportunitiesExpanded}
+                  onToggle={onToggleParticipantOpportunities}
+                  subItems={[
+                    {
+                      icon: Globe,
+                      label: nav.browseOpportunities,
+                      view: ViewState.PARTICIPANT_OPPORTUNITIES,
+                      active: currentView === ViewState.PARTICIPANT_OPPORTUNITIES,
+                    },
+                    {
+                      icon: ClipboardList,
+                      label: nav.myOpportunityApplications,
+                      view: ViewState.PARTICIPANT_OPPORTUNITY_APPLICATIONS,
+                      active: currentView === ViewState.PARTICIPANT_OPPORTUNITY_APPLICATIONS,
+                    },
+                  ]}
+                  onSubItemClick={onNavigateToView}
+                />
+              ) : (
+                <SidebarItem
+                  icon={FolderKanban}
+                  label=""
+                  active={
+                    currentView === ViewState.PARTICIPANT_OPPORTUNITIES ||
+                    currentView === ViewState.PARTICIPANT_OPPORTUNITY_APPLICATIONS
+                  }
+                  onClick={onToggleParticipantOpportunities}
+                />
+              )}
+
+              {sidebarOpen ? (
+                <ExpandableSidebarItem
+                  icon={Wrench}
+                  label={nav.tools}
+                  active={
+                    currentView === ViewState.PARTICIPANT_TOOLS ||
+                    currentView === ViewState.LATEX_EDITOR ||
+                    currentView === ViewState.CV_BUILDER ||
+                    currentView === ViewState.PROFILE_BUILDER ||
+                    currentView === ViewState.PARTICIPANT_BLOG
+                  }
+                  expanded={participantToolsExpanded}
+                  onToggle={onToggleParticipantTools}
+                  subItems={[
+                    {
+                      icon: Code,
+                      label: nav.latexEditor,
+                      view: ViewState.LATEX_EDITOR,
+                      active: currentView === ViewState.LATEX_EDITOR,
+                    },
+                    {
+                      icon: FileText,
+                      label: nav.cvBuilder,
+                      view: ViewState.CV_BUILDER,
+                      active: currentView === ViewState.CV_BUILDER,
+                    },
+                    {
+                      icon: User,
+                      label: nav.profileBuilder,
+                      view: ViewState.PROFILE_BUILDER,
+                      active: currentView === ViewState.PROFILE_BUILDER,
+                    },
+                    {
+                      icon: BookOpen,
+                      label: nav.blog,
+                      view: ViewState.PARTICIPANT_BLOG,
+                      active: currentView === ViewState.PARTICIPANT_BLOG,
+                    },
+                  ]}
+                  onSubItemClick={onNavigateToView}
+                />
+              ) : (
+                <SidebarItem
+                  icon={Wrench}
+                  label=""
+                  active={
+                    currentView === ViewState.PARTICIPANT_TOOLS ||
+                    currentView === ViewState.LATEX_EDITOR ||
+                    currentView === ViewState.CV_BUILDER ||
+                    currentView === ViewState.PROFILE_BUILDER ||
+                    currentView === ViewState.PARTICIPANT_BLOG
+                  }
+                  onClick={onToggleParticipantTools}
+                />
+              )}
+
+              {sidebarOpen ? (
+                <SidebarItem
                   icon={GraduationCap}
                   label={nav.academy}
                   active={
                     currentView === ViewState.PARTICIPANT_ACADEMY ||
                     currentView === ViewState.PARTICIPANT_ACADEMY_COURSES
                   }
-                  expanded={academyExpanded}
-                  onToggle={onToggleAcademy}
-                  subItems={[
-                    {
-                      icon: BookOpen,
-                      label: nav.courses,
-                      view: ViewState.PARTICIPANT_ACADEMY_COURSES,
-                      active: currentView === ViewState.PARTICIPANT_ACADEMY_COURSES,
-                    },
-                  ]}
-                  onSubItemClick={onNavigateToView}
+                  onClick={() => onNavigateToView(ViewState.PARTICIPANT_ACADEMY)}
                 />
               ) : (
                 <SidebarItem
@@ -349,15 +617,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     currentView === ViewState.PARTICIPANT_ACADEMY ||
                     currentView === ViewState.PARTICIPANT_ACADEMY_COURSES
                   }
-                  onClick={onToggleAcademy}
+                  onClick={() => onNavigateToView(ViewState.PARTICIPANT_ACADEMY)}
+                />
+              )}
+
+              {sidebarOpen ? (
+                <SidebarItem
+                  icon={MessageSquare}
+                  label={nav.chat}
+                  active={currentView === ViewState.PARTICIPANT_MESSAGING}
+                  onClick={() => onNavigateToView(ViewState.PARTICIPANT_MESSAGING)}
+                />
+              ) : (
+                <SidebarItem
+                  icon={MessageSquare}
+                  label=""
+                  active={currentView === ViewState.PARTICIPANT_MESSAGING}
+                  onClick={() => onNavigateToView(ViewState.PARTICIPANT_MESSAGING)}
+                />
+              )}
+
+              {sidebarOpen ? (
+                <SidebarItem
+                  icon={Flower2}
+                  label={nav.morchid}
+                  active={currentView === ViewState.PARTICIPANT_MORCHID}
+                  onClick={() => onNavigateToView(ViewState.PARTICIPANT_MORCHID)}
+                />
+              ) : (
+                <SidebarItem
+                  icon={Flower2}
+                  label=""
+                  active={currentView === ViewState.PARTICIPANT_MORCHID}
+                  onClick={() => onNavigateToView(ViewState.PARTICIPANT_MORCHID)}
                 />
               )}
             </>
           )}
           {/* Organizer-only sidebar items */}
           {isOrganizer && (
-            <>
-              {(userRole === 'SuperAdmin' || userRole === 'SubSuperAdmin') && (
+            <div
+              className={navLocked ? 'opacity-40 pointer-events-none select-none' : undefined}
+              aria-disabled={navLocked || undefined}
+            >
+              {userRole === 'SubSuperAdmin' && (
                 sidebarOpen ? (
                   <ExpandableSidebarItem
                     icon={Briefcase}
@@ -404,6 +707,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                          currentView === ViewState.SUBMISSIONS_DASHBOARD ||
                          currentView === ViewState.SUBMISSIONS_FOLLOW_UP ||
                          currentView === ViewState.SUBMISSIONS_MANAGE ||
+                         currentView === ViewState.SUBMISSIONS_PARTICIPANTS ||
                          currentView === ViewState.SUBMISSIONS_MANAGE_COMMITTEE ||
                          currentView === ViewState.SUBMISSIONS_REPORTING ||
                          currentView === ViewState.PROGRAM_BUILDER}
@@ -427,6 +731,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       label: nav.manageSubmissions,
                       view: ViewState.SUBMISSIONS_MANAGE,
                       active: currentView === ViewState.SUBMISSIONS_MANAGE,
+                    },
+                    {
+                      icon: Users,
+                      label: nav.manageParticipants,
+                      view: ViewState.SUBMISSIONS_PARTICIPANTS,
+                      active: currentView === ViewState.SUBMISSIONS_PARTICIPANTS,
                     },
                     {
                       icon: UserCog,
@@ -457,6 +767,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                          currentView === ViewState.SUBMISSIONS_DASHBOARD ||
                          currentView === ViewState.SUBMISSIONS_FOLLOW_UP ||
                          currentView === ViewState.SUBMISSIONS_MANAGE ||
+                         currentView === ViewState.SUBMISSIONS_PARTICIPANTS ||
                          currentView === ViewState.SUBMISSIONS_MANAGE_COMMITTEE ||
                          currentView === ViewState.SUBMISSIONS_REPORTING ||
                          currentView === ViewState.PROGRAM_BUILDER} 
@@ -498,7 +809,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <ExpandableSidebarItem
                   icon={Wrench}
                   label={nav.tools}
-                  active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER}
+                  active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER || currentView === ViewState.POSTER_MANAGER}
                   expanded={toolsExpanded}
                   onToggle={onToggleTools}
                   subItems={[
@@ -544,6 +855,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       view: ViewState.PRESENTER,
                       active: currentView === ViewState.PRESENTER,
                     },
+                    {
+                      icon: ImageIcon,
+                      label: nav.posterManager,
+                      view: ViewState.POSTER_MANAGER,
+                      active: currentView === ViewState.POSTER_MANAGER,
+                    },
                   ]}
                   onSubItemClick={(viewState: ViewState) => {
                     if (viewState === ViewState.FORM_BUILDER) {
@@ -559,7 +876,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <SidebarItem 
                   icon={Wrench} 
                   label="" 
-                  active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER || currentView === ViewState.EMAILER || currentView === ViewState.BLOGS || currentView === ViewState.PRESENTER} 
+                  active={currentView === ViewState.FORM_BUILDER || currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND || currentView === ViewState.LANDING_PAGES || currentView === ViewState.BUILDER || currentView === ViewState.FILES_MANAGER || currentView === ViewState.EMAILER || currentView === ViewState.BLOGS || currentView === ViewState.PRESENTER || currentView === ViewState.POSTER_MANAGER} 
                   onClick={onToggleTools} 
                 />
               )}
@@ -709,133 +1026,127 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onClick={() => onNavigateToView(ViewState.MESSAGING)} 
                 />
               )}
-            </>
-          )}
 
-          {/* Participant / Jury & Reviews - Show only for participants/jury members */}
-          {!isOrganizer && (
-            <>
               {sidebarOpen ? (
-                <ExpandableSidebarItem
-                  icon={Award}
-                  label={nav.participant}
-                  active={currentView === ViewState.JURY || currentView === ViewState.JURY_DASHBOARD || currentView === ViewState.JURY_PROFILE || currentView === ViewState.JURY_INVITATIONS || currentView === ViewState.JURY_EVENTS || currentView === ViewState.JURY_REVIEWS || currentView === ViewState.PARTICIPANT_REGISTRATIONS || currentView === ViewState.PARTICIPANT_SUBMISSIONS || currentView === ViewState.PARTICIPANT_MESSAGING || currentView === ViewState.PARTICIPANT_ACADEMY}
-                  expanded={juryExpanded}
-                  onToggle={onToggleJury}
-                  subItems={[
-                    {
-                      icon: LayoutDashboard,
-                      label: nav.dashboard,
-                      view: ViewState.JURY_DASHBOARD,
-                      active: currentView === ViewState.JURY_DASHBOARD,
-                    },
-                    {
-                      icon: Users,
-                      label: nav.myProfile,
-                      view: ViewState.JURY_PROFILE,
-                      active: currentView === ViewState.JURY_PROFILE,
-                    },
-                    {
-                      icon: Bell,
-                      label: nav.invitations,
-                      view: ViewState.JURY_INVITATIONS,
-                      active: currentView === ViewState.JURY_INVITATIONS,
-                    },
-                    {
-                      icon: Calendar,
-                      label: nav.events,
-                      view: ViewState.JURY_EVENTS,
-                      active: currentView === ViewState.JURY_EVENTS,
-                    },
-                    {
-                      icon: FileText,
-                      label: nav.reviews,
-                      view: ViewState.JURY_REVIEWS,
-                      active: currentView === ViewState.JURY_REVIEWS,
-                    },
-                    {
-                      icon: ClipboardList,
-                      label: nav.registrations,
-                      view: ViewState.PARTICIPANT_REGISTRATIONS,
-                      active: currentView === ViewState.PARTICIPANT_REGISTRATIONS,
-                    },
-                    {
-                      icon: Send,
-                      label: nav.submissions,
-                      view: ViewState.PARTICIPANT_SUBMISSIONS,
-                      active: currentView === ViewState.PARTICIPANT_SUBMISSIONS,
-                    },
-                    {
-                      icon: MessageSquare,
-                      label: nav.messages,
-                      view: ViewState.PARTICIPANT_MESSAGING,
-                      active: currentView === ViewState.PARTICIPANT_MESSAGING,
-                    },
-                    {
-                      icon: GraduationCap,
-                      label: nav.academy,
-                      view: ViewState.PARTICIPANT_ACADEMY,
-                      active: currentView === ViewState.PARTICIPANT_ACADEMY,
-                    },
-                  ]}
-                  onSubItemClick={onNavigateToView}
+                <SidebarItem
+                  icon={Flower2}
+                  label={nav.morchid}
+                  active={currentView === ViewState.ORGANIZER_MORCHID}
+                  onClick={() => onNavigateToView(ViewState.ORGANIZER_MORCHID)}
                 />
               ) : (
-                <SidebarItem 
-                  icon={Award} 
-                  label="" 
-                  active={currentView === ViewState.JURY || currentView === ViewState.JURY_DASHBOARD || currentView === ViewState.JURY_PROFILE || currentView === ViewState.JURY_INVITATIONS || currentView === ViewState.JURY_EVENTS || currentView === ViewState.JURY_REVIEWS || currentView === ViewState.PARTICIPANT_REGISTRATIONS || currentView === ViewState.PARTICIPANT_SUBMISSIONS || currentView === ViewState.PARTICIPANT_MESSAGING} 
-                  onClick={() => onNavigateToView(ViewState.JURY_DASHBOARD)} 
+                <SidebarItem
+                  icon={Flower2}
+                  label=""
+                  active={currentView === ViewState.ORGANIZER_MORCHID}
+                  onClick={() => onNavigateToView(ViewState.ORGANIZER_MORCHID)}
                 />
               )}
-
-              {/* Participant Tools - Show only for participants/jury members */}
-              {sidebarOpen ? (
-                <ExpandableSidebarItem
-                  icon={Wrench}
-                  label={nav.tools}
-                  active={currentView === ViewState.PARTICIPANT_TOOLS || currentView === ViewState.LATEX_EDITOR || currentView === ViewState.CV_BUILDER || currentView === ViewState.PROFILE_BUILDER || currentView === ViewState.PARTICIPANT_BLOG}
-                  expanded={participantToolsExpanded}
-                  onToggle={onToggleParticipantTools}
-                  subItems={[
-                    {
-                      icon: Code,
-                      label: nav.latexEditor,
-                      view: ViewState.LATEX_EDITOR,
-                      active: currentView === ViewState.LATEX_EDITOR,
-                    },
-                    {
-                      icon: FileText,
-                      label: nav.cvBuilder,
-                      view: ViewState.CV_BUILDER,
-                      active: currentView === ViewState.CV_BUILDER,
-                    },
-                    {
-                      icon: User,
-                      label: nav.profileBuilder,
-                      view: ViewState.PROFILE_BUILDER,
-                      active: currentView === ViewState.PROFILE_BUILDER,
-                    },
-                    {
-                      icon: BookOpen,
-                      label: nav.blog,
-                      view: ViewState.PARTICIPANT_BLOG,
-                      active: currentView === ViewState.PARTICIPANT_BLOG,
-                    },
-                  ]}
-                  onSubItemClick={onNavigateToView}
-                />
-              ) : (
-                <SidebarItem 
-                  icon={Wrench} 
-                  label="" 
-                  active={currentView === ViewState.PARTICIPANT_TOOLS || currentView === ViewState.LATEX_EDITOR || currentView === ViewState.CV_BUILDER || currentView === ViewState.PROFILE_BUILDER || currentView === ViewState.PARTICIPANT_BLOG} 
-                  onClick={onToggleParticipantTools} 
-                />
-              )}
-            </>
+            </div>
           )}
+
         </div>
+
+        {isOrganizer && (
+          <div
+            className={`mt-auto pt-4 border-t border-slate-100 space-y-1 ${
+              navLocked ? 'opacity-40 pointer-events-none select-none' : ''
+            }`}
+            aria-disabled={navLocked || undefined}
+          >
+            {sidebarOpen && (
+              <p className="px-4 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {nav.workshop}
+              </p>
+            )}
+            {sidebarOpen ? (
+              <ExpandableSidebarItem
+                icon={GraduationCap}
+                label={nav.academyLms}
+                active={currentView === ViewState.ACADEMY_COURSE_MANAGER ||
+                       currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER ||
+                       currentView === ViewState.ACADEMY_PAYMENT_MANAGER}
+                expanded={academyExpanded}
+                onToggle={onToggleAcademy}
+                subItems={[
+                  {
+                    icon: BookOpen,
+                    label: nav.courseManager,
+                    view: ViewState.ACADEMY_COURSE_MANAGER,
+                    active: currentView === ViewState.ACADEMY_COURSE_MANAGER,
+                  },
+                  {
+                    icon: Users,
+                    label: nav.enrollmentManager,
+                    view: ViewState.ACADEMY_ENROLLMENT_MANAGER,
+                    active: currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER,
+                  },
+                  {
+                    icon: CreditCard,
+                    label: nav.paymentManager,
+                    view: ViewState.ACADEMY_PAYMENT_MANAGER,
+                    active: currentView === ViewState.ACADEMY_PAYMENT_MANAGER,
+                  },
+                ]}
+                onSubItemClick={onNavigateToView}
+              />
+            ) : (
+              <SidebarItem
+                icon={GraduationCap}
+                label=""
+                active={currentView === ViewState.ACADEMY_COURSE_MANAGER ||
+                       currentView === ViewState.ACADEMY_ENROLLMENT_MANAGER ||
+                       currentView === ViewState.ACADEMY_PAYMENT_MANAGER}
+                onClick={onToggleAcademy}
+              />
+            )}
+            {sidebarOpen ? (
+              <ExpandableSidebarItem
+                icon={FolderKanban}
+                label={nav.opportunities}
+                active={
+                  currentView === ViewState.OPPORTUNITIES_DASHBOARD ||
+                  currentView === ViewState.OPPORTUNITIES_MANAGE ||
+                  currentView === ViewState.OPPORTUNITIES_APPLICATIONS
+                }
+                expanded={opportunitiesExpanded}
+                onToggle={onToggleOpportunities}
+                subItems={[
+                  {
+                    icon: LayoutDashboard,
+                    label: nav.dashboard,
+                    view: ViewState.OPPORTUNITIES_DASHBOARD,
+                    active: currentView === ViewState.OPPORTUNITIES_DASHBOARD,
+                  },
+                  {
+                    icon: Plus,
+                    label: nav.newOpportunity,
+                    view: ViewState.OPPORTUNITIES_MANAGE,
+                    active: currentView === ViewState.OPPORTUNITIES_MANAGE,
+                  },
+                  {
+                    icon: ClipboardList,
+                    label: nav.opportunityApplications,
+                    view: ViewState.OPPORTUNITIES_APPLICATIONS,
+                    active: currentView === ViewState.OPPORTUNITIES_APPLICATIONS,
+                  },
+                ]}
+                onSubItemClick={onNavigateToView}
+              />
+            ) : (
+              <SidebarItem
+                icon={FolderKanban}
+                label=""
+                active={
+                  currentView === ViewState.OPPORTUNITIES_DASHBOARD ||
+                  currentView === ViewState.OPPORTUNITIES_MANAGE ||
+                  currentView === ViewState.OPPORTUNITIES_APPLICATIONS
+                }
+                onClick={onToggleOpportunities}
+              />
+            )}
+          </div>
+        )}
       </nav>
 
       <div className="p-4 border-t border-slate-100">

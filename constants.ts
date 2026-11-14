@@ -135,6 +135,53 @@ export const INITIAL_CONFERENCE_CONFIG: ConferenceConfig = {
       socials: []
     }
   ],
+  scientificCommittee: {
+    eventChair: {
+      id: 'comm-1',
+      name: 'Prof. Jonathan Smith',
+      role: 'General Chair',
+      establishment: 'Stanford University',
+      email: 'jonathan.smith@stanford.edu',
+      bio: 'Professor of Computer Science with over 20 years of experience in distributed systems and conference leadership.',
+      imageUrl:
+        'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80',
+      linkedin: 'https://linkedin.com/in/example',
+      links: [{ id: 'comm-1-orcid', type: 'orcid', url: 'https://orcid.org/0000-0001-2345-6789' }],
+    },
+    subCommittees: [
+      {
+        id: 'sub-program',
+        name: 'Program Committee',
+        icon: 'microscope',
+        chair: {
+          id: 'comm-2',
+          name: 'Dr. Emily Chang',
+          role: 'Program Chair',
+          establishment: 'University of Cambridge',
+          email: 'emily.chang@cam.ac.uk',
+          bio: 'Expert in Human-Computer Interaction and social computing with a focus on inclusive design.',
+          imageUrl:
+            'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80',
+          linkedin: '',
+          links: [{ id: 'comm-2-gs', type: 'google_scholar', url: 'https://scholar.google.com' }],
+        },
+        members: [
+          {
+            id: 'comm-3',
+            name: 'Dr. Robert Chen',
+            role: 'Technical Review Lead',
+            establishment: 'Google Research',
+            email: 'robert.chen@research.google',
+            bio: 'Lead researcher in machine learning infrastructure and peer-review systems.',
+            imageUrl:
+              'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-4.0.3&auto=format&fit=crop&w=256&q=80',
+            linkedin: '',
+            links: [],
+          },
+        ],
+      },
+    ],
+  },
   team: [
     {
       id: 'team-1',
@@ -218,6 +265,32 @@ export const INITIAL_CONFERENCE_CONFIG: ConferenceConfig = {
         }
       ]
     }
+  ],
+  eventTopics: [
+    {
+      id: 'topic-1',
+      name: 'Artificial Intelligence',
+      icon: 'brain',
+      shortDescription: 'Machine learning, NLP, and intelligent systems.',
+      longDescription:
+        'Explore advances in machine learning, natural language processing, computer vision, and responsible AI deployment across industry and academia.',
+    },
+    {
+      id: 'topic-2',
+      name: 'Quantum Computing',
+      icon: 'cpu',
+      shortDescription: 'Algorithms, hardware, and post-quantum security.',
+      longDescription:
+        'Sessions cover quantum algorithms, hardware platforms, error correction, and cryptography in the post-quantum era.',
+    },
+    {
+      id: 'topic-3',
+      name: 'Sustainable Technology',
+      icon: 'leaf',
+      shortDescription: 'Green energy, smart cities, and climate tech.',
+      longDescription:
+        'Discuss renewable grids, circular economy, climate modeling, and policy for sustainable digital infrastructure.',
+    },
   ],
   faq: [
     {
@@ -356,6 +429,7 @@ export const INITIAL_CONFERENCE_CONFIG: ConferenceConfig = {
     { id: 'sec-4', type: 'agenda', title: 'Program Agenda', isVisible: true, titleAlignment: 'center' },
     { id: 'sec-10', type: 'pricing', title: 'Tickets & Registration', isVisible: true, titleAlignment: 'center' },
     { id: 'sec-9', type: 'partners', title: 'Partners & Sponsors', isVisible: true, titleAlignment: 'center' },
+    { id: 'sec-5a', type: 'eventTopics', title: 'Event Topics', isVisible: true, titleAlignment: 'center' },
     { id: 'sec-5', type: 'faq', title: 'FAQ', isVisible: true, titleAlignment: 'center' },
     { id: 'sec-7', type: 'contact', title: 'Contact Us', isVisible: true, titleAlignment: 'center' },
     { id: 'sec-12', type: 'images', title: 'Gallery', isVisible: true, titleAlignment: 'center' },

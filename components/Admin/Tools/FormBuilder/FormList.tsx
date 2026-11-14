@@ -12,13 +12,15 @@ import {
   UserCheck,
   FileCheck,
   Grid3x3,
-  List
+  List,
+  CreditCard,
 } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
 import {
   getUserRegistrationForms,
   deleteRegistrationForm,
   getRegistrationForm,
+  inferRegistrationFormCategory,
   RegistrationForm,
   FormField,
   FormFieldType
@@ -41,7 +43,7 @@ interface FormListProps {
 
 interface FormCardProps {
   form: RegistrationForm | EvaluationForm;
-  formType: 'registration' | 'submission' | 'evaluation' | 'other';
+  formType: 'registration' | 'submission' | 'evaluation' | 'payment' | 'other';
   onEdit: (formId: string) => void;
   onDelete: (formId: string) => void;
   onDisplay: (formId: string) => void;
@@ -54,7 +56,7 @@ interface FormCardProps {
 
 interface FormRowProps {
   form: RegistrationForm | EvaluationForm;
-  formType: 'registration' | 'submission' | 'evaluation' | 'other';
+  formType: 'registration' | 'submission' | 'evaluation' | 'payment' | 'other';
   onEdit: (formId: string) => void;
   onDelete: (formId: string) => void;
   onDisplay: (formId: string) => void;
@@ -80,13 +82,15 @@ const FormCard: React.FC<FormCardProps> = ({
   return (
     <div
       className={`bg-white rounded-xl shadow-sm border hover:shadow-md transition-shadow overflow-hidden flex flex-col ${
-        formType === 'registration' 
-          ? 'border-blue-200' 
-          : formType === 'submission' 
-          ? 'border-purple-200' 
-          : formType === 'evaluation'
-          ? 'border-orange-200'
-          : 'border-slate-200'
+        formType === 'registration'
+          ? 'border-blue-200'
+          : formType === 'submission'
+            ? 'border-purple-200'
+            : formType === 'evaluation'
+              ? 'border-orange-200'
+              : formType === 'payment'
+                ? 'border-emerald-200'
+                : 'border-slate-200'
       }`}
     >
       <div className="p-6 flex-1">
@@ -103,17 +107,19 @@ const FormCard: React.FC<FormCardProps> = ({
 
         <div className="space-y-2 mb-4">
           <div className="flex items-center gap-2 text-sm text-slate-600">
-            <FileText 
-              size={16} 
+            <FileText
+              size={16}
               className={
-                formType === 'registration' 
-                  ? 'text-blue-600' 
-                  : formType === 'submission' 
-                  ? 'text-purple-600' 
-                  : formType === 'evaluation'
-                  ? 'text-orange-600'
-                  : 'text-slate-600'
-              } 
+                formType === 'registration'
+                  ? 'text-blue-600'
+                  : formType === 'submission'
+                    ? 'text-purple-600'
+                    : formType === 'evaluation'
+                      ? 'text-orange-600'
+                      : formType === 'payment'
+                        ? 'text-emerald-600'
+                        : 'text-slate-600'
+              }
             />
             <span>{getTotalFieldCount(form)} field(s)</span>
           </div>
@@ -199,13 +205,15 @@ const FormRow: React.FC<FormRowProps> = ({
   return (
     <div
       className={`bg-white rounded-lg shadow-sm border hover:shadow-md transition-all overflow-hidden ${
-        formType === 'registration' 
-          ? 'border-l-4 border-l-blue-500' 
-          : formType === 'submission' 
-          ? 'border-l-4 border-l-purple-500' 
-          : formType === 'evaluation'
-          ? 'border-l-4 border-l-orange-500'
-          : 'border-l-4 border-l-slate-300'
+        formType === 'registration'
+          ? 'border-l-4 border-l-blue-500'
+          : formType === 'submission'
+            ? 'border-l-4 border-l-purple-500'
+            : formType === 'evaluation'
+              ? 'border-l-4 border-l-orange-500'
+              : formType === 'payment'
+                ? 'border-l-4 border-l-emerald-500'
+                : 'border-l-4 border-l-slate-300'
       }`}
     >
       <div className="p-4 flex items-center justify-between gap-4">
@@ -223,17 +231,19 @@ const FormRow: React.FC<FormRowProps> = ({
           )}
           <div className="flex items-center gap-4 text-xs text-slate-500">
             <div className="flex items-center gap-1">
-              <FileText 
-                size={14} 
+              <FileText
+                size={14}
                 className={
-                  formType === 'registration' 
-                    ? 'text-blue-600' 
-                    : formType === 'submission' 
-                    ? 'text-purple-600' 
-                    : formType === 'evaluation'
-                    ? 'text-orange-600'
-                    : 'text-slate-600'
-                } 
+                  formType === 'registration'
+                    ? 'text-blue-600'
+                    : formType === 'submission'
+                      ? 'text-purple-600'
+                      : formType === 'evaluation'
+                        ? 'text-orange-600'
+                        : formType === 'payment'
+                          ? 'text-emerald-600'
+                          : 'text-slate-600'
+                }
               />
               <span>{getTotalFieldCount(form)} field(s)</span>
             </div>
@@ -292,6 +302,7 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [evaluationFormIds, setEvaluationFormIds] = useState<Set<string>>(new Set());
   const { currentUser } = useAuth();
   const [displayingForm, setDisplayingForm] = useState<RegistrationForm | EvaluationForm | null>(null);
   const [isLoadingForm, setIsLoadingForm] = useState(false);
@@ -347,7 +358,9 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
         getUserRegistrationForms(userId),
         getUserEvaluationForms(userId)
       ]);
-      
+
+      setEvaluationFormIds(new Set(evaluationForms.map(f => f.id)));
+
       // Combine and sort all forms by updated date
       const allForms: (RegistrationForm | EvaluationForm)[] = [
         ...registrationForms,
@@ -445,24 +458,23 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
   };
 
   const cleanFormTitle = (title: string): string => {
-    // Remove "Reg - ", "Reg-", "Sub - ", "Sub-", "Eval - ", "Eval-" prefixes
+    // Remove "Reg - ", "Reg-", "Sub - ", "Sub-", "Pay - ", "Pay-", "Eval - ", "Eval-" prefixes
     return title
       .replace(/^reg\s*-\s*/i, '')
       .replace(/^sub\s*-\s*/i, '')
+      .replace(/^pay\s*-\s*/i, '')
       .replace(/^eval\s*-\s*/i, '')
       .trim();
   };
 
-  // Detect form type from title prefix
-  const getFormType = (form: RegistrationForm | EvaluationForm): 'registration' | 'submission' | 'evaluation' | 'other' => {
-    const titleLower = form.title.toLowerCase();
-    if (titleLower.startsWith('reg - ') || titleLower.startsWith('reg-') || titleLower.includes('registration')) {
-      return 'registration';
-    } else if (titleLower.startsWith('sub - ') || titleLower.startsWith('sub-') || titleLower.includes('submission')) {
-      return 'submission';
-    } else if (titleLower.startsWith('eval - ') || titleLower.startsWith('eval-') || titleLower.includes('evaluation')) {
+  const getFormType = (form: RegistrationForm | EvaluationForm): FormCardProps['formType'] => {
+    if (evaluationFormIds.has(form.id)) {
       return 'evaluation';
     }
+    const cat = inferRegistrationFormCategory(form as RegistrationForm);
+    if (cat === 'payment') return 'payment';
+    if (cat === 'submission') return 'submission';
+    if (cat === 'registration') return 'registration';
     return 'other';
   };
 
@@ -522,12 +534,13 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
       return true;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [forms, filters]);
+  }, [forms, filters, evaluationFormIds]);
 
   // Group forms by type
   const groupedForms = useMemo(() => {
     const registration: (RegistrationForm | EvaluationForm)[] = [];
     const submission: (RegistrationForm | EvaluationForm)[] = [];
+    const payment: (RegistrationForm | EvaluationForm)[] = [];
     const evaluation: (RegistrationForm | EvaluationForm)[] = [];
     const other: (RegistrationForm | EvaluationForm)[] = [];
 
@@ -537,6 +550,8 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
         registration.push(form);
       } else if (type === 'submission') {
         submission.push(form);
+      } else if (type === 'payment') {
+        payment.push(form);
       } else if (type === 'evaluation') {
         evaluation.push(form);
       } else {
@@ -544,8 +559,8 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
       }
     });
 
-    return { registration, submission, evaluation, other };
-  }, [filteredForms]);
+    return { registration, submission, payment, evaluation, other };
+  }, [filteredForms, evaluationFormIds]);
 
   const handleFiltersChange = (newFilters: FormFilters) => {
     setFilters(newFilters);
@@ -882,6 +897,58 @@ const FormList: React.FC<FormListProps> = ({ onEdit, onNew, refreshTrigger }) =>
                       key={form.id}
                       form={form}
                       formType="submission"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Payment Forms Section */}
+          {groupedForms.payment.length > 0 && (
+            <div>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-emerald-100 rounded-lg">
+                  <CreditCard className="text-emerald-700" size={20} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Payment Forms</h2>
+                  <p className="text-sm text-slate-500">{groupedForms.payment.length} form(s)</p>
+                </div>
+              </div>
+              {viewMode === 'cards' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {groupedForms.payment.map((form) => (
+                    <FormCard
+                      key={form.id}
+                      form={form}
+                      formType="payment"
+                      onEdit={handleEdit}
+                      onDelete={handleDelete}
+                      onDisplay={handleDisplay}
+                      isLoadingForm={isLoadingForm}
+                      deletingId={deletingId}
+                      getTotalFieldCount={getTotalFieldCount}
+                      formatDate={formatDate}
+                      cleanFormTitle={cleanFormTitle}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {groupedForms.payment.map((form) => (
+                    <FormRow
+                      key={form.id}
+                      form={form}
+                      formType="payment"
                       onEdit={handleEdit}
                       onDelete={handleDelete}
                       onDisplay={handleDisplay}

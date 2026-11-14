@@ -18,6 +18,18 @@ export default defineConfig(({ mode }) => {
             target: 'http://localhost:3004',
             changeOrigin: true,
           },
+          '/api/performance': {
+            target: 'http://localhost:3005',
+            changeOrigin: true,
+          },
+          '/api/security': {
+            target: 'http://localhost:3006',
+            changeOrigin: true,
+          },
+          '/api/ai-poster': {
+            target: 'http://localhost:3007',
+            changeOrigin: true,
+          },
         },
       },
       plugins: [react()],

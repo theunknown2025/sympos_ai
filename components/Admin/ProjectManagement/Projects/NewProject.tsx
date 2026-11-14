@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Save, Loader2, AlertCircle, CheckCircle2, Calendar, X, Search, UserPlus, ChevronDown, ChevronUp } from 'lucide-react';
 import { createProject, Axe, Task } from '../../../../services/projectService';
+import { EventResourceSlotFullError, isEventResourceSlotFullError } from '../../../../services/eventResources';
+import EventResourceLimitModal from '../../EventResources/EventResourceLimitModal';
 import { getPersonnel, Personnel } from '../../../../services/personnelService';
 import { useAuth } from '../../../../hooks/useAuth';
 import DateRangePicker from './DateRangePicker';
@@ -20,6 +22,7 @@ const NewProject: React.FC<NewProjectProps> = ({ selectedEventId, onEventSelect,
   const [personnel, setPersonnel] = useState<Personnel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  const [projectSlotBlocked, setProjectSlotBlocked] = useState(false);
   const [success, setSuccess] = useState(false);
   const [projectInfoExpanded, setProjectInfoExpanded] = useState(true);
 
@@ -238,6 +241,10 @@ const NewProject: React.FC<NewProjectProps> = ({ selectedEventId, onEventSelect,
         onSuccess();
       }, 1500);
     } catch (err: any) {
+      if (isEventResourceSlotFullError(err) || err instanceof EventResourceSlotFullError) {
+        setProjectSlotBlocked(true);
+        return;
+      }
       console.error('Error creating project:', err);
       setError(err.message || 'Failed to create project. Please try again.');
     } finally {
@@ -247,6 +254,9 @@ const NewProject: React.FC<NewProjectProps> = ({ selectedEventId, onEventSelect,
 
   return (
     <div className="space-y-6">
+      {projectSlotBlocked && (
+        <EventResourceLimitModal slot="project" onClose={() => setProjectSlotBlocked(false)} />
+      )}
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Project Info Accordion */}
         <div className="bg-slate-50 rounded-xl border border-slate-200 overflow-hidden">

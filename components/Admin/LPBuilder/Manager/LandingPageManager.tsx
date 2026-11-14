@@ -26,6 +26,8 @@ import {
 } from '../../../../services/landingPageService';
 import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
 import { getEvent } from '../../../../services/eventService';
+import { slotIsFull } from '../../../../services/eventResources';
+import EventResourceLimitModal from '../../EventResources/EventResourceLimitModal';
 
 interface LandingPageManagerProps {
   onEdit: (pageId: string) => void;
@@ -39,6 +41,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+  const [landingSlotBlocked, setLandingSlotBlocked] = useState(false);
   const { currentUser, isLoading: authLoading } = useAuth();
   const { t } = useAdminTranslation('landingPages');
   const { language } = useAdminDisplaySettings();
@@ -150,6 +153,17 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
     }).format(date);
   };
 
+  const requestNewLandingPage = async () => {
+    if (organizerScopedEventId) {
+      const ev = await getEvent(organizerScopedEventId);
+      if (ev && slotIsFull(ev, 'landing_page')) {
+        setLandingSlotBlocked(true);
+        return;
+      }
+    }
+    onNew();
+  };
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-full min-h-[400px]">
@@ -161,13 +175,16 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
 
   return (
     <div className="h-full">
+      {landingSlotBlocked && (
+        <EventResourceLimitModal slot="landing_page" onClose={() => setLandingSlotBlocked(false)} />
+      )}
       <header className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">{t('pageTitle')}</h1>
           <p className="text-slate-500 mt-1 text-sm">{t('subtitle')}</p>
         </div>
         <button
-          onClick={onNew}
+          onClick={() => void requestNewLandingPage()}
           className="flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm shadow-indigo-200"
         >
           <Plus size={18} /> {t('newLandingPage')}
@@ -195,7 +212,7 @@ const LandingPageManager: React.FC<LandingPageManagerProps> = ({ onEdit, onNew }
             {isEventScopeLocked ? t('emptySubtitleScoped') : t('emptySubtitle')}
           </p>
           <button
-            onClick={onNew}
+            onClick={() => void requestNewLandingPage()}
             className="inline-flex items-center gap-2 px-6 py-3 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 shadow-sm"
           >
             <Plus size={18} /> {t('createLandingPage')}

@@ -28,6 +28,7 @@ export const TABLES = {
   SUBMISSIONS_ANSWERS: 'submissions_answers',
   PROGRAMS: 'programs',
   EVENTS: 'events',
+  EVENT_ORGANIZER_PARTNERSHIPS: 'event_organizer_partnerships',
   JURY_MEMBERS: 'jury_members',
   COMMITTEE_INVITATIONS: 'committee_invitations',
   EVENT_ATTENDANCE: 'event_attendance',
@@ -64,6 +65,8 @@ export const TABLES = {
   MESSAGE_READ_STATUS: 'message_read_status',
   CAMPUSES: 'campuses',
   ORGANIZER_MEMBERSHIPS: 'organizer_memberships',
+  ORGANIZER_PLATFORM_SUBSCRIPTIONS: 'organizer_platform_subscriptions',
+  ORGANIZER_PRO_ORDERS: 'organizer_pro_orders',
   PARTICIPANT_MEMBERSHIPS: 'participant_memberships',
   SUB_SUPER_ADMIN_MEMBERSHIPS: 'sub_super_admin_memberships',
   ACADEMY_COURSES: 'academy_courses',
@@ -80,6 +83,13 @@ export const TABLES = {
   ACADEMY_QUIZ_OPTIONS: 'academy_quiz_options',
   ACADEMY_QUIZ_ATTEMPTS: 'academy_quiz_attempts',
   ACADEMY_CERTIFICATES: 'academy_certificates',
+  OPPORTUNITIES: 'opportunities',
+  OPPORTUNITY_APPLICATIONS: 'opportunity_applications',
+  PARTICIPANT_SAVED_OPPORTUNITIES: 'participant_saved_opportunities',
+  CONFERENCE_POSTERS: 'conference_posters',
+  SUBMISSION_MODIFICATION_ROUNDS: 'submission_modification_rounds',
+  SUBMISSION_MODIFICATION_QUESTIONS: 'submission_modification_questions',
+  SUBMISSION_MODIFICATION_FILES: 'submission_modification_files',
 } as const;
 
 // Storage bucket names
@@ -100,5 +110,10 @@ export const STORAGE_BUCKETS = {
   PAYMENT_METHOD_FILES: 'payment-method-files', // Bucket for payment method documents
   MESSAGE_ATTACHMENTS: 'message-attachments', // Bucket for message attachments
   ACADEMY_COURSE_BANNERS: 'academy-course-banners', // Bucket for academy course banners
+  OPPORTUNITY_FILES: 'opportunity-files', // Bucket for opportunity attachments
+  OPPORTUNITY_BANNERS: 'opportunity-banners', // Bucket for opportunity header banners
+  COMMITTEE_INVITATION_FILES: 'committee-invitation-files', // Bucket for committee invitation email attachments
+  CONFERENCE_POSTERS: 'conference-posters', // Bucket for conference poster assets
+  SUBMISSION_MODIFICATION_FILES: 'submission-modification-files', // Revised documents from modification workflow
 } as const;
 

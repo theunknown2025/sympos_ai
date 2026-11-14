@@ -1,5 +1,6 @@
 import { supabase, TABLES } from '../supabase';
-import { CommitteeMember, ConferenceConfig, SubmissionSectionConfig } from '../types';
+import { CommitteeMember, ConferenceConfig, ScientificCommitteeConfig, SubmissionSectionConfig } from '../types';
+import { migrateLegacyCommittee, normalizeScientificCommittee } from '../utils/scientificCommitteeUtils';
 
 export interface SavedLandingPage {
   id: string;
@@ -52,12 +53,25 @@ function normalizeCommitteeMembersFromStorage(raw: CommitteeMember[] | undefined
     });
 }
 
+function normalizeScientificCommitteeFromStorage(
+  raw: ScientificCommitteeConfig | undefined,
+  legacyCommittee: CommitteeMember[]
+): ScientificCommitteeConfig {
+  if (raw && typeof raw === 'object') {
+    return normalizeScientificCommittee(raw);
+  }
+  return migrateLegacyCommittee(legacyCommittee);
+}
+
 /** Apply submission + hero CTA normalization (arrays, non-null entries). */
 const normalizeConferenceConfigFromStorage = (config: ConferenceConfig): ConferenceConfig => {
+  const committee = normalizeCommitteeMembersFromStorage(config.committee);
   const next: ConferenceConfig = {
     ...config,
+    eventTopics: Array.isArray(config.eventTopics) ? config.eventTopics : [],
     submission: ensureSubmissionSection(config.submission),
-    committee: normalizeCommitteeMembersFromStorage(config.committee),
+    committee,
+    scientificCommittee: normalizeScientificCommitteeFromStorage(config.scientificCommittee, committee),
   };
   if (next.hero) {
     next.hero = {
@@ -104,6 +118,7 @@ const validateAndCleanConfig = (config: ConferenceConfig): ConferenceConfig => {
   // Ensure all required fields exist
   const cleaned: ConferenceConfig = {
     ...config,
+    eventTopics: Array.isArray(config.eventTopics) ? config.eventTopics : [],
     committee: normalizeCommitteeMembersFromStorage(config.committee),
     // Ensure sections have titleAlignment
     sections: config.sections.map(section => ({
@@ -618,4 +633,33 @@ export const getPublishedLandingPage = async (slug: string): Promise<SavedLandin
     console.error('Error getting published landing page:', error);
     throw error;
   }
+};
+
+/** Map landing page id → public slug for published pages (marketing cards). */
+export const getPublishedSlugsByLandingPageIds = async (
+  landingPageIds: string[]
+): Promise<Record<string, string>> => {
+  const uniqueIds = [...new Set(landingPageIds.filter(Boolean))];
+  if (uniqueIds.length === 0) {
+    return {};
+  }
+
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select('id, public_slug')
+    .in('id', uniqueIds)
+    .eq('is_published', true)
+    .not('public_slug', 'is', null);
+
+  if (error) {
+    throw new Error(error.message || 'Failed to load landing page links');
+  }
+
+  const out: Record<string, string> = {};
+  for (const row of data || []) {
+    if (row.public_slug) {
+      out[row.id as string] = row.public_slug as string;
+    }
+  }
+  return out;
 };

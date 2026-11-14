@@ -1,26 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ConferenceConfig } from '../../../../types';
+import { ConferenceConfig, Event } from '../../../../types';
 import { INITIAL_CONFERENCE_CONFIG } from '../../../../constants';
 import { 
   Eye, Save, Layout, GripVertical, Settings2, 
   Type, Users, Award, HelpCircle, Menu as MenuIcon, 
   FileText, Mail, ChevronDown, ChevronUp, Tag,
-  ArrowUp, ArrowDown, Clock, X, Loader2, AlertCircle, ArrowLeft, Calendar, MapPin, Maximize2, Image, Plus
+  ArrowUp, ArrowDown, Clock, X, Loader2, AlertCircle, ArrowLeft, Calendar, MapPin, Maximize2, Image, Plus, Layers, Home, Info
 } from 'lucide-react';
 import { generateDescription } from '../../../../services/geminiService';
 import { useAuth } from '../../../../hooks/useAuth';
 import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 import { useAdminDisplaySettings } from '../../../../contexts/AdminDisplaySettingsContext';
 import { saveLandingPage, updateLandingPage, getLandingPage } from '../../../../services/landingPageService';
-import { getEvent, updateEvent } from '../../../../services/eventService';
+import { getEvent, getPublishedEventForLandingPage } from '../../../../services/eventService';
+import { attachEventResource, eventSlotIsFull } from '../../../../services/eventResources';
+import EventResourceLimitModal from '../../EventResources/EventResourceLimitModal';
 import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
 import FormModal from '../../Tools/FormBuilder/FormModal';
-import { isArabic } from '../../../../utils/languageDetection';
 import TemplateSelector from '../Designs/TemplateSelector';
 
 // Preview Sections
 import FaqSection from '../Sections/FaqSection';
+import EventTopicsSection from '../Sections/EventTopicsSection';
 import ScientificCommitteeSection from '../Sections/ScientificCommitteeSection';
 import ContactSection from '../Sections/ContactSection';
 import SubmissionSection from '../Sections/SubmissionSection';
@@ -30,6 +32,7 @@ import AgendaSection from '../Sections/AgendaSection';
 import SpeakersSection from '../Sections/SpeakersSection';
 import TeamSection from '../Sections/TeamSection';
 import ImagesSection from '../Sections/ImagesSection';
+import AboutSection, { withAboutDesign } from '../Sections/AboutSection';
 // Editor Components
 import HeaderEditor from '../Editors/HeaderEditor';
 import HeroEditor from '../Editors/HeroEditor';
@@ -39,13 +42,20 @@ import CommitteeEditor from '../Editors/CommitteeEditor';
 import TeamEditor from '../Editors/TeamEditor';
 import AgendaEditor from '../Editors/AgendaEditor';
 import FaqEditor from '../Editors/FaqEditor';
+import EventTopicsEditor from '../Editors/EventTopicsEditor';
 import ContactEditor from '../Editors/ContactEditor';
 import SubmissionEditor from '../Editors/SubmissionEditor';
 import PartnersEditor from '../Editors/PartnersEditor';
 import PricingEditor from '../Editors/PricingEditor';
 import ImagesEditor from '../Editors/ImagesEditor';
 import FullScreenPreview from './FullScreenPreview';
-
+import SectionCtaButtonsEditor from '../Editors/SectionActionButtonEditor';
+import { getSectionActionButtons } from '../shared/landingPageActionButton';
+import SectionActionButtonWrap from '../Sections/SectionActionButtonWrap';
+import { useLandingPageActionHandler } from '../shared/useLandingPageActionHandler';
+import { migrateLegacyCommittee, resolveScientificCommittee } from '../../../../utils/scientificCommitteeUtils';
+import { EventPage, LandingPageHeader, LandingPageFooter } from '../Pages';
+import type { LandingPageView } from '../Pages';
 interface PageBuilderProps {
   pageId?: string;
   onBack?: () => void;
@@ -59,6 +69,9 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
   const [config, setConfig] = useState<ConferenceConfig>(INITIAL_CONFERENCE_CONFIG);
   const [isGenerating, setIsGenerating] = useState(false);
   const [expandedSectionId, setExpandedSectionId] = useState<string | null>('sec-1');
+  const [homeMenuOpen, setHomeMenuOpen] = useState(true);
+  const [homeSubMenu, setHomeSubMenu] = useState<'header' | 'about' | null>(null);
+  const [linkedEvent, setLinkedEvent] = useState<Event | null>(null);
   const [activePreviewDay, setActivePreviewDay] = useState<string>(config.agenda[0]?.id || '');
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
   const { currentUser } = useAuth();
@@ -72,8 +85,10 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
   const [saveTitle, setSaveTitle] = useState('');
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [showFormModal, setShowFormModal] = useState(false);
-  const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
+  const [landingSlotBlocked, setLandingSlotBlocked] = useState(false);
+  const landingPageActions = useLandingPageActionHandler({
+    evaluationUnavailable: t('edSecActionEvaluationUnavailable'),
+  });
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [showTemplateSelector, setShowTemplateSelector] = useState(false);
 
@@ -132,6 +147,51 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
     };
   }, [organizerScopedEventId, pageId, navigate]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadLinkedEvent = async () => {
+      try {
+        if (organizerScopedEventId) {
+          const ev = await getEvent(organizerScopedEventId);
+          if (!cancelled) setLinkedEvent(ev);
+          return;
+        }
+        if (pageId) {
+          const published = await getPublishedEventForLandingPage(pageId);
+          if (!cancelled) setLinkedEvent(published);
+          return;
+        }
+        if (!cancelled) setLinkedEvent(null);
+      } catch {
+        if (!cancelled) setLinkedEvent(null);
+      }
+    };
+    loadLinkedEvent();
+    return () => {
+      cancelled = true;
+    };
+  }, [organizerScopedEventId, pageId]);
+
+  const isEventPublished =
+    linkedEvent?.publishStatus === 'Published' && Boolean(linkedEvent?.publicSlug);
+
+  const previewView: LandingPageView = homeSubMenu === 'about' && isEventPublished ? 'about' : 'home';
+
+  const visibleNavSections = config.sections
+    .filter((s) => s.isVisible && s.type !== 'hero')
+    .map((s) => ({ id: s.id, title: s.title }));
+
+  const goPreviewHome = () => {
+    setHomeSubMenu(null);
+    setExpandedSectionId(null);
+  };
+
+  const goPreviewAbout = () => {
+    if (!isEventPublished) return;
+    setExpandedSectionId(null);
+    setHomeMenuOpen(true);
+    setHomeSubMenu('about');
+  };
   const handleTemplateSelect = (templateConfig: ConferenceConfig) => {
     setConfig(templateConfig);
     setSaveTitle(templateConfig.title);
@@ -191,17 +251,14 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
           // Don't automatically go back - let user continue editing
         }, 2000);
       } else {
-        // Create new page
+        if (organizerScopedEventId && (await eventSlotIsFull(organizerScopedEventId, 'landing_page'))) {
+          setLandingSlotBlocked(true);
+          setShowSaveDialog(false);
+          return;
+        }
         const newPageId = await saveLandingPage(currentUser.id, saveTitle.trim(), config);
         if (organizerScopedEventId) {
-          const ev = await getEvent(organizerScopedEventId);
-          if (ev) {
-            const ids = [...(ev.landingPageIds || [])];
-            if (!ids.includes(newPageId)) {
-              ids.push(newPageId);
-              await updateEvent(organizerScopedEventId, { landingPageIds: ids });
-            }
-          }
+          await attachEventResource(organizerScopedEventId, 'landing_page', newPageId);
         }
         console.log('New page created with ID:', newPageId);
         
@@ -255,7 +312,14 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
   };
 
   const toggleAccordion = (id: string) => {
+    setHomeSubMenu(null);
     setExpandedSectionId(expandedSectionId === id ? null : id);
+  };
+
+  const openHomeSubMenu = (sub: 'header' | 'about') => {
+    setExpandedSectionId(null);
+    setHomeMenuOpen(true);
+    setHomeSubMenu((prev) => (prev === sub ? null : sub));
   };
 
   const getSectionIcon = (type: string) => {
@@ -267,6 +331,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
       case 'team': return <Users size={16} />;
       case 'agenda': return <FileText size={16} />;
       case 'faq': return <HelpCircle size={16} />;
+      case 'eventTopics': return <Layers size={16} />;
       case 'contact': return <Mail size={16} />;
       case 'submission': return <FileText size={16} />;
       case 'partners': return <Users size={16} />;
@@ -276,8 +341,8 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
     }
   };
 
-  const renderSectionEditor = (type: string) => {
-    switch (type) {
+  const renderSectionEditor = (section: ConferenceConfig['sections'][number]) => {
+    switch (section.type) {
       case 'hero': return (
         <HeroEditor 
           config={config.hero} 
@@ -301,7 +366,12 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
         />
       );
       case 'speakers': return <SpeakersEditor speakers={config.speakers} onChange={(val) => setConfig({ ...config, speakers: val })} />;
-      case 'committee': return <CommitteeEditor committee={config.committee} onChange={(val) => setConfig({ ...config, committee: val })} />;
+      case 'committee': return (
+        <CommitteeEditor
+          scientificCommittee={config.scientificCommittee ?? migrateLegacyCommittee(config.committee)}
+          onChange={(val) => setConfig({ ...config, scientificCommittee: val })}
+        />
+      );
       case 'team': return <TeamEditor members={config.team || []} onChange={(val) => setConfig({ ...config, team: val })} />;
       case 'agenda': {
         const section = config.sections.find(s => s.type === 'agenda');
@@ -322,10 +392,31 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
         );
       }
       case 'faq': return <FaqEditor faq={config.faq} onChange={(val) => setConfig({ ...config, faq: val })} />;
+      case 'eventTopics':
+        return (
+          <EventTopicsEditor
+            topics={config.eventTopics || []}
+            onChange={(val) => setConfig({ ...config, eventTopics: val })}
+          />
+        );
       case 'contact': return <ContactEditor config={config.contact} onChange={(val) => setConfig({ ...config, contact: val })} />;
       case 'submission': return <SubmissionEditor config={config.submission} onChange={(val) => setConfig({ ...config, submission: val })} />;
       case 'partners': return <PartnersEditor partners={config.partners} onChange={(val) => setConfig({ ...config, partners: val })} />;
-      case 'pricing': return <PricingEditor pricing={config.pricing} onChange={(val) => setConfig({ ...config, pricing: val })} />;
+      case 'pricing': return (
+        <PricingEditor
+          pricing={config.pricing}
+          onChange={(val) => setConfig({ ...config, pricing: val })}
+          registrationFormId={section.registrationFormId}
+          onRegistrationFormIdChange={(registrationFormId) =>
+            setConfig((prev) => ({
+              ...prev,
+              sections: prev.sections.map((s) =>
+                s.id === section.id ? { ...s, registrationFormId } : s
+              ),
+            }))
+          }
+        />
+      );
       case 'images': return <ImagesEditor imageGroups={config.imageGroups || []} onChange={(val) => setConfig({ ...config, imageGroups: val })} />;
       default: return null;
     }
@@ -333,6 +424,19 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
 
   const renderPreviewSection = (section: any) => {
     if (!section.isVisible) return null;
+
+    const wrapSectionPreview = (node: React.ReactNode) => {
+      if (section.type === 'hero') return node;
+      return (
+        <SectionActionButtonWrap
+          key={section.id}
+          section={section}
+          onActionClick={landingPageActions.handleActionClick}
+        >
+          {node}
+        </SectionActionButtonWrap>
+      );
+    };
 
     switch (section.type) {
       case 'hero':
@@ -390,14 +494,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                 {config.hero.buttons.map(b => (
                   <button 
                     key={b.id} 
-                    onClick={() => {
-                      if (b.formId) {
-                        setSelectedFormId(b.formId);
-                        setShowFormModal(true);
-                      } else if (b.url && b.url !== '#') {
-                        window.open(b.url, '_blank');
-                      }
-                    }}
+                    onClick={() => landingPageActions.handleActionClick(b)}
                     className={`px-8 py-3 rounded-full font-bold transition-all transform hover:-translate-y-0.5 ${b.style === 'primary' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40 hover:bg-indigo-500' : 'bg-white/10 text-white border border-white/30 backdrop-blur-md hover:bg-white/20'}`}
                   >
                     {b.text}
@@ -407,146 +504,50 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
             </div>
           </div>
         );
-      case 'about': {
-        const aboutConfig = config.about || { includeImage: false, imageUrl: '', layout: 'top' };
-        const titleAlignment = section.titleAlignment || 'center';
-        const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
-        const isTitleArabic = isArabic(section.title);
-        
-        if (aboutConfig.includeImage && aboutConfig.imageUrl) {
-          // Layout with image
-          if (aboutConfig.layout === 'top') {
-            return (
-              <div key={section.id} className="py-24 px-8 max-w-6xl mx-auto">
-                <h2 className={`text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="mb-8">
-                  <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                </div>
-                <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config.description}</p>
-              </div>
-            );
-          } else if (aboutConfig.layout === 'left-right') {
-            return (
-              <div key={section.id} className="py-24 px-8 max-w-6xl mx-auto">
-                <h2 className={`text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config.description}</p>
-                  </div>
-                  <div>
-                    <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                  </div>
-                </div>
-              </div>
-            );
-          } else { // right-left
-            return (
-              <div key={section.id} className="py-24 px-8 max-w-6xl mx-auto">
-                <h2 className={`text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                  </div>
-                  <div>
-                    <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config.description}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          }
-        } else {
-          // No image
-          return (
-            <div key={section.id} className="py-24 px-8 max-w-4xl mx-auto">
-              <h2 className={`text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                {isTitleArabic ? (
-                  <>
-                    <span>{section.title}</span>
-                    <Type size={32} className="text-indigo-600" />
-                  </>
-                ) : (
-                  <>
-                    <Type size={32} className="text-indigo-600" />
-                    <span>{section.title}</span>
-                  </>
-                )}
-              </h2>
-              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config.description}</p>
-            </div>
-          );
-        }
-      }
+      case 'about':
+        return wrapSectionPreview(
+          <AboutSection
+            title={section.title}
+            description={config.description}
+            titleAlignment={section.titleAlignment || 'center'}
+            aboutConfig={config.about}
+            showDesignPicker
+            onDesignChange={(design) =>
+              setConfig((prev) => ({ ...prev, about: withAboutDesign(prev.about, design) }))
+            }
+          />
+        );
       case 'speakers':
-        return (
-          <SpeakersSection 
-            key={section.id} 
-            speakers={config.speakers} 
+        return wrapSectionPreview(
+          <SpeakersSection
+            speakers={config.speakers}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'team':
-        return (
-          <TeamSection 
-            key={section.id} 
-            members={config.team || []} 
+        return wrapSectionPreview(
+          <TeamSection
+            members={config.team || []}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'agenda':
-        return (
-          <AgendaSection 
-            key={section.id}
-            agenda={config.agenda} 
-            speakers={config.speakers} 
-            activeDayId={activePreviewDay} 
-            onDayChange={setActivePreviewDay} 
+        return wrapSectionPreview(
+          <AgendaSection
+            agenda={config.agenda}
+            speakers={config.speakers}
+            activeDayId={activePreviewDay}
+            onDayChange={setActivePreviewDay}
             title={section.title}
             programId={section.programId}
             showDownloadButton={section.showDownloadButton}
           />
         );
       case 'submission':
-        return (
+        return wrapSectionPreview(
           <SubmissionSection
-            key={section.id}
             config={config.submission}
             title={section.title}
             formModalEventId={pageId || 'new'}
@@ -554,24 +555,51 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
           />
         );
       case 'committee':
-        return (
+        return wrapSectionPreview(
           <ScientificCommitteeSection
-            key={section.id}
-            members={config.committee}
+            scientificCommittee={resolveScientificCommittee(config)}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'pricing':
-        return <PricingSection key={section.id} offers={config.pricing} title={section.title} />;
+        return wrapSectionPreview(
+          <PricingSection
+            offers={config.pricing}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+            eventId={pageId}
+            refreshKey={landingPageActions.pricingRefreshKey}
+            registrationFormId={section.registrationFormId}
+            onSelectOffer={(offer) => {
+              if (pageId && section.registrationFormId) {
+                landingPageActions.openPricingOffer(offer, section.registrationFormId, pageId);
+              }
+            }}
+          />
+        );
       case 'partners':
-        return <PartnersSection key={section.id} groups={config.partners} title={section.title} />;
+        return wrapSectionPreview(<PartnersSection groups={config.partners} title={section.title} />);
       case 'faq':
-        return <FaqSection key={section.id} items={config.faq} title={section.title} />;
+        return wrapSectionPreview(<FaqSection items={config.faq} title={section.title} />);
+      case 'eventTopics':
+        return wrapSectionPreview(
+          <EventTopicsSection
+            items={config.eventTopics || []}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+          />
+        );
       case 'contact':
-        return <ContactSection key={section.id} config={config.contact} title={section.title} />;
+        return wrapSectionPreview(<ContactSection config={config.contact} title={section.title} />);
       case 'images':
-        return <ImagesSection key={section.id} groups={config.imageGroups || []} title={section.title} titleAlignment={section.titleAlignment} />;
+        return wrapSectionPreview(
+          <ImagesSection
+            groups={config.imageGroups || []}
+            title={section.title}
+            titleAlignment={section.titleAlignment}
+          />
+        );
       default:
         return null;
     }
@@ -623,6 +651,9 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
       </header>
 
       {/* Save Dialog */}
+      {landingSlotBlocked && (
+        <EventResourceLimitModal slot="landing_page" onClose={() => setLandingSlotBlocked(false)} />
+      )}
       {showSaveDialog && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
@@ -728,20 +759,81 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
           
           <div className="p-4 space-y-4 overflow-y-auto">
 
-            {/* Header Settings (Fixed position) */}
-            <div className={`border rounded-lg overflow-hidden transition-all duration-200 ${expandedSectionId === 'header-settings' ? 'border-indigo-200 shadow-md' : 'border-slate-200 bg-white'}`}>
-              <div className="flex items-center justify-between p-3 bg-slate-50/50 cursor-pointer" onClick={() => toggleAccordion('header-settings')}>
+            {/* Home (Header + About submenu) */}
+            <div className={`border rounded-lg overflow-hidden transition-all duration-200 ${homeMenuOpen || homeSubMenu ? 'border-indigo-200 shadow-md' : 'border-slate-200 bg-white'}`}>
+              <div
+                className="flex items-center justify-between p-3 bg-slate-50/50 cursor-pointer"
+                onClick={() => setHomeMenuOpen((open) => !open)}
+              >
                 <div className="flex items-center gap-3">
-                  <div className="p-1.5 rounded-md border bg-white border-slate-200 text-slate-400">
-                    <MenuIcon size={16} />
+                  <div className={`p-1.5 rounded-md border ${homeMenuOpen ? 'bg-indigo-100 border-indigo-200 text-indigo-600' : 'bg-white border-slate-200 text-slate-400'}`}>
+                    <Home size={16} />
                   </div>
-                  <span className="font-semibold text-sm">{t('headerSettings')}</span>
+                  <span className={`font-semibold text-sm ${homeMenuOpen ? 'text-indigo-900' : 'text-slate-700'}`}>
+                    {t('homeMenu')}
+                  </span>
                 </div>
-                {expandedSectionId === 'header-settings' ? <ChevronUp size={18}/> : <ChevronDown size={18}/>}
+                {homeMenuOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
               </div>
-              {expandedSectionId === 'header-settings' && (
-                <div className="p-4 bg-white border-t border-slate-100">
-                   <HeaderEditor config={config.header} onChange={(val) => setConfig({...config, header: val})} />
+              {homeMenuOpen && (
+                <div className="border-t border-slate-100 bg-white">
+                  {/* Header submenu */}
+                  <div className={`border-b border-slate-100 ${homeSubMenu === 'header' ? 'bg-indigo-50/60' : ''}`}>
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-between px-3 py-2.5 pl-5 text-left hover:bg-slate-50"
+                      onClick={() => openHomeSubMenu('header')}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <MenuIcon size={14} className={homeSubMenu === 'header' ? 'text-indigo-600' : 'text-slate-400'} />
+                        <span className={`text-sm font-medium ${homeSubMenu === 'header' ? 'text-indigo-900' : 'text-slate-700'}`}>
+                          {t('headerSettings')}
+                        </span>
+                      </div>
+                      {homeSubMenu === 'header' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                    {homeSubMenu === 'header' && (
+                      <div className="px-4 pb-4">
+                        <HeaderEditor
+                          config={config.header}
+                          onChange={(val) => setConfig({ ...config, header: val })}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* About submenu — only when the linked event is published */}
+                  {isEventPublished && linkedEvent ? (
+                    <div className={homeSubMenu === 'about' ? 'bg-indigo-50/60' : ''}>
+                      <button
+                        type="button"
+                        className="w-full flex items-center justify-between px-3 py-2.5 pl-5 text-left hover:bg-slate-50"
+                        onClick={() => openHomeSubMenu('about')}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Info size={14} className={homeSubMenu === 'about' ? 'text-indigo-600' : 'text-slate-400'} />
+                          <span className={`text-sm font-medium ${homeSubMenu === 'about' ? 'text-indigo-900' : 'text-slate-700'}`}>
+                            {t('aboutPageMenu')}
+                          </span>
+                        </div>
+                        {homeSubMenu === 'about' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      </button>
+                      {homeSubMenu === 'about' && (
+                        <div className="px-4 pb-4 text-xs text-slate-600">
+                          <p>
+                            {t('aboutPageMenu')}: {linkedEvent.name}
+                          </p>
+                          <p className="mt-1 text-slate-400">
+                            {t('homeMenu')} → {linkedEvent.name}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="px-5 py-2.5 text-[11px] text-slate-400 border-t border-slate-50">
+                      {t('aboutPageUnpublishedHint')}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -849,7 +941,27 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                         className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-slate-50 focus:outline-none focus:ring-1 focus:ring-indigo-300"
                       />
                     </div>
-                    {renderSectionEditor(section.type)}
+                    {renderSectionEditor(section)}
+                    {section.type !== 'hero' && (
+                      <SectionCtaButtonsEditor
+                        buttons={getSectionActionButtons(section)}
+                        onChange={(actionButtons) => {
+                          setConfig((prev) => ({
+                            ...prev,
+                            sections: prev.sections.map((s) =>
+                              s.id === section.id
+                                ? {
+                                    ...s,
+                                    actionButtons,
+                                    showActionButton: undefined,
+                                    actionButton: undefined,
+                                  }
+                                : s
+                            ),
+                          }));
+                        }}
+                      />
+                    )}
                   </div>
                 )}
               </div>
@@ -867,6 +979,7 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
                     { type: 'team', title: t('secTeam') },
                     { type: 'agenda', title: t('secAgenda') },
                     { type: 'faq', title: t('secFaq') },
+                    { type: 'eventTopics', title: t('secEventTopics') },
                     { type: 'contact', title: t('secContact') },
                     { type: 'submission', title: t('secSubmission') },
                     { type: 'partners', title: t('secPartners') },
@@ -932,58 +1045,52 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
             </button>
           </div>
           <div className="flex-1 bg-white overflow-y-auto scrollbar-hide relative">
-            {/* Header / Navigation Preview */}
-            <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
-               <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                     {config.header.showLogo && <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">S</div>}
-                     {config.header.showTitle && <span className="font-bold text-slate-800 truncate max-w-[150px]">{config.title}</span>}
-                  </div>
-                  
-                  {/* NAVIGATION MENU - Derived from visible sections */}
-                  <div className="hidden md:flex items-center gap-6">
-                    {config.sections
-                      .filter(s => s.isVisible && s.type !== 'hero')
-                      .map(section => (
-                        <a key={section.id} href="#" className="text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors uppercase tracking-wider">
-                          {section.title}
-                        </a>
-                      ))
-                    }
-                  </div>
+            {previewView === 'about' && isEventPublished && linkedEvent ? (
+              <EventPage
+                event={linkedEvent}
+                config={config}
+                homeLabel={t('homeMenu')}
+                aboutLabel={t('aboutNavLabel')}
+                onNavigateHome={goPreviewHome}
+                onNavigateAbout={goPreviewAbout}
+                onSectionClick={() => undefined}
+                sections={visibleNavSections}
+                compact
+              />
+            ) : (
+              <>
+                <LandingPageHeader
+                  config={config}
+                  activeView="home"
+                  homeLabel={t('homeMenu')}
+                  aboutLabel={t('aboutNavLabel')}
+                  showAbout={isEventPublished}
+                  sections={visibleNavSections}
+                  onNavigateHome={goPreviewHome}
+                  onNavigateAbout={goPreviewAbout}
+                  onSectionClick={() => undefined}
+                  compact
+                />
 
-                  {config.header.showActionButton && <button className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100">{config.header.actionButtonText}</button>}
-               </div>
-            </nav>
+                {config.sections.map((section) => renderPreviewSection(section))}
 
-            {/* Sections Rendering Loop */}
-            {config.sections.map(section => renderPreviewSection(section))}
-
-            <footer className="bg-slate-900 text-white py-12 text-center text-xs border-t border-slate-800">
-              <div className="max-w-7xl mx-auto px-6 flex flex-col items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center font-bold">S</div>
-                  <span className="font-bold uppercase tracking-widest">{config.title}</span>
-                </div>
-                <p className="text-slate-500">{t('previewFooterBuiltWith', { year: 2024 })}</p>
-              </div>
-            </footer>
+                <LandingPageFooter title={config.title} compact />
+              </>
+            )}
           </div>
         </div>
       </div>
 
       {/* Form Modal */}
-      {showFormModal && selectedFormId && (
+      {landingPageActions.showFormModal && landingPageActions.selectedFormId && (
         <FormModal
-          formId={selectedFormId}
+          formId={landingPageActions.selectedFormId}
           eventId={pageId || 'new'}
           eventTitle={config.title}
-          onClose={() => {
-            setShowFormModal(false);
-            setSelectedFormId(null);
-          }}
+          ticketContext={landingPageActions.ticketContext}
+          onClose={landingPageActions.closeFormModal}
           onSuccess={() => {
-            // Optionally refresh or show success message
+            landingPageActions.notifyPricingChanged();
           }}
         />
       )}
@@ -997,6 +1104,12 @@ const PageBuilder: React.FC<PageBuilderProps> = ({ pageId: pageIdProp, onBack })
           timeLeft={timeLeft}
           onClose={() => setIsFullScreen(false)}
           pageId={pageId}
+          linkedEvent={isEventPublished ? linkedEvent : null}
+          homeLabel={t('homeMenu')}
+          aboutNavLabel={t('aboutNavLabel')}
+          onAboutDesignChange={(design) =>
+            setConfig((prev) => ({ ...prev, about: withAboutDesign(prev.about, design) }))
+          }
         />
       )}
 

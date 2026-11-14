@@ -19,8 +19,11 @@ export interface Submission {
   files: string[];
 }
 
-/** How a landing-page action button opens (hero + call-for-papers). */
-export type SubmissionActionTarget = 'document' | 'link' | 'image' | 'form';
+/** How a landing-page action button opens (hero, sections, call-for-papers). */
+export type SubmissionActionTarget = 'document' | 'link' | 'image' | 'video' | 'form';
+
+/** Form family when actionTarget is form (registration builder vs evaluation builder). */
+export type LandingPageFormCategory = 'registration' | 'submission' | 'payment' | 'evaluation';
 
 /** For document/image CTAs: external link vs file uploaded to storage (URL in uploadedFileUrl). */
 export type HeroButtonAssetSource = 'url' | 'upload';
@@ -30,7 +33,9 @@ export interface HeroButton {
   text: string;
   url: string;
   style: 'primary' | 'secondary';
-  formId?: string; // Optional: ID of the registration form to show in modal
+  formId?: string; // Registration or evaluation form id when actionTarget is form
+  /** When actionTarget is form: filter which form list to use. */
+  formCategory?: LandingPageFormCategory;
   /** When set, submission section CTA uses this instead of guessing from url/formId. */
   actionTarget?: SubmissionActionTarget;
   /** When actionTarget is document or image: use external url or an uploaded file URL. */
@@ -82,6 +87,43 @@ export interface CommitteeMember {
   subcommitteeName?: string;
 }
 
+export type CommitteePersonLinkType = 'orcid' | 'google_scholar' | 'other';
+
+export interface CommitteePersonLink {
+  id: string;
+  type: CommitteePersonLinkType;
+  /** Used when type is `other`. */
+  label?: string;
+  url: string;
+}
+
+export interface ScientificCommitteePerson {
+  id: string;
+  name: string;
+  /** Role / fonction / job title. */
+  role: string;
+  /** Institution / establishment. */
+  establishment: string;
+  email: string;
+  bio: string;
+  imageUrl: string;
+  linkedin: string;
+  links: CommitteePersonLink[];
+}
+
+export interface ScientificSubCommittee {
+  id: string;
+  name: string;
+  icon: EventTopicIcon;
+  chair: ScientificCommitteePerson;
+  members: ScientificCommitteePerson[];
+}
+
+export interface ScientificCommitteeConfig {
+  eventChair: ScientificCommitteePerson | null;
+  subCommittees: ScientificSubCommittee[];
+}
+
 export interface TeamMember {
   id: string;
   name: string;
@@ -115,6 +157,34 @@ export interface FaqItem {
   question: string;
   answer: string;
   icon: 'help' | 'calendar' | 'credit-card' | 'map-pin' | 'file-text' | 'users';
+}
+
+export type EventTopicIcon =
+  | 'help'
+  | 'calendar'
+  | 'credit-card'
+  | 'map-pin'
+  | 'file-text'
+  | 'users'
+  | 'cpu'
+  | 'brain'
+  | 'leaf'
+  | 'globe'
+  | 'microscope'
+  | 'book-open'
+  | 'lightbulb'
+  | 'network'
+  | 'shield'
+  | 'zap';
+
+export interface EventTopicItem {
+  id: string;
+  name: string;
+  icon: EventTopicIcon;
+  /** Shown on the topic card in the grid. */
+  shortDescription: string;
+  /** Shown in the detail modal when the visitor clicks the eye icon. */
+  longDescription: string;
 }
 
 export interface ContactConfig {
@@ -207,6 +277,10 @@ export interface PricingOffer {
   buttonUrl: string;
   isSoldOut: boolean;
   isHighlighted: boolean;
+  /** When true, the price field is unused and the registration form hides payment. */
+  isFree?: boolean;
+  /** Maximum places. Paid seats are taken on submit; free seats are taken only after approval. */
+  capacity?: number;
 }
 
 export interface ConferenceConfig {
@@ -217,10 +291,14 @@ export interface ConferenceConfig {
   header: HeaderConfig;
   hero: HeroConfig;
   speakers: Speaker[];
+  /** @deprecated Prefer scientificCommittee — kept for legacy landing pages. */
   committee: CommitteeMember[];
+  /** Structured scientific committee (event chair + sub-committees). */
+  scientificCommittee?: ScientificCommitteeConfig;
   team: TeamMember[];
   agenda: AgendaDay[];
   faq: FaqItem[];
+  eventTopics: EventTopicItem[];
   contact: ContactConfig;
   submission: SubmissionSectionConfig;
   partners: PartnerGroup[];
@@ -228,21 +306,34 @@ export interface ConferenceConfig {
   imageGroups: ImageGroup[];
   sections: {
     id: string;
-    type: 'hero' | 'about' | 'speakers' | 'committee' | 'team' | 'agenda' | 'faq' | 'contact' | 'submission' | 'partners' | 'pricing' | 'programAgenda' | 'images';
+    type: 'hero' | 'about' | 'speakers' | 'committee' | 'team' | 'agenda' | 'faq' | 'eventTopics' | 'contact' | 'submission' | 'partners' | 'pricing' | 'programAgenda' | 'images';
     title: string;
     content?: string;
     isVisible: boolean;
     titleAlignment?: 'left' | 'center' | 'right';
     programId?: string; // For agenda type - ID of the saved program to download
     showDownloadButton?: boolean; // For agenda type - show/hide download button
+    /** Tickets section: one registration form opened by every price-card button. */
+    registrationFormId?: string;
+    /** Optional CTAs below section content (all section types except hero). */
+    actionButtons?: HeroButton[];
+    /** @deprecated Migrated to actionButtons — still read for older saved pages */
+    showActionButton?: boolean;
+    /** @deprecated Migrated to actionButtons */
+    actionButton?: HeroButton;
   }[];
   about?: AboutConfig;
 }
+
+/** Visual template for the About section. Colors stay on the shared indigo/slate palette. */
+export type AboutDesignId = 'classic' | 'stage' | 'editorial';
 
 export interface AboutConfig {
   includeImage: boolean;
   imageUrl: string;
   layout: 'top' | 'left-right' | 'right-left'; // top = image and text on top, left-right = text left image right, right-left = text right image left
+  /** Selected About layout template. Missing values render as classic. */
+  design?: AboutDesignId;
 }
 
 export interface CertificateTextElement {
@@ -257,6 +348,8 @@ export interface CertificateTextElement {
   color: string;
   textAlign: 'left' | 'center' | 'right';
   rotation?: number; // Rotation in degrees
+  /** Human-readable label for dynamic fields (builder display). */
+  fieldLabel?: string;
 }
 
 export interface CertificateTemplate {
@@ -297,6 +390,7 @@ export enum ViewState {
   SUBMISSIONS_DASHBOARD = 'submissionsDashboard',
   SUBMISSIONS_FOLLOW_UP = 'submissionsFollowUp',
   SUBMISSIONS_MANAGE = 'submissionsManage',
+  SUBMISSIONS_PARTICIPANTS = 'submissionsParticipants',
   SUBMISSIONS_MANAGE_COMMITTEE = 'submissionsManageCommittee',
   SUBMISSIONS_REPORTING = 'submissionsReporting',
   JURY = 'jury',
@@ -307,6 +401,7 @@ export enum ViewState {
   JURY_REVIEWS = 'juryReviews',
   PARTICIPANT_REGISTRATIONS = 'participantRegistrations',
   PARTICIPANT_SUBMISSIONS = 'participantSubmissions',
+  PARTICIPANT_CERTIFICATES = 'participantCertificates',
   CERTIFICATES = 'certificates',
   CERTIFICATE_TEMPLATE_BUILDER = 'certificateTemplateBuilder',
   CERTIFICATE_TEMPLATE_LIST = 'certificateTemplateList',
@@ -325,7 +420,12 @@ export enum ViewState {
   EMAILER = 'emailer',
   BLOGS = 'blogs',
   PRESENTER = 'presenter',
+  POSTER_MANAGER = 'posterManager',
   SUPERADMIN_DASHBOARD = 'superAdminDashboard',
+  SUPERADMIN_PROFILE = 'superAdminProfile',
+  SUPERADMIN_ACCOUNTS = 'superAdminAccounts',
+  SUPERADMIN_PERFORMANCE = 'superAdminPerformance',
+  SUPERADMIN_SECURITY = 'superAdminSecurity',
   SUPERADMIN_SUBSCRIPTIONS = 'superAdminSubscriptions',
   SETTINGS = 'settings',
   PROJECT_MANAGEMENT = 'projectManagement',
@@ -340,6 +440,12 @@ export enum ViewState {
   PARTICIPANT_ACADEMY = 'participantAcademy',
   PARTICIPANT_ACADEMY_COURSES = 'participantAcademyCourses',
   ENTITY_PROFILE = 'entityProfile',
+  /** Organizer Account Management — login credentials */
+  ACCOUNT_LOGIN = 'accountLogin',
+  /** Organizer Account Management — platform packages / offers */
+  ACCOUNT_SUBSCRIPTIONS = 'accountSubscriptions',
+  /** Organizer Pro checkout (offers + payment proof) */
+  ACCOUNT_PRO = 'accountPro',
   PAIEMENT_MANAGEMENT = 'paiementManagement',
   PAIEMENT_INFORMATION = 'paiementInformation',
   NEW_PAIEMENT = 'newPaiement',
@@ -347,7 +453,98 @@ export enum ViewState {
   PAIEMENT_FOLLOW_UP = 'paiementFollowUp',
   PAIEMENT_GENERATOR = 'paiementGenerator',
   MESSAGING = 'messaging',
-  PARTICIPANT_MESSAGING = 'participantMessaging'
+  PARTICIPANT_MESSAGING = 'participantMessaging',
+  OPPORTUNITIES_DASHBOARD = 'opportunitiesDashboard',
+  OPPORTUNITIES_MANAGE = 'opportunitiesManage',
+  OPPORTUNITIES_APPLICATIONS = 'opportunitiesApplications',
+  PARTICIPANT_OPPORTUNITIES = 'participantOpportunities',
+  PARTICIPANT_OPPORTUNITY_APPLICATIONS = 'participantOpportunityApplications',
+  ORGANIZER_MORCHID = 'organizerMorchid',
+  PARTICIPANT_MORCHID = 'participantMorchid',
+}
+
+export type OpportunityKind = 'job' | 'training' | 'fund';
+
+/** Overlay on image banners (none, dark scrim, or brand gradient). */
+export type OpportunityBannerImageOverlay = 'none' | 'dark' | 'gradient';
+
+export interface OpportunityBanner {
+  type: 'image' | 'color' | 'gradient';
+  imageUrl?: string;
+  imagePositionY?: number;
+  imageOverlay?: OpportunityBannerImageOverlay;
+  color?: string;
+  gradientColors?: {
+    from: string;
+    to: string;
+    direction?: 'to-r' | 'to-l' | 'to-b' | 'to-t' | 'to-br' | 'to-bl' | 'to-tr' | 'to-tl';
+  };
+}
+export type OpportunityLocationType = 'in_house' | 'remote' | 'hybrid';
+export type OpportunityPublishStatus = 'Draft' | 'Published' | 'Closed';
+export type OpportunityApplicationStatus = 'in_progress' | 'rejected' | 'completed';
+
+export interface OpportunityComplementaryCriterion {
+  name: string;
+  value: string;
+}
+
+export interface OpportunityAttachedFile {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  fileSize?: number;
+  fileType?: string;
+}
+
+export interface OpportunityStep {
+  id: string;
+  order: number;
+  name: string;
+  description?: string;
+  /** Optional scheduled date (YYYY-MM-DD). */
+  date?: string;
+  registrationFormId?: string;
+}
+
+export interface Opportunity {
+  id: string;
+  userId: string;
+  campusId?: string;
+  kind: OpportunityKind;
+  title: string;
+  banner?: OpportunityBanner;
+  attachedFiles: OpportunityAttachedFile[];
+  deadline?: string;
+  place?: string;
+  locationType: OpportunityLocationType;
+  complementaryCriteria: OpportunityComplementaryCriterion[];
+  description?: string;
+  steps: OpportunityStep[];
+  /** Custom heading for the process steps block (default: Process steps). */
+  stepsSectionTitle?: string;
+  paymentFormId?: string;
+  paymentStepId?: string;
+  publishStatus: OpportunityPublishStatus;
+  /** Unique slug for public page (/o/{slug}) when published. */
+  publicSlug?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface OpportunityApplication {
+  id: string;
+  opportunityId: string;
+  participantUserId: string;
+  currentStepIndex: number;
+  status: OpportunityApplicationStatus;
+  rejectedAtStepIndex?: number;
+  decisionComment?: string;
+  decidedBy?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  /** Populated when listing for organizer */
+  opportunity?: Opportunity;
 }
 
 export type FormFieldType = 
@@ -407,10 +604,15 @@ export interface FormSection {
   fields: FormField[]; // Fields directly in section (not in subsections)
 }
 
+/** Stored on `registration_forms.form_category`; drives event payment-form picker and admin grouping. */
+export type RegistrationFormCategory = 'registration' | 'submission' | 'payment';
+
 export interface RegistrationForm {
   id: string;
   userId: string;
   title: string;
+  /** When set, authoritative category (synced to DB). Title prefixes remain for display compatibility. */
+  formCategory?: RegistrationFormCategory;
   description?: string;
   sections: FormSection[];
   fields: FormField[]; // Legacy support - fields not in sections
@@ -435,6 +637,9 @@ export type SubscriptionRole = 'Organizer' | 'Participant' | 'SuperAdmin' | 'Sub
 export type DecisionStatus = 'accepted' | 'reserved' | 'rejected';
 export type DispatchingStatus = 'pending' | 'dispatched' | 'in_review' | 'completed';
 export type ApprovalStatus = 'accepted' | 'reserved' | 'rejected';
+
+/** Stages stored on form_submissions for multi-step submission workflows. */
+export type SubmissionPipelineKind = 'abstract' | 'article' | 'payment';
 
 export interface FormSubmission {
   id: string;
@@ -470,6 +675,20 @@ export interface FormSubmission {
   dispatchingStatus?: DispatchingStatus; // pending, dispatched, in_review, or completed
   // Approval status (for SubmissionsEvaluation)
   approvalStatus?: ApprovalStatus; // accepted, reserved, or rejected
+  /** Multi-step pipeline: abstract vs full article (see event submissionWorkflowPreset). */
+  submissionPipelineKind?: SubmissionPipelineKind;
+  /** Shared id linking abstract + article rows for one participant flow. */
+  submissionPipelineGroupId?: string;
+  /** Article row points to abstract submission after abstract is accepted. */
+  parentSubmissionId?: string;
+  /** On article row: organizer marks payment received (presets B / D). */
+  submissionPaymentCompleted?: boolean;
+  /** Opportunity application linkage (multi-step job/training/fund flow). */
+  opportunityId?: string;
+  opportunityApplicationId?: string;
+  opportunityStepIndex?: number;
+  /** When dispatch assigns reviewers: expected count of completed peer reviews (article pipeline). */
+  pipelineReviewersExpected?: number;
 }
 
 export interface ReviewCommitteeMember {
@@ -544,6 +763,16 @@ export interface EventPartner {
   entityId?: string; // Optional reference to entity from database
 }
 
+/** Co-organizer with full event management access. */
+export interface EventOrganizerPartner {
+  id: string;
+  userId: string;
+  displayName: string;
+  entityLogo?: string;
+  representativeEmail?: string;
+  createdAt?: Date;
+}
+
 export interface EventBanner {
   type: 'image' | 'color' | 'gradient';
   imageUrl?: string;
@@ -579,6 +808,9 @@ export interface Event {
   eventType?: EventType; // Type of event
   eventFormat?: EventFormat; // Format of event
   partners?: EventPartner[]; // Array of partners
+  /** Co-organizer user IDs with full management access. */
+  organizerPartnerUserIds?: string[];
+  organizerPartners?: EventOrganizerPartner[];
   dates?: EventDate[]; // Array of date ranges
   location?: string;
   links?: EventLink[]; // Array of links
@@ -586,14 +818,25 @@ export interface Event {
   registrationFormIds: string[]; // Array of registration form IDs
   submissionFormIds: string[]; // Array of submission form IDs
   evaluationFormIds: string[]; // Array of evaluation form IDs
-  certificateTemplateIds: string[]; // Array of certificate template IDs
-  /** Certificate template IDs used for participant badges (name tags, etc.). */
+  /** @deprecated Prefer registrationCertificateTemplateIds */
+  certificateTemplateIds: string[];
+  /** @deprecated Prefer submissionBadgeTemplateIds */
   badgeTemplateIds?: string[];
+  /** Badge templates for registration / check-in. */
+  registrationBadgeTemplateIds?: string[];
+  /** Certificate templates for registered attendees. */
+  registrationCertificateTemplateIds?: string[];
+  /** Badge templates for accepted submissions. */
+  submissionBadgeTemplateIds?: string[];
+  /** Certificate templates for accepted submissions. */
+  submissionCertificateTemplateIds?: string[];
   committeeIds: string[]; // Array of committee IDs
   /** When true, event uses evaluation forms and scientific committees. */
   evaluationEnabled?: boolean;
   banner?: EventBanner; // Banner configuration
   publishStatus?: PublishStatus; // Publication status: Draft, Published, or Closed
+  /** Unique slug for public page (/e/{slug}) when published publicly. */
+  publicSlug?: string;
   registrationDeadline?: string; // Deadline date for registration (ISO date string)
   submissionDeadline?: string; // Article / full paper submission deadline (ISO date string)
   /** A: article only; B: article + pay; C: abstract + article; D: abstract + article + pay */
@@ -606,6 +849,14 @@ export interface Event {
   registrationPaymentOfferId?: string;
   /** payments.id — offer used when submission workflow includes payment (presets B or D). */
   submissionPaymentOfferId?: string;
+  /** registration_forms.id — participant payment step form (presets B or D). */
+  submissionPaymentFormId?: string;
+  /** programs.id — official program shown to participants in the submission timeline when ready. */
+  publishedProgramId?: string;
+  /** Form field keys shown during registration check-in (registration:{formId}:{fieldId}). */
+  registrationCheckinDisplayFieldKeys?: string[];
+  /** Form field keys shown during submission presenter check-in (submission:{formId}:{fieldId}). */
+  submissionCheckinDisplayFieldKeys?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -665,6 +916,35 @@ export enum InvitationStatus {
   REJECTED = 'rejected'
 }
 
+export type CommitteeInvitationType = 'standard' | 'email' | 'participant';
+
+export interface CommitteeInvitationAttachment {
+  id: string;
+  fileName: string;
+  fileUrl: string;
+  fileSize?: number;
+  fileType?: string;
+}
+
+/** Profile fields stored on an invitation when editing without a committee_members row */
+export interface CommitteeInvitationInviteeSnapshot {
+  committeeMemberId?: string;
+  firstName?: string;
+  lastName?: string;
+  title?: string;
+  gender?: string;
+  nationality?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  preferredLanguage?: string;
+  affiliation?: ReviewCommitteeMember['affiliation'];
+  researchDomains?: string[];
+  identifiers?: ReviewCommitteeMember['identifiers'];
+  country?: string;
+  position?: string;
+}
+
 export interface CommitteeInvitation {
   id: string;
   juryMemberId: string; // Reference to jury_members table
@@ -674,6 +954,13 @@ export interface CommitteeInvitation {
   commentary?: string; // Commentary from jury member when accepting/rejecting
   createdAt: Date;
   respondedAt?: Date;
+  invitationType: CommitteeInvitationType;
+  committeeMemberId?: string;
+  emailSubject?: string;
+  emailContent?: string;
+  attachedFiles?: CommitteeInvitationAttachment[];
+  inviteeSnapshot?: CommitteeInvitationInviteeSnapshot;
+  sendBatchId?: string;
 }
 
 export interface EventAttendance {
@@ -838,6 +1125,57 @@ export interface ParticipantReview {
   };
   createdAt: Date;
   updatedAt: Date;
+}
+
+export type ModificationRoundStatus =
+  | 'pending_organizer'
+  | 'awaiting_participant'
+  | 'participant_submitted'
+  | 'reviewer_approved'
+  | 'rejected_all';
+
+export type ModificationQuestionOrganizerStatus = 'pending' | 'approved' | 'rejected';
+
+export interface SubmissionModificationQuestion {
+  id: string;
+  roundId: string;
+  sortOrder: number;
+  concernedSection: string;
+  questionText: string;
+  organizerStatus: ModificationQuestionOrganizerStatus;
+  organizerDecidedBy?: string;
+  organizerDecidedAt?: Date;
+  answerText?: string;
+  participantAnsweredAt?: Date;
+  createdAt: Date;
+}
+
+export interface SubmissionModificationFile {
+  id: string;
+  roundId: string;
+  fileUrl: string;
+  fileName: string;
+  storagePath: string;
+  uploadedBy: string;
+  createdAt: Date;
+}
+
+export interface SubmissionModificationRound {
+  id: string;
+  submissionId: string;
+  reviewerId: string;
+  evaluationFormId: string;
+  eventId: string;
+  roundNumber: number;
+  status: ModificationRoundStatus;
+  submittedAt?: Date;
+  organizerReviewedAt?: Date;
+  participantSubmittedAt?: Date;
+  reviewerClosedAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  questions?: SubmissionModificationQuestion[];
+  files?: SubmissionModificationFile[];
 }
 
 export type BlogArticleStatus = 'draft' | 'published' | 'archived';

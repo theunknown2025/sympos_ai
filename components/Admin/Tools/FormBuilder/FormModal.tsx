@@ -1,13 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import { X, Loader2, CheckCircle, AlertCircle, Plus, Trash2 } from 'lucide-react';
-import { RegistrationForm, FormField, FormFieldType, FormSubmission, SubscriptionType, SubscriptionRole } from '../../../../types';
+import { RegistrationForm, FormField, FormSection, FormFieldType, FormSubmission, SubscriptionType, SubscriptionRole, SubmissionPipelineKind } from '../../../../types';
 import { getRegistrationForm } from '../../../../services/registrationFormService';
 import { saveFormSubmission } from '../../../../services/registrationSubmissionService';
 import { uploadFileToStorage } from '../../../../services/storageService';
 import { sendCopyOfAnswers, sendConfirmationEmail } from '../../../../services/emailService';
 import { getPayments, type Payment } from '../../../../services/paymentService';
+import {
+  fetchPricingOfferTakenCounts,
+  pricingOfferAnswerMeta,
+} from '../../../../services/pricingOfferCapacity';
 import { useAuth } from '../../../../hooks/useAuth';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 import { supabase, TABLES } from '../../../../supabase';
+
+function formSectionIsPayment(section: FormSection): boolean {
+  if (/(paiement|payment)/.test((section.title || '').toLowerCase())) return true;
+  const fields = [
+    ...section.fields,
+    ...section.subsections.flatMap((sub) => sub.fields),
+  ];
+  return fields.length > 0 && fields.every((field) => field.type === 'paiement');
+}
+
+function paymentFieldIds(form: RegistrationForm): Set<string> {
+  const ids = new Set<string>();
+  const markType = (fields: FormField[]) => {
+    fields.forEach((field) => {
+      if (field.type === 'paiement') ids.add(field.id);
+    });
+  };
+  form.sections.forEach((section) => {
+    const sectionIsPayment = formSectionIsPayment(section);
+    section.fields.forEach((field) => {
+      if (sectionIsPayment || field.type === 'paiement') ids.add(field.id);
+    });
+    section.subsections.forEach((sub) => {
+      const subIsPayment = /(paiement|payment)/.test((sub.title || '').toLowerCase());
+      sub.fields.forEach((field) => {
+        if (sectionIsPayment || subIsPayment || field.type === 'paiement') ids.add(field.id);
+      });
+    });
+  });
+  markType(form.fields);
+  return ids;
+}
 
 interface FormModalProps {
   formId: string;
@@ -15,15 +52,43 @@ interface FormModalProps {
   eventTitle: string;
   onClose: () => void;
   onSuccess?: () => void;
+  /** When set, persists multi-step submission linkage (abstract → article). */
+  pipelineContext?: {
+    submissionPipelineKind: SubmissionPipelineKind;
+    submissionPipelineGroupId: string;
+    parentSubmissionId?: string | null;
+  } | null;
+  opportunityContext?: {
+    opportunityId: string;
+    opportunityApplicationId: string;
+    opportunityStepIndex: number;
+  } | null;
+  /** Ticket card on the landing page. Paid claims are approved immediately; free claims stay pending. */
+  ticketContext?: {
+    offerId: string;
+    isFree: boolean;
+    capacity?: number;
+    eventId: string;
+  } | null;
 }
 
-const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onClose, onSuccess }) => {
+const FormModal: React.FC<FormModalProps> = ({
+  formId,
+  eventId,
+  eventTitle,
+  onClose,
+  onSuccess,
+  pipelineContext,
+  opportunityContext,
+  ticketContext,
+}) => {
   const [form, setForm] = useState<RegistrationForm | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const { currentUser } = useAuth();
+  const { t } = useAdminTranslation('pageBuilder');
   const [uploadingFiles, setUploadingFiles] = useState<{ [fieldId: string]: boolean }>({});
   const [offers, setOffers] = useState<Payment[]>([]);
   const [loadingOffers, setLoadingOffers] = useState(false);
@@ -206,7 +271,10 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
       ])
     ];
 
+    const hiddenPaymentIds = ticketContext?.isFree ? paymentFieldIds(form) : null;
+
     for (const field of allFields) {
+      if (hiddenPaymentIds?.has(field.id)) continue;
       if (field.required) {
         const answer = answers[field.id];
         
@@ -273,10 +341,21 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
       // Default to 'self' subscription type (Subscription Details section removed)
       const role: SubscriptionRole = 'Participant';
       const subscriptionType: SubscriptionType = 'self';
+      const resolvedEventId = ticketContext?.eventId || eventId;
 
-      const submission = {
+      if (ticketContext && ticketContext.capacity != null) {
+        const takenMap = await fetchPricingOfferTakenCounts(resolvedEventId);
+        const taken = takenMap[ticketContext.offerId] || 0;
+        if (taken >= ticketContext.capacity) {
+          setError(t('edPricingSoldOutBlocked'));
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      const submission: Omit<FormSubmission, 'id' | 'submittedAt'> = {
         formId: form!.id,
-        eventId,
+        eventId: resolvedEventId,
         eventTitle,
         userId: form!.userId, // Use form creator's ID (organizer), not submitter's ID
         participantUserId: currentUser.id, // User ID of the participant who is submitting
@@ -291,12 +370,31 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
           ...(form!.generalInfo.collectOrganization && { organization: generalInfo.organization }),
           ...(form!.generalInfo.collectAddress && { address: generalInfo.address }),
         },
-        answers,
+        answers: ticketContext
+          ? { ...answers, ...pricingOfferAnswerMeta(ticketContext.offerId, ticketContext.isFree) }
+          : answers,
+        ...(ticketContext && !ticketContext.isFree ? { approvalStatus: 'accepted' as const } : {}),
+        ...(pipelineContext
+          ? {
+              submissionPipelineKind: pipelineContext.submissionPipelineKind,
+              submissionPipelineGroupId: pipelineContext.submissionPipelineGroupId,
+              ...(pipelineContext.parentSubmissionId
+                ? { parentSubmissionId: pipelineContext.parentSubmissionId }
+                : {}),
+            }
+          : {}),
+        ...(opportunityContext
+          ? {
+              opportunityId: opportunityContext.opportunityId,
+              opportunityApplicationId: opportunityContext.opportunityApplicationId,
+              opportunityStepIndex: opportunityContext.opportunityStepIndex,
+            }
+          : {}),
       };
 
       // Last-mile subscription blocking enforcement:
       // If the participant's subscription_status is 'blocked' for the event campus, abort submission.
-      if (currentUser?.id) {
+      if (currentUser?.id && !opportunityContext) {
         const { data: eventRow } = await supabase
           .from(TABLES.EVENTS)
           .select('campus_id')
@@ -351,9 +449,20 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
         if (onSuccess) onSuccess();
         onClose();
       }, 2000);
-    } catch (err: any) {
-      setError('Failed to submit form. Please try again.');
+    } catch (err: unknown) {
       console.error(err);
+      const apiMessage =
+        err &&
+        typeof err === 'object' &&
+        'message' in err &&
+        typeof (err as { message?: unknown }).message === 'string'
+          ? (err as { message: string }).message.trim()
+          : '';
+      setError(
+        apiMessage && apiMessage.length < 400
+          ? apiMessage
+          : 'Failed to submit form. Please try again.'
+      );
     } finally {
       setSubmitting(false);
     }
@@ -1056,35 +1165,41 @@ const FormModal: React.FC<FormModalProps> = ({ formId, eventId, eventTitle, onCl
             )}
 
             {/* Sections */}
-            {form.sections.map((section) => (
+            {form.sections.filter((section) => !(ticketContext?.isFree && formSectionIsPayment(section))).map((section) => (
               <div key={section.id} className="border-t border-slate-200 pt-6">
                 <h3 className="text-lg font-semibold text-slate-900 mb-2">{section.title}</h3>
                 {section.description && <p className="text-slate-600 mb-4">{section.description}</p>}
                 
                 {/* Subsections */}
-                {section.subsections.map((subsection) => (
+                {section.subsections.filter((subsection) => !(ticketContext?.isFree && /(paiement|payment)/.test((subsection.title || '').toLowerCase()))).map((subsection) => (
                   <div key={subsection.id} className="mb-6">
                     <h4 className="text-md font-medium text-slate-800 mb-2">{subsection.title}</h4>
                     {subsection.description && <p className="text-sm text-slate-600 mb-3">{subsection.description}</p>}
                     <div className="space-y-4">
-                      {subsection.fields.map((field) => renderField(field))}
+                      {subsection.fields
+                        .filter((field) => !(ticketContext?.isFree && field.type === 'paiement'))
+                        .map((field) => renderField(field))}
                     </div>
                   </div>
                 ))}
 
                 {/* Section Fields */}
-                {section.fields.length > 0 && (
+                {section.fields.some((field) => !(ticketContext?.isFree && field.type === 'paiement')) && (
                   <div className="space-y-4">
-                    {section.fields.map((field) => renderField(field))}
+                    {section.fields
+                      .filter((field) => !(ticketContext?.isFree && field.type === 'paiement'))
+                      .map((field) => renderField(field))}
                   </div>
                 )}
               </div>
             ))}
 
             {/* Legacy Fields */}
-            {form.fields.length > 0 && (
+            {form.fields.filter((field) => !(ticketContext?.isFree && field.type === 'paiement')).length > 0 && (
               <div className="border-t border-slate-200 pt-6 space-y-4">
-                {form.fields.map((field) => renderField(field))}
+                {form.fields
+                  .filter((field) => !(ticketContext?.isFree && field.type === 'paiement'))
+                  .map((field) => renderField(field))}
               </div>
             )}
 

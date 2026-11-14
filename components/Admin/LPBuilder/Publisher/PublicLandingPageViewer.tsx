@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { ConferenceConfig } from '../../../../types';
+import { ConferenceConfig, Event } from '../../../../types';
 import { getPublishedLandingPage } from '../../../../services/landingPageService';
+import { getPublishedEventForLandingPage } from '../../../../services/eventService';
 import { Loader2, AlertCircle } from 'lucide-react';
-import { isArabic } from '../../../../utils/languageDetection';
 import FormModal from '../../Tools/FormBuilder/FormModal';
 
 // Import all preview sections
 import FaqSection from '../Sections/FaqSection';
+import EventTopicsSection from '../Sections/EventTopicsSection';
 import ScientificCommitteeSection from '../Sections/ScientificCommitteeSection';
 import ContactSection from '../Sections/ContactSection';
 import SubmissionSection from '../Sections/SubmissionSection';
@@ -17,7 +18,14 @@ import AgendaSection from '../Sections/AgendaSection';
 import SpeakersSection from '../Sections/SpeakersSection';
 import TeamSection from '../Sections/TeamSection';
 import ImagesSection from '../Sections/ImagesSection';
-import { Type, Calendar, MapPin } from 'lucide-react';
+import AboutSection from '../Sections/AboutSection';
+import SectionActionButtonWrap from '../Sections/SectionActionButtonWrap';
+import { useLandingPageActionHandler } from '../shared/useLandingPageActionHandler';
+import { resolveScientificCommittee } from '../../../../utils/scientificCommitteeUtils';
+import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
+import { Calendar, MapPin } from 'lucide-react';
+import { EventPage, LandingPageHeader, LandingPageFooter } from '../Pages';
+import type { LandingPageView } from '../Pages';
 
 interface PublicLandingPageViewerProps {
   slug?: string; // Optional prop for when rendered outside Routes context
@@ -28,6 +36,9 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
   // Use prop if provided (when rendered directly), otherwise use params (when in Routes)
   const slug = slugProp || slugFromParams;
   const [config, setConfig] = useState<ConferenceConfig | null>(null);
+  const [landingPageId, setLandingPageId] = useState<string | null>(null);
+  const [linkedEvent, setLinkedEvent] = useState<Event | null>(null);
+  const [activeView, setActiveView] = useState<LandingPageView>('home');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,8 +50,10 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
   }, []);
   const [activePreviewDay, setActivePreviewDay] = useState<string>('');
   const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0 });
-  const [showFormModal, setShowFormModal] = useState(false);
-  const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
+  const { t } = useAdminTranslation('pageBuilder');
+  const landingPageActions = useLandingPageActionHandler({
+    evaluationUnavailable: t('edSecActionEvaluationUnavailable'),
+  });
 
   const loadPage = React.useCallback(async () => {
     if (!slug) {
@@ -68,9 +81,12 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
       if (pageData) {
         console.log('[PublicLandingPageViewer] Setting config:', pageData.config);
         setConfig(pageData.config);
+        setLandingPageId(pageData.id || null);
       } else {
         console.warn('[PublicLandingPageViewer] Page data is null');
         setError('Landing page not found or not published');
+        setLandingPageId(null);
+        setLinkedEvent(null);
       }
     } catch (err: any) {
       console.error('[PublicLandingPageViewer] Error loading published landing page:', err);
@@ -95,6 +111,32 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
       setLoading(false);
     }
   }, [slug, loadPage]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadAboutEvent = async () => {
+      if (!landingPageId) {
+        setLinkedEvent(null);
+        return;
+      }
+      try {
+        const event = await getPublishedEventForLandingPage(landingPageId);
+        if (!cancelled) {
+          setLinkedEvent(event);
+          if (!event) setActiveView('home');
+        }
+      } catch {
+        if (!cancelled) {
+          setLinkedEvent(null);
+          setActiveView('home');
+        }
+      }
+    };
+    loadAboutEvent();
+    return () => {
+      cancelled = true;
+    };
+  }, [landingPageId]);
 
   useEffect(() => {
     if (config?.agenda?.days && Array.isArray(config.agenda.days) && config.agenda.days.length > 0) {
@@ -130,6 +172,19 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
 
   const renderPreviewSection = (section: any) => {
     if (!section || !section.isVisible || !config) return null;
+
+    const wrapSectionPreview = (node: React.ReactNode) => {
+      if (section.type === 'hero') return node;
+      return (
+        <SectionActionButtonWrap
+          key={section.id}
+          section={section}
+          onActionClick={landingPageActions.handleActionClick}
+        >
+          {node}
+        </SectionActionButtonWrap>
+      );
+    };
 
     switch (section.type) {
       case 'hero':
@@ -194,14 +249,7 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
                 {heroButtons.map((b: any) => (
                   <button 
                     key={b.id} 
-                    onClick={() => {
-                      if (b.formId) {
-                        setSelectedFormId(b.formId);
-                        setShowFormModal(true);
-                      } else if (b.url && b.url !== '#') {
-                        window.open(b.url, '_blank');
-                      }
-                    }}
+                    onClick={() => landingPageActions.handleActionClick(b)}
                     className={`px-6 sm:px-8 py-2 sm:py-3 rounded-full font-bold transition-all transform hover:-translate-y-0.5 ${b.style === 'primary' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/40 hover:bg-indigo-500' : 'bg-white/10 text-white border border-white/30 backdrop-blur-md hover:bg-white/20'}`}
                   >
                     {b.text}
@@ -211,144 +259,46 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
             </div>
           </div>
         );
-      case 'about': {
-        const aboutConfig = config!.about || { includeImage: false, imageUrl: '', layout: 'top' };
-        const titleAlignment = section.titleAlignment || 'center';
-        const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
-        const isTitleArabic = isArabic(section.title);
-        
-        if (aboutConfig.includeImage && aboutConfig.imageUrl) {
-          if (aboutConfig.layout === 'top') {
-            return (
-              <div key={section.id} className="py-12 sm:py-16 md:py-24 px-4 sm:px-8 max-w-6xl mx-auto">
-                <h2 className={`text-3xl sm:text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="mb-8">
-                  <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                </div>
-                <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config?.description || ''}</p>
-              </div>
-            );
-          } else if (aboutConfig.layout === 'left-right') {
-            return (
-              <div key={section.id} className="py-12 sm:py-16 md:py-24 px-4 sm:px-8 max-w-6xl mx-auto">
-                <h2 className={`text-3xl sm:text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config?.description || ''}</p>
-                  </div>
-                  <div>
-                    <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                  </div>
-                </div>
-              </div>
-            );
-          } else {
-            return (
-              <div key={section.id} className="py-12 sm:py-16 md:py-24 px-4 sm:px-8 max-w-6xl mx-auto">
-                <h2 className={`text-3xl sm:text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                  {isTitleArabic ? (
-                    <>
-                      <span>{section.title}</span>
-                      <Type size={32} className="text-indigo-600" />
-                    </>
-                  ) : (
-                    <>
-                      <Type size={32} className="text-indigo-600" />
-                      <span>{section.title}</span>
-                    </>
-                  )}
-                </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-                  <div>
-                    <img src={aboutConfig.imageUrl} alt="" className="w-full h-auto rounded-lg object-cover" />
-                  </div>
-                  <div>
-                    <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config?.description || ''}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          }
-        } else {
-          return (
-            <div key={section.id} className="py-12 sm:py-16 md:py-24 px-4 sm:px-8 max-w-4xl mx-auto">
-              <h2 className={`text-3xl sm:text-4xl font-bold text-slate-900 mb-8 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}>
-                {isTitleArabic ? (
-                  <>
-                    <span>{section.title}</span>
-                    <span className="text-indigo-600">T</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-indigo-600">T</span>
-                    <span>{section.title}</span>
-                  </>
-                )}
-              </h2>
-              <p className="text-slate-600 leading-relaxed whitespace-pre-wrap">{config?.description || ''}</p>
-            </div>
-          );
-        }
-      }
+      case 'about':
+        return wrapSectionPreview(
+          <AboutSection
+            title={section.title}
+            description={config?.description || ''}
+            titleAlignment={section.titleAlignment || 'center'}
+            aboutConfig={config?.about}
+          />
+        );
       case 'speakers':
-        return (
-          <SpeakersSection 
-            key={section.id} 
-            speakers={config?.speakers || []} 
+        return wrapSectionPreview(
+          <SpeakersSection
+            speakers={config?.speakers || []}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'team':
-        return (
-          <TeamSection 
-            key={section.id} 
-            members={config?.team || []} 
+        return wrapSectionPreview(
+          <TeamSection
+            members={config?.team || []}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'agenda':
-        return (
-          <AgendaSection 
-            key={section.id}
-            agenda={config?.agenda || { days: [] }} 
-            speakers={config?.speakers || []} 
-            activeDayId={activePreviewDay} 
-            onDayChange={setActivePreviewDay} 
+        return wrapSectionPreview(
+          <AgendaSection
+            agenda={config?.agenda || { days: [] }}
+            speakers={config?.speakers || []}
+            activeDayId={activePreviewDay}
+            onDayChange={setActivePreviewDay}
             title={section.title}
             programId={section.programId}
             showDownloadButton={section.showDownloadButton}
           />
         );
       case 'submission':
-        return (
+        return wrapSectionPreview(
           <SubmissionSection
-            key={section.id}
             config={config.submission ?? { steps: [], buttons: [] }}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
@@ -357,24 +307,51 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
           />
         );
       case 'committee':
-        return (
+        return wrapSectionPreview(
           <ScientificCommitteeSection
-            key={section.id}
-            members={config?.committee || []}
+            scientificCommittee={resolveScientificCommittee(config || {})}
             title={section.title}
             titleAlignment={section.titleAlignment || 'center'}
           />
         );
       case 'pricing':
-        return <PricingSection key={section.id} offers={config?.pricing || []} title={section.title} />;
+        return wrapSectionPreview(
+          <PricingSection
+            offers={config?.pricing || []}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+            eventId={landingPageId || undefined}
+            refreshKey={landingPageActions.pricingRefreshKey}
+            registrationFormId={section.registrationFormId}
+            onSelectOffer={(offer) => {
+              if (landingPageId && section.registrationFormId) {
+                landingPageActions.openPricingOffer(offer, section.registrationFormId, landingPageId);
+              }
+            }}
+          />
+        );
       case 'partners':
-        return <PartnersSection key={section.id} groups={config?.partners || []} title={section.title} />;
+        return wrapSectionPreview(<PartnersSection groups={config?.partners || []} title={section.title} />);
       case 'faq':
-        return <FaqSection key={section.id} items={config?.faq || []} title={section.title} />;
+        return wrapSectionPreview(<FaqSection items={config?.faq || []} title={section.title} />);
+      case 'eventTopics':
+        return wrapSectionPreview(
+          <EventTopicsSection
+            items={config?.eventTopics || []}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+          />
+        );
       case 'contact':
-        return <ContactSection key={section.id} config={config?.contact || {}} title={section.title} />;
+        return wrapSectionPreview(<ContactSection config={config?.contact || {}} title={section.title} />);
       case 'images':
-        return <ImagesSection key={section.id} groups={config?.imageGroups || []} title={section.title} titleAlignment={section.titleAlignment || 'center'} />;
+        return wrapSectionPreview(
+          <ImagesSection
+            groups={config?.imageGroups || []}
+            title={section.title}
+            titleAlignment={section.titleAlignment || 'center'}
+          />
+        );
       default:
         return null;
     }
@@ -426,42 +403,61 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
 
   // Ensure sections is an array
   const sections = Array.isArray(config.sections) ? config.sections : [];
-  const hero = config.hero || {};
-  const header = config.header || {};
+  const visibleNavSections = sections
+    .filter((s: { isVisible?: boolean; type?: string }) => s.isVisible && s.type !== 'hero')
+    .map((s: { id: string; title: string }) => ({ id: s.id, title: s.title }));
+
+  if (activeView === 'about' && linkedEvent) {
+    return (
+      <div className="min-h-screen bg-white">
+        <EventPage
+          event={linkedEvent}
+          config={config}
+          homeLabel={t('homeMenu')}
+          aboutLabel={t('aboutNavLabel')}
+          onNavigateHome={() => setActiveView('home')}
+          onNavigateAbout={() => setActiveView('about')}
+          onSectionClick={(sectionId) => {
+            setActiveView('home');
+            window.setTimeout(() => {
+              const el = document.getElementById(sectionId);
+              el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 0);
+          }}
+          sections={visibleNavSections}
+        />
+        {landingPageActions.showFormModal && landingPageActions.selectedFormId && (
+          <FormModal
+            formId={landingPageActions.selectedFormId}
+            eventId={landingPageId || slug || 'public'}
+            eventTitle={config.title}
+            ticketContext={landingPageActions.ticketContext}
+            onClose={landingPageActions.closeFormModal}
+            onSuccess={() => {
+              landingPageActions.notifyPricingChanged();
+            }}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header / Navigation */}
-      <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            {header.showLogo && <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold">S</div>}
-            {header.showTitle && <span className="font-bold text-slate-800 truncate max-w-[150px] sm:max-w-none">{config.title || 'Landing Page'}</span>}
-          </div>
-          
-          {/* NAVIGATION MENU */}
-          <div className="hidden md:flex items-center gap-6">
-            {sections
-              .filter((s: any) => s.isVisible && s.type !== 'hero')
-              .map((section: any) => (
-                <a 
-                  key={section.id} 
-                  href={`#${section.id}`}
-                  className="text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors uppercase tracking-wider"
-                >
-                  {section.title}
-                </a>
-              ))
-            }
-          </div>
-
-          {header.showActionButton && (
-            <button className="px-4 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100">
-              {header.actionButtonText || 'Register'}
-            </button>
-          )}
-        </div>
-      </nav>
+      <LandingPageHeader
+        config={config}
+        activeView="home"
+        homeLabel={t('homeMenu')}
+        aboutLabel={t('aboutNavLabel')}
+        showAbout={Boolean(linkedEvent)}
+        sections={visibleNavSections}
+        onNavigateHome={() => setActiveView('home')}
+        onNavigateAbout={() => setActiveView('about')}
+        onSectionClick={(sectionId) => {
+          const el = document.getElementById(sectionId);
+          el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }}
+      />
 
       {/* Sections Rendering Loop */}
       {sections.map((section: any) => (
@@ -470,28 +466,18 @@ const PublicLandingPageViewer: React.FC<PublicLandingPageViewerProps> = ({ slug:
         </div>
       ))}
 
-      <footer className="bg-slate-900 text-white py-12 text-center text-xs border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col items-center gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-indigo-600 rounded flex items-center justify-center font-bold">S</div>
-            <span className="font-bold uppercase tracking-widest">{config.title}</span>
-          </div>
-          <p className="text-slate-500">© 2024 Built with Sympose AI Platform.</p>
-        </div>
-      </footer>
+      <LandingPageFooter title={config.title} />
 
       {/* Form Modal */}
-      {showFormModal && selectedFormId && (
+      {landingPageActions.showFormModal && landingPageActions.selectedFormId && (
         <FormModal
-          formId={selectedFormId}
-          eventId={slug || 'public'}
+          formId={landingPageActions.selectedFormId}
+          eventId={landingPageId || slug || 'public'}
           eventTitle={config.title}
-          onClose={() => {
-            setShowFormModal(false);
-            setSelectedFormId(null);
-          }}
+          ticketContext={landingPageActions.ticketContext}
+          onClose={landingPageActions.closeFormModal}
           onSuccess={() => {
-            // Optionally refresh or show success message
+            landingPageActions.notifyPricingChanged();
           }}
         />
       )}

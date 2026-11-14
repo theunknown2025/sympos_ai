@@ -7,6 +7,8 @@ import { certificatesNs } from './pages/certificates';
 import { emailerNs } from './pages/emailer';
 import { entityProfileNs } from './pages/entityProfile';
 import { eventManagementNs } from './pages/eventManagement';
+import { eventResourcesNs } from './pages/eventResources';
+import { opportunityManagementNs } from './pages/opportunityManagement';
 import { eventFormNs } from './pages/eventForm';
 import { filesManagerNs } from './pages/filesManager';
 import { formBuilderNs } from './pages/formBuilder';
@@ -22,6 +24,7 @@ import { superAdminNs } from './pages/superAdmin';
 import { participantNs } from './pages/participant';
 import { toolsNs } from './pages/tools';
 import { designEditorNs } from './pages/designEditor';
+import { posterManagerNs } from './pages/posterManager';
 
 /**
  * Single registry for `useAdminTranslation(namespace)`.
@@ -37,6 +40,8 @@ export const adminLocaleRegistry = {
   emailer: emailerNs,
   entityProfile: entityProfileNs,
   eventManagement: eventManagementNs,
+  eventResources: eventResourcesNs,
+  opportunityManagement: opportunityManagementNs,
   eventForm: eventFormNs,
   filesManager: filesManagerNs,
   formBuilder: formBuilderNs,
@@ -52,4 +57,5 @@ export const adminLocaleRegistry = {
   participant: participantNs,
   tools: toolsNs,
   designEditor: designEditorNs,
+  posterManager: posterManagerNs,
 } as const;

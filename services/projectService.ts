@@ -1,4 +1,5 @@
 import { supabase, TABLES } from '../supabase';
+import { EventResourceSlotFullError } from './eventResources/slots';
 
 const TABLE_NAME = 'projects';
 
@@ -44,6 +45,13 @@ export const createProject = async (
   projectData: CreateProjectData
 ): Promise<string> => {
   try {
+    if (projectData.eventId) {
+      const existing = await getProjectsByEvent(userId, projectData.eventId);
+      if (existing.length >= 1) {
+        throw new EventResourceSlotFullError('project');
+      }
+    }
+
     const insertData: any = {
       user_id: userId,
       name: projectData.name,
@@ -68,6 +76,7 @@ export const createProject = async (
 
     return data.id;
   } catch (error: any) {
+    if (error instanceof EventResourceSlotFullError) throw error;
     console.error('Error creating project:', error);
     throw new Error(error.message || 'Failed to create project');
   }

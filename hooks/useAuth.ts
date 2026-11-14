@@ -62,7 +62,8 @@ export const useAuth = () => {
     userRole === 'SuperAdmin' ||
     userRole === 'SubSuperAdmin';
   const isParticipant = userRole === 'Participant';
+  const isRootSuperAdmin = userRole === 'SuperAdmin';
 
-  return { currentUser, userRole, isOrganizer, isParticipant, isLoading };
+  return { currentUser, userRole, isOrganizer, isParticipant, isRootSuperAdmin, isLoading };
 };
 

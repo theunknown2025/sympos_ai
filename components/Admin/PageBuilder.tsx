@@ -11,6 +11,7 @@ import {
 import { generateDescription } from '../../services/geminiService';
 import FaqSection from './FaqSection';
 import ScientificCommitteeSection from './ScientificCommitteeSection';
+import { resolveScientificCommittee } from '../../utils/scientificCommitteeUtils';
 import ContactSection from './ContactSection';
 import SubmissionSection from './SubmissionSection';
 import PartnersSection from './PartnersSection';
@@ -2216,7 +2217,7 @@ const PageBuilder: React.FC = () => {
 
             {/* Scientific Committee Section */}
             {config.sections.find(s => s.id === 'sec-6' && s.isVisible) && (
-              <ScientificCommitteeSection members={config.committee} title={config.sections.find(s => s.id === 'sec-6')?.title} />
+              <ScientificCommitteeSection scientificCommittee={resolveScientificCommittee(config)} title={config.sections.find(s => s.id === 'sec-6')?.title} />
             )}
 
             {/* Pricing Section */}

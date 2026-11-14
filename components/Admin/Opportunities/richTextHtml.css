@@ -1,0 +1,65 @@
+/* Quill / rich-text preview — imported where HTML is shown outside the editor */
+.rich-text-html h1 {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+  color: inherit;
+}
+
+.rich-text-html h2 {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 700;
+  margin-top: 0.875rem;
+  margin-bottom: 0.5rem;
+  color: inherit;
+}
+
+.rich-text-html h3 {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+  margin-top: 0.75rem;
+  margin-bottom: 0.375rem;
+  color: inherit;
+}
+
+.rich-text-html p {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.rich-text-html ul {
+  list-style-type: disc;
+  padding-left: 1.25rem;
+  margin: 0.5rem 0;
+}
+
+.rich-text-html ol {
+  list-style-type: decimal;
+  padding-left: 1.25rem;
+  margin: 0.5rem 0;
+}
+
+.rich-text-html a {
+  color: #4f46e5;
+  text-decoration: underline;
+}
+
+.rich-text-html .ql-align-center {
+  text-align: center;
+}
+
+.rich-text-html .ql-align-right {
+  text-align: right;
+}
+
+.rich-text-html .ql-align-justify {
+  text-align: justify;
+}
+
+.rich-text-html strong {
+  font-weight: 600;
+}

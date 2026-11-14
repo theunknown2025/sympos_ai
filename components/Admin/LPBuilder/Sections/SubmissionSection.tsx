@@ -2,8 +2,6 @@ import React, { useRef, useState } from 'react';
 import { HeroButton, SubmissionSectionConfig, TimelineStep, TimelineStepIcon } from '../../../../types';
 import {
   FileText,
-  ArrowRight,
-  Download,
   Calendar,
   Info,
   ChevronLeft,
@@ -14,10 +12,8 @@ import {
   Upload,
   Flag,
   Award,
-  Link2,
-  Image as ImageIcon,
-  ClipboardList,
 } from 'lucide-react';
+import LandingPageCtaButton from './LandingPageCtaButton';
 import { isArabic } from '../../../../utils/languageDetection';
 import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 import { useAdminDisplayLanguage } from '../../../../contexts/AdminDisplaySettingsContext';
@@ -54,24 +50,7 @@ function formatStepDeadlineLabel(step: TimelineStep, localeTag: string): string 
   return step.date || '';
 }
 
-function resolveSubmissionAction(btn: HeroButton): 'document' | 'link' | 'image' | 'form' {
-  if (btn.actionTarget) return btn.actionTarget;
-  if (btn.formId) return 'form';
-  return 'link';
-}
-
-function resolveSubmissionCtaHref(btn: HeroButton): string | undefined {
-  const action = resolveSubmissionAction(btn);
-  if (action === 'form') return undefined;
-  const pick = (s?: string) => {
-    const v = (s || '').trim();
-    return v && v !== '#' ? v : undefined;
-  };
-  if (action === 'document' || action === 'image') {
-    return pick(btn.uploadedFileUrl) || pick(btn.url);
-  }
-  return pick(btn.url);
-}
+import { resolveLandingPageActionTarget, resolveLandingPageCtaHref } from '../shared/landingPageActionButton';
 
 const SubmissionSection: React.FC<SubmissionSectionProps> = ({
   config,
@@ -106,25 +85,16 @@ const SubmissionSection: React.FC<SubmissionSectionProps> = ({
   };
 
   const onCtaClick = (btn: HeroButton) => {
-    const action = resolveSubmissionAction(btn);
+    const action = resolveLandingPageActionTarget(btn);
     if (action === 'form' && btn.formId) {
       setSelectedFormId(btn.formId);
       setShowFormModal(true);
       return;
     }
-    const href = resolveSubmissionCtaHref(btn);
+    const href = resolveLandingPageCtaHref(btn);
     if (href) {
       window.open(href, '_blank', 'noopener,noreferrer');
     }
-  };
-
-  const ctaTrailingIcon = (btn: HeroButton) => {
-    const action = resolveSubmissionAction(btn);
-    if (action === 'document') return <Download size={18} />;
-    if (action === 'image') return <ImageIcon size={18} />;
-    if (action === 'form') return <ClipboardList size={18} />;
-    if (action === 'link') return <Link2 size={18} />;
-    return <ArrowRight size={18} />;
   };
 
   return (
@@ -215,19 +185,7 @@ const SubmissionSection: React.FC<SubmissionSectionProps> = ({
 
         <div className="flex flex-wrap justify-center gap-6">
           {buttons.map((btn) => (
-            <button
-              key={btn.id}
-              type="button"
-              onClick={() => onCtaClick(btn)}
-              className={`px-10 py-4 rounded-xl font-bold transition-all transform hover:-translate-y-1 active:scale-95 flex items-center gap-3 shadow-lg ${
-                btn.style === 'primary'
-                  ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-indigo-200'
-                  : 'bg-white text-slate-700 border border-slate-200 hover:border-indigo-200 hover:bg-indigo-50 shadow-slate-200'
-              }`}
-            >
-              {btn.text}
-              {ctaTrailingIcon(btn)}
-            </button>
+            <LandingPageCtaButton key={btn.id} button={btn} onClick={onCtaClick} />
           ))}
           {buttons.length === 0 && (
             <div className="text-slate-400 italic bg-white px-8 py-3 rounded-full border border-dashed border-slate-200">{t('edSecSubmissionNoActions')}</div>

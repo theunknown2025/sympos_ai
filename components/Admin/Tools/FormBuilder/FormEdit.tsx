@@ -18,7 +18,7 @@ const FormEdit: React.FC<FormEditProps> = ({ formId, onClose, onSave, onCancel, 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [form, setForm] = useState<RegistrationForm | EvaluationForm | null>(null);
-  const [formType, setFormType] = useState<'registration' | 'submission' | 'evaluation' | null>(null);
+  const [formType, setFormType] = useState<'registration' | 'submission' | 'evaluation' | 'payment' | null>(null);
 
   useEffect(() => {
     loadForm();
@@ -41,17 +41,31 @@ const FormEdit: React.FC<FormEditProps> = ({ formId, onClose, onSave, onCancel, 
       
       if (loadedForm) {
         setForm(loadedForm);
-        
-        // Detect form type from title prefix
+
         const titleLower = loadedForm.title.toLowerCase();
-        if (titleLower.startsWith('reg - ') || titleLower.startsWith('reg-')) {
-          setFormType('registration');
-        } else if (titleLower.startsWith('sub - ') || titleLower.startsWith('sub-')) {
-          setFormType('submission');
-        } else if (titleLower.startsWith('eval - ') || titleLower.startsWith('eval-') || isEvaluationForm) {
+        const regForm = loadedForm as RegistrationForm;
+
+        if (isEvaluationForm || titleLower.startsWith('eval - ') || titleLower.startsWith('eval-')) {
           setFormType('evaluation');
+        } else if (
+          regForm.formCategory === 'payment' ||
+          titleLower.startsWith('pay - ') ||
+          titleLower.startsWith('pay-')
+        ) {
+          setFormType('payment');
+        } else if (
+          regForm.formCategory === 'submission' ||
+          titleLower.startsWith('sub - ') ||
+          titleLower.startsWith('sub-')
+        ) {
+          setFormType('submission');
+        } else if (
+          regForm.formCategory === 'registration' ||
+          titleLower.startsWith('reg - ') ||
+          titleLower.startsWith('reg-')
+        ) {
+          setFormType('registration');
         } else {
-          // If no prefix, try to detect from title
           if (titleLower.includes('registration') || titleLower.includes('register')) {
             setFormType('registration');
           } else if (titleLower.includes('submission') || titleLower.includes('submit')) {
@@ -59,7 +73,7 @@ const FormEdit: React.FC<FormEditProps> = ({ formId, onClose, onSave, onCancel, 
           } else if (titleLower.includes('evaluation') || titleLower.includes('evaluate')) {
             setFormType('evaluation');
           } else {
-            setFormType('registration'); // Default fallback
+            setFormType('registration');
           }
         }
       } else {

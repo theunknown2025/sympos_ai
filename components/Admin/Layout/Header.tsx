@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Menu, Bell, Settings } from 'lucide-react';
 import { User } from '@supabase/supabase-js';
-import { SubscriptionRole, ViewState } from '../../../types';
+import { SubscriptionRole } from '../../../types';
 import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 import { getRoleLabel } from '../../../i18n/adminHeaderLabels';
 import { AdminDisplaySettingsModal } from './AdminDisplaySettingsModal';
@@ -10,7 +9,8 @@ import {
   useOrganizerChooserLayout,
   useOrganizerEventScope,
 } from '../../../contexts/OrganizerEventScopeContext';
-import { getRoutePath } from '../../../routes';
+import { FreeTrialHeaderBanner } from '../AccountManagement/FreeTrialHeaderBanner';
+import OrganizerEventPackHeader from '../EventResources/OrganizerEventPackHeader';
 
 interface HeaderProps {
   currentUser: User | null;
@@ -25,7 +25,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { language } = useAdminDisplaySettings();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const navigate = useNavigate();
   const hideSidebarToggle = useOrganizerChooserLayout();
   const organizerScope = useOrganizerEventScope();
 
@@ -33,21 +32,27 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      <header className="h-16 bg-white border-b border-slate-200 px-8 flex items-center justify-between sticky top-0 z-10">
+      {/* Sticky on every authenticated page so Free-trial status stays visible */}
+      <header className="h-16 bg-white border-b border-slate-200 px-4 sm:px-8 flex items-center justify-between sticky top-0 z-30 gap-3 sm:gap-4 shrink-0">
         {hideSidebarToggle ? (
-          <div className="w-10" aria-hidden />
+          <div className="w-10 shrink-0" aria-hidden />
         ) : (
           <button
             type="button"
             onClick={onToggleSidebar}
-            className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg"
+            className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg shrink-0"
             aria-label="Toggle sidebar"
           >
             <Menu size={20} />
           </button>
         )}
 
-        <div className="flex items-center gap-4">
+        <div className="flex-1 flex flex-row items-center justify-center min-w-0 gap-2 px-1 overflow-hidden">
+          <OrganizerEventPackHeader />
+          <FreeTrialHeaderBanner />
+        </div>
+
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0">
           <button
             type="button"
             onClick={() => setSettingsOpen(true)}
@@ -61,7 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Bell size={20} className="text-slate-400 hover:text-slate-600 cursor-pointer" />
             <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></span>
           </div>
-          <div className="flex items-center gap-3 pl-6 border-l border-slate-200">
+          <div className="flex items-center gap-3 pl-4 sm:pl-6 border-l border-slate-200">
             <div className="text-right hidden md:block">
               <p className="text-sm font-medium text-slate-900 truncate max-w-[150px]">
                 {currentUser?.email?.split('@')[0] || 'User'}
@@ -75,33 +80,8 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </header>
 
-      {organizerScope.isOrganizerWorkspaceEnabled && organizerScope.mode === 'focused' && organizerScope.focusedEventName && (
-        <div className="bg-indigo-50 border-b border-indigo-100 px-8 py-2 flex flex-wrap items-center gap-3 text-sm sticky top-16 z-10">
-          <span className="text-slate-700">
-            Managing: <strong className="text-slate-900">{organizerScope.focusedEventName}</strong>
-          </span>
-          <button
-            type="button"
-            onClick={() => organizerScope.returnToEventChooser()}
-            className="text-indigo-600 font-medium hover:underline"
-          >
-            Change event
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              organizerScope.enterFullWorkspace();
-              navigate(getRoutePath(ViewState.DASHBOARD));
-            }}
-            className="text-slate-600 hover:underline"
-          >
-            Full workspace
-          </button>
-        </div>
-      )}
-
       {organizerScope.isOrganizerWorkspaceEnabled && organizerScope.mode === 'full' && (
-        <div className="bg-slate-100 border-b border-slate-200 px-8 py-2 flex flex-wrap items-center gap-3 text-sm sticky top-16 z-10">
+        <div className="bg-slate-100 border-b border-slate-200 px-8 py-2 flex flex-wrap items-center gap-3 text-sm">
           <span className="text-slate-700">Full organizer workspace — all events visible in tools.</span>
           <button
             type="button"

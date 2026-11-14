@@ -234,7 +234,10 @@ print_success "Frontend built successfully"
 ###############################################################################
 print_step "Creating PM2 ecosystem configuration..."
 
-cat > "${APP_DIR}/ecosystem.config.js" << EOF
+# Remove legacy filename: with "type":"module", .js is ESM and breaks module.exports
+rm -f "${APP_DIR}/ecosystem.config.js"
+
+cat > "${APP_DIR}/ecosystem.config.cjs" << EOF
 module.exports = {
   apps: [
     {
@@ -291,7 +294,7 @@ print_step "Starting services with PM2..."
 pm2 delete all 2>/dev/null || true
 
 # Start services
-pm2 start ecosystem.config.js
+pm2 start ecosystem.config.cjs
 
 # Save PM2 configuration
 pm2 save

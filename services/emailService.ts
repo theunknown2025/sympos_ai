@@ -1,4 +1,8 @@
 import { FormSubmission, RegistrationForm } from '../types';
+import {
+  getMandatoryInvitationResponseSectionHtml,
+  stripMandatoryInvitationSection,
+} from './committeeInvitationEmailMandatory';
 
 /**
  * Email service for sending form-related emails
@@ -227,11 +231,17 @@ export const sendConfirmationEmail = async (
 /**
  * Send an invitation email to committee members
  */
+export interface SendInvitationEmailOptions {
+  /** Appends the fixed “log in and use Invitations” block (committee invitations only). */
+  includeCommitteeInvitationMandatoryFooter?: boolean;
+}
+
 export const sendInvitationEmail = async (
   recipients: Array<{ email: string; fullName: string }>,
   subject: string,
   content: string,
-  attachments?: Array<{ name: string; url: string }>
+  attachments?: Array<{ name: string; url: string }>,
+  options?: SendInvitationEmailOptions
 ): Promise<void> => {
   try {
     if (recipients.length === 0) {
@@ -247,33 +257,56 @@ export const sendInvitationEmail = async (
     }
 
     // Format email content with recipient personalization
-    const formatEmailContent = (fullName: string, emailContent: string, email: string, emailAttachments?: Array<{ name: string; url: string }>): string => {
-      // Replace placeholders like {{name}} with actual name
-      let personalizedContent = emailContent.replace(/\{\{name\}\}/g, fullName);
+    const includeMandatoryFooter = options?.includeCommitteeInvitationMandatoryFooter === true;
+
+    const formatEmailContent = (
+      fullName: string,
+      emailContent: string,
+      email: string,
+      emailAttachments?: Array<{ name: string; url: string }>
+    ): string => {
+      const editableOnly = includeMandatoryFooter
+        ? stripMandatoryInvitationSection(emailContent)
+        : emailContent;
+
+      let personalizedContent = editableOnly.replace(/\{\{name\}\}/g, fullName);
       personalizedContent = personalizedContent.replace(/\{\{fullName\}\}/g, fullName);
       personalizedContent = personalizedContent.replace(/\{\{email\}\}/g, email);
+
+      const mandatoryFooterHtml = includeMandatoryFooter
+        ? getMandatoryInvitationResponseSectionHtml(email)
+        : '';
       
-      // Build attachments section HTML if attachments exist
+      const escapeHtml = (text: string) =>
+        text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+
+      // Download links (files stay on storage — safer than MIME attachments for size/spam)
       let attachmentsSection = '';
       if (emailAttachments && emailAttachments.length > 0) {
         attachmentsSection = `
           <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e5e7eb;">
-            <h3 style="color: #1f2937; font-size: 16px; font-weight: 600; margin: 0 0 15px 0; font-family: Arial, sans-serif;">Attachments</h3>
-            <div style="display: flex; flex-direction: column; gap: 10px;">
-              ${emailAttachments.map(attachment => `
-                <div style="display: flex; align-items: center; padding: 12px; background-color: #f9fafb; border-radius: 6px; border: 1px solid #e5e7eb;">
-                  <svg style="width: 20px; height: 20px; margin-right: 12px; color: #6b7280; flex-shrink: 0;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
-                  </svg>
-                  <div style="flex: 1; min-width: 0;">
-                    <a href="${attachment.url}" style="color: #2563eb; text-decoration: none; font-weight: 500; font-size: 14px; display: block; word-break: break-all;" target="_blank" rel="noopener noreferrer">
-                      ${attachment.name}
-                    </a>
-                    <p style="color: #9ca3af; font-size: 12px; margin: 4px 0 0 0;">Click to download</p>
-                  </div>
-                </div>
-              `).join('')}
-            </div>
+            <h3 style="color: #1f2937; font-size: 16px; font-weight: 600; margin: 0 0 12px 0; font-family: Arial, sans-serif;">Documents</h3>
+            <p style="color: #6b7280; font-size: 13px; margin: 0 0 14px 0; font-family: Arial, sans-serif;">
+              The following files are included with this invitation. You can also access them from the Invitations page after you log in.
+            </p>
+            <ul style="margin: 0; padding: 0; list-style: none; font-family: Arial, sans-serif;">
+              ${emailAttachments
+                .map((attachment) => {
+                  const safeUrl = escapeHtml(attachment.url);
+                  const safeName = escapeHtml(attachment.name);
+                  return `
+                <li style="margin: 0 0 10px 0;">
+                  <a href="${safeUrl}" style="color: #2563eb; text-decoration: underline; font-size: 14px; font-weight: 500;" target="_blank" rel="noopener noreferrer">
+                    Download — ${safeName}
+                  </a>
+                </li>`;
+                })
+                .join('')}
+            </ul>
           </div>
         `;
       }
@@ -290,6 +323,7 @@ export const sendInvitationEmail = async (
               <div style="white-space: pre-wrap; font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 ${personalizedContent.replace(/\n/g, '<br>')}
               </div>
+              ${mandatoryFooterHtml}
               ${attachmentsSection}
               <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;">
               <p style="color: #9ca3af; font-size: 12px; margin: 0;">This is an automated email. Please do not reply.</p>
@@ -471,12 +505,13 @@ export const sendInvitationEmail = async (
         throw new Error(
           'SMTP Authentication Failed\n\n' +
           'The email server is running, but SMTP credentials are incorrect.\n\n' +
+          'The app uses .env only (NOT .env.example).\n\n' +
           'Please verify:\n' +
-          '1. SMTP_USER is your full email address\n' +
-          '2. SMTP_PASSWORD is correct\n' +
-          '3. Check your Hostinger webmail settings\n\n' +
-          'After fixing, restart the email server:\n' +
-          'npm run email-server'
+          '1. .env in the project root has SMTP_USER = your full email (e.g. admin@symposai.pro)\n' +
+          '2. SMTP_PASSWORD is in double quotes if it contains @\n' +
+          '3. Open http://localhost:3001/health — smtpUser must match your mailbox\n' +
+          '4. Stop the old email server, then run: npm run email-server\n' +
+          '5. Test: npm run email-server:test'
         );
       }
       

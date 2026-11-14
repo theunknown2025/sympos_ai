@@ -1,5 +1,24 @@
 import { supabase, STORAGE_BUCKETS } from '../supabase';
 
+/** Supabase bucket for certificate template background images (`certificate-templates`). */
+export const CERTIFICATE_BACKGROUND_STORAGE_FOLDER = 'certificate-templates';
+
+/**
+ * Upload a certificate template background image to the `certificate-templates` bucket.
+ */
+export const uploadCertificateBackgroundImage = async (
+  userId: string,
+  file: File
+): Promise<string> => uploadImageToStorage(userId, file, CERTIFICATE_BACKGROUND_STORAGE_FOLDER);
+
+/**
+ * Upload a badge template background image to the `badges` bucket.
+ */
+export const uploadBadgeBackgroundImage = async (
+  userId: string,
+  file: File
+): Promise<string> => uploadImageToStorage(userId, file, 'badges');
+
 /**
  * Upload an image file to Supabase Storage
  * @param userId The current user ID
@@ -19,7 +38,11 @@ export const uploadImageToStorage = async (
       bucketId = STORAGE_BUCKETS.CERTIFICATE_TEMPLATES;
     } else if (folder === 'badges') {
       bucketId = STORAGE_BUCKETS.BADGES;
-    } else if (folder === 'landing-page-images' || folder === 'landing-page-cta-images') {
+    } else if (
+      folder === 'landing-page-images' ||
+      folder === 'landing-page-cta-images' ||
+      folder === 'landing-page-cta-videos'
+    ) {
       bucketId = STORAGE_BUCKETS.MEDIA;
     } else if (folder === 'organizer-profiles') {
       bucketId = STORAGE_BUCKETS.ORGANIZER_PROFILES;
@@ -31,8 +54,12 @@ export const uploadImageToStorage = async (
       bucketId = STORAGE_BUCKETS.CV_IMAGES;
     } else if (folder === 'academy-course-banners') {
       bucketId = STORAGE_BUCKETS.ACADEMY_COURSE_BANNERS;
+    } else if (folder === 'opportunity-banners' || folder.startsWith('opportunity-banners/')) {
+      bucketId = STORAGE_BUCKETS.OPPORTUNITY_BANNERS;
     } else if (folder === 'profile-images') {
       bucketId = STORAGE_BUCKETS.PARTICIPANT_PROFILES;
+    } else if (folder === 'conference-posters' || folder.startsWith('conference-posters/')) {
+      bucketId = STORAGE_BUCKETS.CONFERENCE_POSTERS;
     } else {
       bucketId = STORAGE_BUCKETS.GENERAL;
     }
@@ -153,8 +180,10 @@ export const uploadFileToStorage = async (
     // Determine bucket based on folder
     // Use Sub_Files for submission files (papers, documents from submission forms)
     const bucketId =
-      folder === 'landing-page-cta-documents'
-        ? STORAGE_BUCKETS.DOCUMENTS
+      folder === 'landing-page-cta-documents' || folder === 'landing-page-cta-videos'
+        ? folder === 'landing-page-cta-videos'
+          ? STORAGE_BUCKETS.MEDIA
+          : STORAGE_BUCKETS.DOCUMENTS
       : folder === 'form-submissions' || folder === 'sub-files' || folder === 'submission-files'
       ? STORAGE_BUCKETS.SUB_FILES 
       : folder === 'certificate-templates'
@@ -165,6 +194,14 @@ export const uploadFileToStorage = async (
       ? STORAGE_BUCKETS.EMAIL_ATTACHMENTS
       : folder === 'payment-method-files'
       ? STORAGE_BUCKETS.PAYMENT_METHOD_FILES
+      : folder === 'opportunity-files'
+      ? STORAGE_BUCKETS.OPPORTUNITY_FILES
+      : folder === 'committee-invitation-files'
+      ? STORAGE_BUCKETS.COMMITTEE_INVITATION_FILES
+      : folder === 'conference-posters' || folder.startsWith('conference-posters/')
+      ? STORAGE_BUCKETS.CONFERENCE_POSTERS
+      : folder === 'pro-payment-proofs'
+      ? STORAGE_BUCKETS.DOCUMENTS
       : STORAGE_BUCKETS.GENERAL;
     
     // Debug: Log the bucket being used
@@ -298,8 +335,11 @@ export const getFileDownloadURL = async (
 ): Promise<string> => {
   try {
     // Check if bucket is public or private
-    // For Sub_Files bucket (private), use signed URL
-    if (bucketId === STORAGE_BUCKETS.SUB_FILES) {
+    // For private buckets, use signed URL
+    if (
+      bucketId === STORAGE_BUCKETS.SUB_FILES ||
+      bucketId === STORAGE_BUCKETS.SUBMISSION_MODIFICATION_FILES
+    ) {
       const { data, error } = await supabase.storage
         .from(bucketId)
         .createSignedUrl(filePath, expiresIn);

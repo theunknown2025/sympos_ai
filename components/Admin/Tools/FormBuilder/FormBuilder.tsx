@@ -33,6 +33,14 @@ import { FormField, FormFieldType, RegistrationForm, FormSection, FormSubsection
 import { useAuth } from '../../../../hooks/useAuth';
 import { saveRegistrationForm, updateRegistrationForm, getRegistrationForm } from '../../../../services/registrationFormService';
 import { saveEvaluationForm, updateEvaluationForm, getEvaluationForm } from '../../../../services/evaluationFormService';
+import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
+import {
+  attachEventResource,
+  EventResourceSlot,
+  eventSlotIsFull,
+  isEventResourceSlotFullError,
+} from '../../../../services/eventResources';
+import EventResourceLimitModal from '../../EventResources/EventResourceLimitModal';
 import { getPayments, type Payment } from '../../../../services/paymentService';
 import FormList from './FormList';
 
@@ -45,6 +53,8 @@ interface FormBuilderProps {
 
 const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew }) => {
   const { currentUser } = useAuth();
+  const organizerScopedEventId = useOrganizerScopedEventId();
+  const [resourceSlotBlock, setResourceSlotBlock] = useState<EventResourceSlot | null>(null);
   const [activeTab, setActiveTab] = useState<'new' | 'list'>(formId ? 'new' : 'new');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -70,7 +80,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showFormTypeSelection, setShowFormTypeSelection] = useState(false);
-  const [formType, setFormType] = useState<'registration' | 'submission' | 'evaluation' | null>(null);
+  const [formType, setFormType] = useState<'registration' | 'submission' | 'evaluation' | 'payment' | null>(null);
   const [showPreview, setShowPreview] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
@@ -117,31 +127,42 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
       }
       
       if (form) {
-        // Detect form type from title prefix
         const titleLower = form.title.toLowerCase();
-        if (titleLower.startsWith('reg - ') || titleLower.startsWith('reg-')) {
-          setFormType('registration');
-          // Remove prefix if present for editing
-          const cleanTitle = form.title.replace(/^reg\s*-\s*/i, '');
-          setTitle(cleanTitle);
-        } else if (titleLower.startsWith('sub - ') || titleLower.startsWith('sub-')) {
-          setFormType('submission');
-          // Remove prefix if present for editing
-          const cleanTitle = form.title.replace(/^sub\s*-\s*/i, '');
-          setTitle(cleanTitle);
-        } else if (titleLower.startsWith('eval - ') || titleLower.startsWith('eval-') || isEvaluationForm) {
+        const regForm = form as RegistrationForm;
+
+        if (isEvaluationForm || titleLower.startsWith('eval - ') || titleLower.startsWith('eval-')) {
           setFormType('evaluation');
-          // Remove prefix if present for editing
-          const cleanTitle = form.title.replace(/^eval\s*-\s*/i, '');
-          setTitle(cleanTitle);
+          setTitle(form.title.replace(/^eval\s*-\s*/i, '').trim());
+        } else if (
+          regForm.formCategory === 'payment' ||
+          titleLower.startsWith('pay - ') ||
+          titleLower.startsWith('pay-')
+        ) {
+          setFormType('payment');
+          setTitle(form.title.replace(/^pay\s*-\s*/i, '').trim());
+        } else if (
+          regForm.formCategory === 'submission' ||
+          titleLower.startsWith('sub - ') ||
+          titleLower.startsWith('sub-')
+        ) {
+          setFormType('submission');
+          setTitle(form.title.replace(/^sub\s*-\s*/i, '').trim());
+        } else if (
+          regForm.formCategory === 'registration' ||
+          titleLower.startsWith('reg - ') ||
+          titleLower.startsWith('reg-')
+        ) {
+          setFormType('registration');
+          setTitle(form.title.replace(/^reg\s*-\s*/i, '').trim());
         } else {
-          // If no prefix, try to detect from title
           if (titleLower.includes('registration') || titleLower.includes('register')) {
             setFormType('registration');
           } else if (titleLower.includes('submission') || titleLower.includes('submit')) {
             setFormType('submission');
           } else if (titleLower.includes('evaluation') || titleLower.includes('evaluate')) {
             setFormType('evaluation');
+          } else {
+            setFormType('registration');
           }
           setTitle(form.title);
         }
@@ -752,13 +773,36 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
       return;
     }
 
+    const slotForNewForm = (): EventResourceSlot | null => {
+      if (formType === 'registration') return 'registration_form';
+      if (formType === 'submission') return 'submission_form';
+      if (formType === 'payment') return 'submission_payment_form';
+      if (formType === 'evaluation') return 'evaluation_form';
+      return null;
+    };
+
     try {
       setIsSaving(true);
       setSaveError('');
       setSaveSuccess(false);
 
+      if (!formId && organizerScopedEventId) {
+        const slot = slotForNewForm();
+        if (slot && (await eventSlotIsFull(organizerScopedEventId, slot))) {
+          setResourceSlotBlock(slot);
+          return;
+        }
+      }
+
       // Add prefix based on form type
-      const prefix = formType === 'registration' ? 'Reg' : formType === 'submission' ? 'Sub' : 'Eval';
+      const prefix =
+        formType === 'registration'
+          ? 'Reg'
+          : formType === 'submission'
+            ? 'Sub'
+            : formType === 'payment'
+              ? 'Pay'
+              : 'Eval';
       const finalTitle = title.trim().startsWith(prefix) ? title.trim() : `${prefix} - ${title.trim()}`;
 
       // Ensure all fields have labels before saving
@@ -801,12 +845,18 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
         if (formId) {
           await updateEvaluationForm(formId, formData);
         } else {
-          await saveEvaluationForm(currentUser.id, formData);
+          const createdId = await saveEvaluationForm(currentUser.id, formData);
+          if (organizerScopedEventId) {
+            await attachEventResource(organizerScopedEventId, 'evaluation_form', createdId);
+          }
         }
       } else {
-        // Save as registration form (for both registration and submission types)
+        // Save as registration form (registration, submission, or payment)
+        const formCategory =
+          formType === 'payment' ? 'payment' : formType === 'submission' ? 'submission' : 'registration';
         const formData: Omit<RegistrationForm, 'id' | 'userId' | 'createdAt' | 'updatedAt'> = {
           title: finalTitle,
+          formCategory,
           description: description.trim() || '',
           sections: processedSections,
           fields: processedFields,
@@ -817,7 +867,16 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
         if (formId) {
           await updateRegistrationForm(formId, formData);
         } else {
-          await saveRegistrationForm(currentUser.id, formData);
+          const createdId = await saveRegistrationForm(currentUser.id, formData);
+          if (organizerScopedEventId) {
+            const slot: EventResourceSlot =
+              formCategory === 'payment'
+                ? 'submission_payment_form'
+                : formCategory === 'submission'
+                  ? 'submission_form'
+                  : 'registration_form';
+            await attachEventResource(organizerScopedEventId, slot, createdId);
+          }
         }
       }
 
@@ -837,6 +896,10 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
         }
       }, 1500);
     } catch (error: any) {
+      if (isEventResourceSlotFullError(error)) {
+        setResourceSlotBlock(error.slot);
+        return;
+      }
       console.error('Error saving form:', error);
       setSaveError('Failed to save form. Please try again.');
     } finally {
@@ -855,6 +918,9 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
 
   return (
     <div className="h-full">
+      {resourceSlotBlock && (
+        <EventResourceLimitModal slot={resourceSlotBlock} onClose={() => setResourceSlotBlock(null)} />
+      )}
       <header className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Form Builder</h1>
@@ -1411,14 +1477,14 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
                 Choose the type of form you want to create:
               </p>
 
-              <div className="flex gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                 <button
                   onClick={() => {
                     setFormType('registration');
                     setShowFormTypeSelection(false);
                     setShowSaveDialog(true);
                   }}
-                  className="flex-1 p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
+                  className="p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
                 >
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
@@ -1437,7 +1503,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
                     setShowFormTypeSelection(false);
                     setShowSaveDialog(true);
                   }}
-                  className="flex-1 p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
+                  className="p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
                 >
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
@@ -1452,11 +1518,30 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
 
                 <button
                   onClick={() => {
+                    setFormType('payment');
+                    setShowFormTypeSelection(false);
+                    setShowSaveDialog(true);
+                  }}
+                  className="p-6 border-2 border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all text-center group"
+                >
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="w-12 h-12 bg-emerald-100 rounded-lg flex items-center justify-center group-hover:bg-emerald-200 transition-colors">
+                      <CreditCard size={24} className="text-emerald-700" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 mb-1">Payment Form</h3>
+                      <p className="text-sm text-slate-500">Shown at the payment step; linkable from event workflow</p>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
                     setFormType('evaluation');
                     setShowFormTypeSelection(false);
                     setShowSaveDialog(true);
                   }}
-                  className="flex-1 p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
+                  className="p-6 border-2 border-slate-200 rounded-xl hover:border-indigo-500 hover:bg-indigo-50 transition-all text-center group"
                 >
                   <div className="flex flex-col items-center gap-3">
                     <div className="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center group-hover:bg-indigo-200 transition-colors">
@@ -1501,15 +1586,28 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
               {formType && (
                 <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-lg">
                   <p className="text-sm font-medium text-indigo-900">
-                    Form Type: <span className="font-bold">
-                      {formType === 'registration' ? 'Registration Form' : 
-                       formType === 'submission' ? 'Submission Form' : 
-                       'Evaluation Form'}
+                    Form Type:{' '}
+                    <span className="font-bold">
+                      {formType === 'registration'
+                        ? 'Registration Form'
+                        : formType === 'submission'
+                          ? 'Submission Form'
+                          : formType === 'payment'
+                            ? 'Payment Form'
+                            : 'Evaluation Form'}
                     </span>
                   </p>
                   {!formId && (
                     <p className="text-xs text-indigo-700 mt-1">
-                      Form name will be prefixed with "{formType === 'registration' ? 'Reg' : formType === 'submission' ? 'Sub' : 'Eval'}"
+                      Form name will be prefixed with &quot;
+                      {formType === 'registration'
+                        ? 'Reg'
+                        : formType === 'submission'
+                          ? 'Sub'
+                          : formType === 'payment'
+                            ? 'Pay'
+                            : 'Eval'}
+                      &quot;
                     </p>
                   )}
                 </div>
@@ -1547,15 +1645,31 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ formId, onSave, onEdit, onNew
                 )}
                 {formType && !formId && !validationErrors.title && (
                   <p className="text-xs text-slate-500 mt-1">
-                    Will be saved as: <span className="font-medium">
-                      {formType === 'registration' ? 'Reg' : formType === 'submission' ? 'Sub' : 'Eval'} - {title || 'Your Title'}
+                    Will be saved as:{' '}
+                    <span className="font-medium">
+                      {formType === 'registration'
+                        ? 'Reg'
+                        : formType === 'submission'
+                          ? 'Sub'
+                          : formType === 'payment'
+                            ? 'Pay'
+                            : 'Eval'}{' '}
+                      - {title || 'Your Title'}
                     </span>
                   </p>
                 )}
                 {formType && formId && !validationErrors.title && (
                   <p className="text-xs text-slate-500 mt-1">
-                    Will be saved as: <span className="font-medium">
-                      {formType === 'registration' ? 'Reg' : formType === 'submission' ? 'Sub' : 'Eval'} - {title || 'Your Title'}
+                    Will be saved as:{' '}
+                    <span className="font-medium">
+                      {formType === 'registration'
+                        ? 'Reg'
+                        : formType === 'submission'
+                          ? 'Sub'
+                          : formType === 'payment'
+                            ? 'Pay'
+                            : 'Eval'}{' '}
+                      - {title || 'Your Title'}
                     </span>
                   </p>
                 )}

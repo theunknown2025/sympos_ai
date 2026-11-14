@@ -15,27 +15,85 @@ import express from 'express';
 import cors from 'cors';
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { registerParticipantAccountRoutes } from './participantAccountRoutes.js';
+import { registerSuperAdminAccountRoutes } from './superAdminAccountRoutes.js';
+import { registerOrganizerProOrderRoutes } from './organizerProOrderRoutes.js';
 
 // Get current directory for ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load environment variables from project root
-dotenv.config({ path: join(__dirname, '..', '.env') });
+/** Only this file is loaded. .env.example is a template and is never read by the email server. */
+const ENV_FILE_PATH = join(__dirname, '..', '.env');
 
-// Debug: Log loaded environment variables (without sensitive data)
-console.log('📋 Environment variables loaded:');
-console.log('   SMTP_HOST:', process.env.SMTP_HOST || 'NOT SET');
-console.log('   SMTP_PORT:', process.env.SMTP_PORT || 'NOT SET');
-console.log('   SMTP_USER:', process.env.SMTP_USER ? `${process.env.SMTP_USER.substring(0, 5)}...` : 'NOT SET');
-console.log('   SMTP_PASSWORD:', process.env.SMTP_PASSWORD ? '***SET***' : 'NOT SET');
-console.log('   FROM_EMAIL:', process.env.FROM_EMAIL || 'NOT SET');
-console.log('   FROM_NAME:', process.env.FROM_NAME || 'NOT SET');
+/** Trim and strip optional surrounding quotes (required when password contains @ or #). */
+function readEnv(key) {
+  const raw = process.env[key];
+  if (raw == null || raw === '') return '';
+  return raw.trim().replace(/^["']|["']$/g, '');
+}
+
+function loadEnvFile() {
+  const exists = existsSync(ENV_FILE_PATH);
+  if (!exists) {
+    console.warn(`⚠️  Missing ${ENV_FILE_PATH}`);
+    console.warn('   Copy .env.example → .env and set SMTP_USER / SMTP_PASSWORD.');
+  }
+  // override: true ensures .env wins over stale Windows/shell SMTP_* variables
+  dotenv.config({ path: ENV_FILE_PATH, override: true });
+  return exists;
+}
+
+function buildSmtpRuntime() {
+  const smtpPort = parseInt(readEnv('SMTP_PORT') || '465', 10);
+  const smtpSecureEnv = readEnv('SMTP_SECURE');
+  const smtpSecure =
+    smtpSecureEnv === 'true' ? true : smtpSecureEnv === 'false' ? false : smtpPort === 465;
+
+  const authUser = readEnv('SMTP_USER');
+  const authPass = readEnv('SMTP_PASSWORD');
+
+  return {
+    smtp: {
+      host: readEnv('SMTP_HOST') || 'smtp.hostinger.com',
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: { user: authUser, pass: authPass },
+    },
+    fromEmail: readEnv('FROM_EMAIL') || authUser,
+    fromName: readEnv('FROM_NAME') || 'Sympos-ia Committee',
+  };
+}
+
+let smtpRuntime = (() => {
+  loadEnvFile();
+  return buildSmtpRuntime();
+})();
+
+function reloadSmtpRuntime() {
+  loadEnvFile();
+  smtpRuntime = buildSmtpRuntime();
+  transporter = null;
+  return smtpRuntime;
+}
+
+function logEnvSummary() {
+  console.log('📋 SMTP config source: .env only (NOT .env.example)');
+  console.log('   File:', ENV_FILE_PATH);
+  console.log('   SMTP_HOST:', smtpRuntime.smtp.host);
+  console.log('   SMTP_PORT:', smtpRuntime.smtp.port);
+  console.log('   SMTP_USER:', smtpRuntime.smtp.auth.user || 'NOT SET');
+  console.log('   SMTP_PASSWORD:', smtpRuntime.smtp.auth.pass ? '***SET***' : 'NOT SET');
+  console.log('   FROM_EMAIL:', smtpRuntime.fromEmail || 'NOT SET');
+}
+
+logEnvSummary();
 
 const app = express();
-const PORT = process.env.EMAIL_SERVER_PORT || 3001;
+const PORT = readEnv('EMAIL_SERVER_PORT') || 3001;
 
 // Middleware
 app.use(cors({
@@ -44,49 +102,80 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// SMTP Configuration from environment variables
-const SMTP_CONFIG = {
-  host: process.env.SMTP_HOST || 'smtp.hostinger.com',
-  port: parseInt(process.env.SMTP_PORT || '465'),
-  secure: true, // true for 465, false for other ports
-  auth: {
-    user: process.env.SMTP_USER || '',
-    pass: process.env.SMTP_PASSWORD || ''
-  }
-};
+function printHostingerSmtpHelp() {
+  console.error(`
+⚠️  Hostinger SMTP authentication failed (EAUTH)
 
-const FROM_EMAIL = process.env.FROM_EMAIL || SMTP_CONFIG.auth.user;
-const FROM_NAME = process.env.FROM_NAME || 'Sympos-ia Committee';
+Where to check (in order):
+
+1) Hostinger hPanel → Emails → mailbox (e.g. admin@symposai.pro)
+   - Confirm the mailbox exists and is active
+   - Use "Reset password" and set the mailbox password (not hPanel login password)
+   - Open "Configuration" / "Connect apps" and confirm SMTP is enabled
+
+2) Project .env only (NOT .env.example) at:
+   ${ENV_FILE_PATH}
+   - SMTP_USER = full address
+   - SMTP_PASSWORD = mailbox password in DOUBLE QUOTES if it contains @ # or spaces
+   - Restart after changes: npm run email-server
+
+3) Try alternate Hostinger port (in .env):
+   - SSL:  SMTP_PORT=465  SMTP_SECURE=true
+   - TLS:  SMTP_PORT=587  SMTP_SECURE=false
+
+4) Log in to webmail (https://webmail.hostinger.com) with the same email + password.
+
+See HOSTINGER_SMTP_SETUP.md in the project for full steps.
+`);
+}
 
 // Create reusable transporter
 let transporter = null;
 
 function createTransporter() {
-  if (!SMTP_CONFIG.auth.user || !SMTP_CONFIG.auth.pass) {
-    throw new Error('SMTP credentials not configured. Please set SMTP_USER and SMTP_PASSWORD environment variables.');
+  const { smtp } = smtpRuntime;
+  if (!smtp.auth.user || !smtp.auth.pass) {
+    throw new Error('SMTP credentials not configured. Please set SMTP_USER and SMTP_PASSWORD in .env');
   }
 
-  return nodemailer.createTransport({
-    host: SMTP_CONFIG.host,
-    port: SMTP_CONFIG.port,
-    secure: SMTP_CONFIG.port === 465, // true for 465, false for other ports
+  const transportOptions = {
+    host: smtp.host,
+    port: smtp.port,
+    secure: smtp.secure,
     auth: {
-      user: SMTP_CONFIG.auth.user,
-      pass: SMTP_CONFIG.auth.pass
+      user: smtp.auth.user,
+      pass: smtp.auth.pass,
     },
-    // Additional options for better compatibility
     tls: {
-      rejectUnauthorized: false // Some SMTP servers require this
-    }
-  });
+      minVersion: 'TLSv1.2',
+    },
+  };
+
+  if (smtp.port === 587 && !smtp.secure) {
+    transportOptions.requireTLS = true;
+  }
+
+  return nodemailer.createTransport(transportOptions);
+}
+
+async function verifySmtpConnection() {
+  const testTransporter = createTransporter();
+  await testTransporter.verify();
+  testTransporter.close();
 }
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     service: 'email-api',
-    smtpConfigured: !!(SMTP_CONFIG.auth.user && SMTP_CONFIG.auth.pass)
+    envSource: '.env',
+    envFile: ENV_FILE_PATH,
+    envFileExists: existsSync(ENV_FILE_PATH),
+    smtpUser: smtpRuntime.smtp.auth.user || null,
+    smtpHost: smtpRuntime.smtp.host,
+    smtpPort: smtpRuntime.smtp.port,
+    smtpConfigured: !!(smtpRuntime.smtp.auth.user && smtpRuntime.smtp.auth.pass),
   });
 });
 
@@ -136,16 +225,14 @@ app.post('/api/send-email', async (req, res) => {
 
     // Prepare email options
     const mailOptions = {
-      from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+      from: `"${smtpRuntime.fromName}" <${smtpRuntime.fromEmail}>`,
       to: to,
       subject: subject,
       html: html,
-      // Optional: Add text version
-      text: html.replace(/<[^>]*>/g, '').replace(/\n\s*\n/g, '\n')
+      text: html.replace(/<[^>]*>/g, '').replace(/\n\s*\n/g, '\n'),
     };
 
-    // Send email
-    console.log(`Sending email to ${to}...`);
+    console.log(`Sending email to ${to} via ${smtpRuntime.smtp.auth.user}...`);
     const info = await transporter.sendMail(mailOptions);
 
     console.log('Email sent successfully:', {
@@ -166,9 +253,15 @@ app.post('/api/send-email', async (req, res) => {
 
     // Handle specific error types
     if (error.code === 'EAUTH') {
+      transporter = null;
+      reloadSmtpRuntime();
+      logEnvSummary();
       return res.status(401).json({
         error: 'SMTP Authentication failed',
-        message: 'Invalid SMTP credentials. Please check your SMTP_USER and SMTP_PASSWORD.'
+        message:
+          `Invalid SMTP credentials for ${smtpRuntime.smtp.auth.user || '(not set)'}. ` +
+          'Edit .env (not .env.example), then stop and restart: npm run email-server. ' +
+          `Check http://localhost:${PORT}/health shows the correct smtpUser.`,
       });
     }
 
@@ -220,7 +313,7 @@ app.post('/api/send-emails', async (req, res) => {
         }
 
         const mailOptions = {
-          from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+          from: `"${smtpRuntime.fromName}" <${smtpRuntime.fromEmail}>`,
           to: to,
           subject: subject,
           html: html,
@@ -258,24 +351,23 @@ app.post('/api/send-emails', async (req, res) => {
   }
 });
 
+registerParticipantAccountRoutes(app, { readEnv });
+registerSuperAdminAccountRoutes(app, { readEnv });
+registerOrganizerProOrderRoutes(app, { readEnv });
+
 // Start server
 app.listen(PORT, () => {
   console.log(`\n📧 Email API Server running on http://localhost:${PORT}`);
   console.log(`   Health check: http://localhost:${PORT}/health`);
-  console.log(`\n📧 SMTP Configuration:`);
-  console.log(`   Host: ${SMTP_CONFIG.host}`);
-  console.log(`   Port: ${SMTP_CONFIG.port}`);
-  console.log(`   User: ${SMTP_CONFIG.auth.user ? `${SMTP_CONFIG.auth.user.substring(0, 10)}...` : 'NOT SET'}`);
-  console.log(`   Password: ${SMTP_CONFIG.auth.pass ? '***SET***' : 'NOT SET'}`);
-  console.log(`   From Email: ${FROM_EMAIL}`);
-  console.log(`   From Name: ${FROM_NAME}`);
-  
-  if (!SMTP_CONFIG.auth.user || !SMTP_CONFIG.auth.pass) {
-    console.warn('\n⚠️  WARNING: SMTP credentials not configured!');
-    console.warn('   Please check your .env file in the project root.');
-    console.warn('   Required variables: SMTP_USER, SMTP_PASSWORD');
+  if (!smtpRuntime.smtp.auth.user || !smtpRuntime.smtp.auth.pass) {
+    console.warn('\n⚠️  WARNING: SMTP credentials not configured in .env!');
   } else {
-    console.log('\n✅ SMTP credentials configured successfully!');
+    verifySmtpConnection()
+      .then(() => console.log('\n✅ SMTP login verified with Hostinger.'))
+      .catch((err) => {
+        console.error('\n❌ SMTP login failed:', err.message);
+        printHostingerSmtpHelp();
+      });
   }
   console.log('');
 });

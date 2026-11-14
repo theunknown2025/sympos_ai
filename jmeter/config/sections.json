@@ -1,0 +1,101 @@
+{
+  "defaults": {
+    "baseProtocol": "http",
+    "baseHost": "localhost",
+    "basePort": "3000",
+    "threads": 5,
+    "rampUpSeconds": 10,
+    "loops": 2
+  },
+  "sections": [
+    {
+      "id": "public",
+      "order": 1,
+      "planFile": "01-public-pages.jmx",
+      "name": "Public pages",
+      "description": "Landing, login, and registration routes (unauthenticated shell).",
+      "paths": ["/", "/login", "/register"]
+    },
+    {
+      "id": "auth",
+      "order": 2,
+      "planFile": "02-auth-shell.jmx",
+      "name": "Auth shell",
+      "description": "Auth-related entry points and session bootstrap pages.",
+      "paths": ["/login", "/register", "/"]
+    },
+    {
+      "id": "organizer",
+      "order": 3,
+      "planFile": "03-organizer-routes.jmx",
+      "name": "Organizer workspace",
+      "description": "Organizer dashboard, events, submissions, registrations, and tools.",
+      "paths": [
+        "/dashboard",
+        "/organizer/workspace",
+        "/event-management",
+        "/submissions",
+        "/submissions/dashboard",
+        "/registrations",
+        "/registrations/list",
+        "/checkin",
+        "/landing-pages",
+        "/forms",
+        "/certificates",
+        "/entity-profile",
+        "/opportunities/dashboard",
+        "/opportunities/manage"
+      ]
+    },
+    {
+      "id": "participant",
+      "order": 4,
+      "planFile": "04-participant-jury.jmx",
+      "name": "Participant / jury",
+      "description": "Jury dashboard, events, submissions, reviews, and participant tools.",
+      "paths": [
+        "/jury/dashboard",
+        "/jury/profile",
+        "/jury/events",
+        "/jury/submissions",
+        "/jury/reviews",
+        "/jury/invitations",
+        "/jury/registrations",
+        "/jury/opportunities",
+        "/jury/tools",
+        "/jury/academy"
+      ]
+    },
+    {
+      "id": "superadmin",
+      "order": 5,
+      "planFile": "05-superadmin-portal.jmx",
+      "name": "Super admin portal",
+      "description": "Super admin dashboard, profile, accounts, performance, and subscriptions.",
+      "paths": [
+        "/superadmin",
+        "/superadmin/profile",
+        "/superadmin/accounts",
+        "/superadmin/performance",
+        "/superadmin/subscriptions"
+      ]
+    },
+    {
+      "id": "tools",
+      "order": 6,
+      "planFile": "06-tools-academy.jmx",
+      "name": "Tools & academy",
+      "description": "Academy LMS, files, emailer, blogs, presenter, and payment management.",
+      "paths": [
+        "/academy-lms",
+        "/academy-lms/courses",
+        "/files-manager",
+        "/emailer",
+        "/blogs",
+        "/presenter",
+        "/paiement-management",
+        "/project-management"
+      ]
+    }
+  ]
+}

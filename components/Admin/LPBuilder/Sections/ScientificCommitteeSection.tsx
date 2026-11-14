@@ -1,283 +1,396 @@
-import React from 'react';
-import { CommitteeMember } from '../../../../types';
-import { User, Linkedin, Twitter, Globe, Award, Crown } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Award,
+  Crown,
+  Eye,
+  GraduationCap,
+  Linkedin,
+  Mail,
+  ExternalLink,
+  User,
+} from 'lucide-react';
+import type { ScientificCommitteeConfig, ScientificCommitteePerson } from '../../../../types';
 import { isArabic } from '../../../../utils/languageDetection';
 import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
+import { resolveEventTopicIcon } from '../shared/eventTopicIcons';
+import CommitteeBioModal, { type CommitteeBioModalContext } from '../shared/CommitteeBioModal';
+import { committeeHasContent, normalizePersonLinkUrl } from '../../../../utils/scientificCommitteeUtils';
 
 interface ScientificCommitteeSectionProps {
-  members: CommitteeMember[];
+  scientificCommittee: ScientificCommitteeConfig;
   title?: string;
   titleAlignment?: 'left' | 'center' | 'right';
 }
 
-function inferMainFieldName(members: CommitteeMember[]): string {
-  const president = members.find((m) => m.landingTier === 'president');
-  if (president?.subcommitteeName) return president.subcommitteeName;
-  const firstSubChairIdx = members.findIndex((m) => m.landingTier === 'subcommittee_chair');
-  const before = firstSubChairIdx === -1 ? members : members.slice(0, firstSubChairIdx);
-  const firstMain = before.find((m) => m.landingTier === 'member' && m.subcommitteeName);
-  return firstMain?.subcommitteeName ?? '';
-}
+type CommitteeTab = { id: string; label: string; kind: 'event-chair' | 'sub'; subId?: string };
 
-function buildStructuredView(members: CommitteeMember[]) {
-  const mainName = inferMainFieldName(members);
-  const president = members.find((m) => m.landingTier === 'president');
-  const mainMembers: CommitteeMember[] = [];
-  const subSections: { fieldName: string; chair: CommitteeMember; members: CommitteeMember[] }[] = [];
+const PersonLinksRow: React.FC<{ person: ScientificCommitteePerson; emptyLabel: string }> = ({
+  person,
+  emptyLabel,
+}) => {
+  const { t } = useAdminTranslation('pageBuilder');
+  const linkedin = person.linkedin?.trim() ? normalizePersonLinkUrl(person.linkedin) : '';
+  const email = person.email?.trim() || '';
+  const hasLinks = email || linkedin || person.links.some((l) => l.url?.trim());
 
-  for (const m of members) {
-    if (!m.landingTier) continue;
-    if (m.landingTier === 'president') continue;
-    if (m.landingTier === 'member' && m.subcommitteeName === mainName) {
-      mainMembers.push(m);
-      continue;
-    }
-    if (m.landingTier === 'subcommittee_chair') {
-      subSections.push({
-        fieldName: m.subcommitteeName || '',
-        chair: m,
-        members: [],
-      });
-      continue;
-    }
-    if (m.landingTier === 'member' && m.subcommitteeName !== mainName) {
-      const last = subSections[subSections.length - 1];
-      if (last && m.subcommitteeName === last.fieldName) {
-        last.members.push(m);
-      }
-    }
+  if (!hasLinks) {
+    return <span className="text-[10px] text-slate-300 italic">{emptyLabel}</span>;
   }
 
-  return { president, mainMembers, mainFieldLabel: mainName, subSections };
-}
+  return (
+    <div className="flex flex-wrap gap-2 justify-center">
+      {email ? (
+        <a
+          href={`mailto:${email}`}
+          className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
+          title={email}
+        >
+          <Mail size={16} />
+        </a>
+      ) : null}
+      {linkedin ? (
+        <a
+          href={linkedin}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
+          title="LinkedIn"
+        >
+          <Linkedin size={16} />
+        </a>
+      ) : null}
+      {person.links.map((link) => {
+        const url = normalizePersonLinkUrl(link.url);
+        if (!url) return null;
+        const title =
+          link.type === 'orcid'
+            ? 'ORCID'
+            : link.type === 'google_scholar'
+              ? 'Google Scholar'
+              : link.label?.trim() || t('edSecCommitteeLinkOther');
+        const Icon = link.type === 'google_scholar' ? GraduationCap : ExternalLink;
+        return (
+          <a
+            key={link.id}
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
+            title={title}
+          >
+            <Icon size={16} />
+          </a>
+        );
+      })}
+    </div>
+  );
+};
 
-const CommitteeSocials: React.FC<{ member: CommitteeMember; emptyLabel: string }> = ({
-  member,
-  emptyLabel,
-}) => (
-  <div className="flex gap-2 mt-auto pt-4 border-t border-slate-50 w-full justify-center opacity-70 hover:opacity-100 transition-opacity">
-    {member.socials.map((social) => (
-      <a
-        key={social.id}
-        href={social.url}
-        className="text-slate-400 hover:text-indigo-600 transition-colors"
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {social.platform === 'linkedin' && <Linkedin size={16} />}
-        {social.platform === 'twitter' && <Twitter size={16} />}
-        {social.platform === 'website' && <Globe size={16} />}
-      </a>
-    ))}
-    {member.socials.length === 0 && <span className="text-[10px] text-slate-300 italic">{emptyLabel}</span>}
-  </div>
-);
+const PersonCard: React.FC<{
+  person: ScientificCommitteePerson;
+  badge?: React.ReactNode;
+  featured?: boolean;
+  onViewBio: () => void;
+  viewBioLabel: string;
+  emptyLabel: string;
+}> = ({ person, badge, featured, onViewBio, viewBioLabel, emptyLabel }) => (
+  <article
+    className={`relative flex flex-col items-center text-center group rounded-xl border shadow-sm hover:shadow-md transition-all duration-300 ${
+      featured
+        ? 'bg-gradient-to-br from-indigo-50/90 via-white to-slate-50 p-8 border-indigo-100'
+        : 'bg-white p-5 border-slate-200'
+    }`}
+  >
+    <button
+      type="button"
+      onClick={onViewBio}
+      className="absolute top-3 right-3 p-2 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 transition-colors z-10"
+      aria-label={viewBioLabel}
+    >
+      <Eye size={18} />
+    </button>
 
-const MemberCard: React.FC<{ member: CommitteeMember; emptyLabel: string }> = ({ member, emptyLabel }) => (
-  <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 flex flex-col items-center text-center group">
-    <div className="w-20 h-20 rounded-full overflow-hidden mb-4 border-2 border-slate-100 group-hover:border-indigo-100 transition-colors">
-      {member.imageUrl ? (
-        <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
+    <div
+      className={`rounded-full overflow-hidden mb-4 border-2 group-hover:border-indigo-100 transition-colors ${
+        featured ? 'w-32 h-32 border-white shadow-lg ring-2 ring-indigo-100' : 'w-20 h-20 border-slate-100'
+      }`}
+    >
+      {person.imageUrl ? (
+        <img src={person.imageUrl} alt={person.name} className="w-full h-full object-cover" />
       ) : (
-        <div className="w-full h-full bg-slate-50 flex items-center justify-center text-slate-300">
-          <User size={32} />
+        <div className={`w-full h-full flex items-center justify-center ${featured ? 'bg-indigo-50 text-indigo-200' : 'bg-slate-50 text-slate-300'}`}>
+          <User size={featured ? 48 : 32} />
         </div>
       )}
     </div>
-    <h3 className="text-lg font-bold text-slate-900 leading-tight mb-1">{member.name}</h3>
-    <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">{member.role}</span>
-    <p className="text-sm text-slate-500 font-medium mb-3">{member.affiliation}</p>
-    <CommitteeSocials member={member} emptyLabel={emptyLabel} />
-  </div>
-);
 
-const SubCommitteeChairCard: React.FC<{ member: CommitteeMember; emptyLabel: string }> = ({
-  member,
-  emptyLabel,
-}) => (
-  <div className="bg-gradient-to-br from-amber-50/90 to-white rounded-xl p-6 border-2 border-amber-200 shadow-sm flex flex-col items-center text-center shrink-0 w-full lg:w-72">
-    <div className="w-28 h-28 rounded-full overflow-hidden mb-4 border-2 border-amber-200">
-      {member.imageUrl ? (
-        <img src={member.imageUrl} alt={member.name} className="w-full h-full object-cover" />
-      ) : (
-        <div className="w-full h-full bg-amber-50 flex items-center justify-center text-amber-300">
-          <User size={40} />
-        </div>
-      )}
+    {badge}
+    <h3 className={`font-bold text-slate-900 leading-tight mb-1 ${featured ? 'text-2xl md:text-3xl' : 'text-lg'}`}>
+      {person.name}
+    </h3>
+    {person.role ? (
+      <span className="text-xs font-semibold text-indigo-600 uppercase tracking-wide mb-2">{person.role}</span>
+    ) : null}
+    {person.establishment ? (
+      <p className={`text-slate-500 font-medium mb-3 ${featured ? 'text-base' : 'text-sm'}`}>
+        {person.establishment}
+      </p>
+    ) : null}
+    {person.bio?.trim() ? (
+      <p className="text-sm text-slate-600 line-clamp-3 mb-3 max-w-md">{person.bio}</p>
+    ) : null}
+    <div className="mt-auto pt-4 border-t border-slate-50 w-full">
+      <PersonLinksRow person={person} emptyLabel={emptyLabel} />
     </div>
-    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[10px] font-semibold uppercase tracking-wide mb-2">
-      <Crown size={14} className="text-amber-700" />
-      {member.role}
-    </div>
-    <h3 className="text-xl font-bold text-slate-900 leading-tight mb-1">{member.name}</h3>
-    <p className="text-sm text-slate-600 font-medium mb-2">{member.affiliation}</p>
-    <CommitteeSocials member={member} emptyLabel={emptyLabel} />
-  </div>
+  </article>
 );
 
 const ScientificCommitteeSection: React.FC<ScientificCommitteeSectionProps> = ({
-  members,
+  scientificCommittee,
   title = 'Scientific Committee',
   titleAlignment = 'center',
 }) => {
   const { t } = useAdminTranslation('pageBuilder');
-  const titleAlignClass = titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
+  const [activeTabId, setActiveTabId] = useState<string>('event-chair');
+  const [bioPerson, setBioPerson] = useState<{
+    person: ScientificCommitteePerson;
+    context: CommitteeBioModalContext;
+  } | null>(null);
+
+  const titleAlignClass =
+    titleAlignment === 'left' ? 'text-left' : titleAlignment === 'right' ? 'text-right' : 'text-center';
   const containerAlignClass =
     titleAlignment === 'left' ? 'items-start' : titleAlignment === 'right' ? 'items-end' : 'items-center';
   const isTitleArabic = isArabic(title);
 
-  const structuredMode = members.some((m) => m.landingTier);
-  const untiered = members.filter((m) => !m.landingTier);
-  const view = buildStructuredView(members);
+  const tabs: CommitteeTab[] = useMemo(() => {
+    const list: CommitteeTab[] = [];
+    if (scientificCommittee.eventChair?.name?.trim()) {
+      list.push({
+        id: 'event-chair',
+        label: t('edSecCommitteeTabEventChair'),
+        kind: 'event-chair',
+      });
+    }
+    for (const sub of scientificCommittee.subCommittees) {
+      if (!sub.name.trim() && !sub.chair.name.trim() && !sub.members.some((m) => m.name.trim())) continue;
+      list.push({
+        id: sub.id,
+        label: sub.name.trim() || t('edCommitteeNewSubDefault'),
+        kind: 'sub',
+        subId: sub.id,
+      });
+    }
+    return list;
+  }, [scientificCommittee, t]);
 
-  const classicGrid = (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      {members.map((member) => (
-        <MemberCard key={member.id} member={member} emptyLabel={t('edSecCommitteeNoLinks')} />
-      ))}
-    </div>
-  );
+  useEffect(() => {
+    if (tabs.length === 0) return;
+    if (!tabs.some((tab) => tab.id === activeTabId)) {
+      setActiveTabId(tabs[0].id);
+    }
+  }, [tabs, activeTabId]);
 
-  const structuredLayout = (
-    <div className="space-y-16">
-      {view.president && (
-        <div className="rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/90 via-white to-slate-50/80 p-8 md:p-10 shadow-sm">
-          <div className="flex flex-col md:flex-row gap-8 md:gap-12 items-center text-center md:text-left">
-            <div className="shrink-0">
-              <div className="w-40 h-40 rounded-full overflow-hidden border-4 border-white shadow-lg ring-2 ring-indigo-100">
-                {view.president.imageUrl ? (
-                  <img
-                    src={view.president.imageUrl}
-                    alt={view.president.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-indigo-50 flex items-center justify-center text-indigo-200">
-                    <User size={56} />
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex-1 min-w-0 space-y-3">
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-100 text-indigo-900 text-xs font-bold uppercase tracking-wide">
-                <Crown size={16} className="text-indigo-700" />
-                {view.president.role}
-              </div>
-              <h3 className="text-3xl md:text-4xl font-bold text-slate-900 leading-tight">{view.president.name}</h3>
-              <p className="text-sm md:text-base text-slate-600 max-w-xl">{t('edSecCommitteePresidentIntro')}</p>
-              {view.president.affiliation ? (
-                <p className="text-base text-slate-700 font-medium">{view.president.affiliation}</p>
-              ) : null}
-              <div className="flex gap-3 pt-2 justify-center md:justify-start flex-wrap">
-                {view.president.socials.map((social) => (
-                  <a
-                    key={social.id}
-                    href={social.url}
-                    className="text-slate-500 hover:text-indigo-600 transition-colors p-1"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {social.platform === 'linkedin' && <Linkedin size={22} />}
-                    {social.platform === 'twitter' && <Twitter size={22} />}
-                    {social.platform === 'website' && <Globe size={22} />}
-                  </a>
-                ))}
-                {view.president.socials.length === 0 && (
-                  <span className="text-xs text-slate-400 italic">{t('edSecCommitteeNoLinks')}</span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+  useEffect(() => {
+    if (!bioPerson) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setBioPerson(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [bioPerson]);
 
-      {view.mainMembers.length > 0 && (
-        <div>
-          <div className="mb-8 text-center md:text-left">
-            <h3 className="text-2xl font-bold text-slate-900">{t('edSecCommitteeMainHeading')}</h3>
-            {view.mainFieldLabel ? (
-              <p className="text-slate-500 mt-1 text-sm md:text-base">{view.mainFieldLabel}</p>
-            ) : null}
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {view.mainMembers.map((member) => (
-              <MemberCard key={member.id} member={member} emptyLabel={t('edSecCommitteeNoLinks')} />
-            ))}
-          </div>
-        </div>
-      )}
+  const hasContent = committeeHasContent(scientificCommittee);
+  const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+  const activeSub =
+    activeTab?.kind === 'sub'
+      ? scientificCommittee.subCommittees.find((s) => s.id === activeTab.subId)
+      : undefined;
 
-      {view.subSections.map((sub) => (
-        <div key={sub.fieldName || sub.chair.id} className="border-t border-slate-100 pt-12">
-          <div className="mb-8">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">
-              {t('edSecCommitteeSubCommitteeHeading')}
-            </p>
-            <h3 className="text-2xl font-bold text-slate-900">{sub.fieldName}</h3>
-          </div>
-          <div className="flex flex-col lg:flex-row gap-8 lg:gap-10 items-start">
-            <SubCommitteeChairCard member={sub.chair} emptyLabel={t('edSecCommitteeNoLinks')} />
-            <div className="flex-1 w-full min-w-0">
-              {sub.members.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {sub.members.map((member) => (
-                    <MemberCard key={member.id} member={member} emptyLabel={t('edSecCommitteeNoLinks')} />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400 italic py-6">{t('edSecCommitteeEmpty')}</p>
-              )}
-            </div>
-          </div>
-        </div>
-      ))}
-
-      {untiered.length > 0 && (
-        <div className="border-t border-slate-100 pt-12">
-          <h3 className="text-xl font-bold text-slate-900 mb-8">{t('edSecCommitteeAdditionalHeading')}</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {untiered.map((member) => (
-              <MemberCard key={member.id} member={member} emptyLabel={t('edSecCommitteeNoLinks')} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  const viewBioLabel = (name: string) => t('edSecCommitteeViewBio', { name: name || t('edSecCommitteeUnnamed') });
 
   return (
-    <div className="py-24 px-8 bg-white border-t border-slate-100">
-      <div className="max-w-6xl mx-auto">
-        <div className={`flex flex-col ${containerAlignClass} mb-16`}>
-          <h2
-            className={`text-4xl font-bold text-slate-900 mb-4 ${titleAlignClass} flex items-center gap-3 ${isTitleArabic ? 'flex-row-reverse' : ''}`}
-          >
-            {isTitleArabic ? (
-              <>
-                <span>{title}</span>
-                <Award size={32} className="text-indigo-600" />
-              </>
-            ) : (
-              <>
-                <Award size={32} className="text-indigo-600" />
-                <span>{title}</span>
-              </>
-            )}
-          </h2>
-          <p className="text-slate-500 max-w-2xl mx-auto">{t('edSecCommitteeIntro')}</p>
-        </div>
-
-        {members.length > 0 ? (
-          structuredMode ? structuredLayout : classicGrid
-        ) : (
-          <div className="h-48 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 bg-slate-50">
-            <Award size={48} className="mb-4 opacity-50" />
-            <p className="font-medium">{t('edSecCommitteeEmpty')}</p>
-            <p className="text-sm mt-1">{t('edSecCommitteeEmptyHint')}</p>
+    <>
+      <div className="py-24 px-8 bg-white border-t border-slate-100">
+        <div className="max-w-6xl mx-auto">
+          <div className={`flex flex-col ${containerAlignClass} mb-12`}>
+            <h2
+              className={`text-4xl font-bold text-slate-900 mb-4 ${titleAlignClass} flex items-center gap-3 ${
+                isTitleArabic ? 'flex-row-reverse' : ''
+              }`}
+            >
+              {isTitleArabic ? (
+                <>
+                  <span>{title}</span>
+                  <Award size={32} className="text-indigo-600" />
+                </>
+              ) : (
+                <>
+                  <Award size={32} className="text-indigo-600" />
+                  <span>{title}</span>
+                </>
+              )}
+            </h2>
+            <p className="text-slate-500 max-w-2xl mx-auto">{t('edSecCommitteeIntro')}</p>
           </div>
-        )}
+
+          {!hasContent ? (
+            <div className="h-48 rounded-xl border-2 border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400 bg-slate-50">
+              <Award size={48} className="mb-4 opacity-50" />
+              <p className="font-medium">{t('edSecCommitteeEmpty')}</p>
+              <p className="text-sm mt-1">{t('edSecCommitteeEmptyHint')}</p>
+            </div>
+          ) : (
+            <>
+              {tabs.length > 1 && (
+                <div
+                  className="flex flex-wrap gap-2 justify-center mb-10 border-b border-slate-100 pb-1"
+                  role="tablist"
+                  aria-label={t('edSecCommitteeTabsAria')}
+                >
+                  {tabs.map((tab) => {
+                    const isActive = tab.id === activeTabId;
+                    const SubIcon =
+                      tab.kind === 'sub'
+                        ? resolveEventTopicIcon(
+                            scientificCommittee.subCommittees.find((s) => s.id === tab.subId)?.icon
+                          )
+                        : Crown;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        onClick={() => setActiveTabId(tab.id)}
+                        className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg border-b-2 transition-colors -mb-px ${
+                          isActive
+                            ? 'border-indigo-600 text-indigo-700 bg-indigo-50/50'
+                            : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                        }`}
+                      >
+                        <SubIcon size={16} className="shrink-0" />
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div role="tabpanel">
+                {activeTab?.kind === 'event-chair' && scientificCommittee.eventChair ? (
+                  <div className="max-w-2xl mx-auto">
+                    <PersonCard
+                      person={scientificCommittee.eventChair}
+                      featured
+                      onViewBio={() =>
+                        setBioPerson({
+                          person: scientificCommittee.eventChair!,
+                          context: {
+                            committeeName: t('edSecCommitteeTabEventChair'),
+                            isEventChair: true,
+                            memberRoleTitle:
+                              scientificCommittee.eventChair!.role || t('edSecCommitteeTabEventChair'),
+                          },
+                        })
+                      }
+                      viewBioLabel={viewBioLabel(scientificCommittee.eventChair.name)}
+                      emptyLabel={t('edSecCommitteeNoLinks')}
+                      badge={
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-100 text-indigo-900 text-[10px] font-bold uppercase tracking-wide mb-3">
+                          <Crown size={14} className="text-indigo-700" />
+                          {t('edSecCommitteeTabEventChair')}
+                        </div>
+                      }
+                    />
+                  </div>
+                ) : null}
+
+                {activeTab?.kind === 'sub' && activeSub ? (
+                  <div className="space-y-10">
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+                        {React.createElement(resolveEventTopicIcon(activeSub.icon), { size: 24 })}
+                      </div>
+                      <h3 className="text-2xl font-bold text-slate-900">{activeSub.name}</h3>
+                    </div>
+
+                    {activeSub.chair.name.trim() ? (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-4 text-center">
+                          {t('edCommitteeSubChair')}
+                        </p>
+                        <div className="max-w-sm mx-auto">
+                          <PersonCard
+                            person={activeSub.chair}
+                            onViewBio={() =>
+                              setBioPerson({
+                                person: activeSub.chair,
+                                context: {
+                                  committeeName: activeSub.name,
+                                  committeeIcon: activeSub.icon,
+                                  memberRoleTitle: t('edCommitteeSubChair'),
+                                },
+                              })
+                            }
+                            viewBioLabel={viewBioLabel(activeSub.chair.name)}
+                            emptyLabel={t('edSecCommitteeNoLinks')}
+                            badge={
+                              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 text-[10px] font-semibold uppercase tracking-wide mb-2">
+                                <Crown size={12} className="text-amber-700" />
+                                {t('edCommitteeSubChair')}
+                              </div>
+                            }
+                          />
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {activeSub.members.length > 0 ? (
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-6 text-center">
+                          {t('edCommitteeSubMembers')}
+                        </p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                          {activeSub.members.map((member) => (
+                            <PersonCard
+                              key={member.id}
+                              person={member}
+                              onViewBio={() =>
+                                setBioPerson({
+                                  person: member,
+                                  context: {
+                                    committeeName: activeSub.name,
+                                    committeeIcon: activeSub.icon,
+                                    memberRoleTitle: member.role || t('edCommitteeSubMemberLabel'),
+                                  },
+                                })
+                              }
+                              viewBioLabel={viewBioLabel(member.name)}
+                              emptyLabel={t('edSecCommitteeNoLinks')}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    ) : !activeSub.chair.name.trim() ? (
+                      <p className="text-sm text-slate-400 italic text-center py-6">{t('edSecCommitteeEmpty')}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    </div>
+
+      {bioPerson ? (
+        <CommitteeBioModal
+          person={bioPerson.person}
+          context={bioPerson.context}
+          onClose={() => setBioPerson(null)}
+        />
+      ) : null}
+    </>
   );
 };
 

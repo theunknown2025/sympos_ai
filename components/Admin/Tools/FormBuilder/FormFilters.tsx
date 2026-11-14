@@ -3,7 +3,7 @@ import { Search, Filter, ChevronDown, ChevronUp, X, Calendar } from 'lucide-reac
 
 export interface FormFilters {
   name: string;
-  type: 'all' | 'registration' | 'submission' | 'evaluation' | 'other';
+  type: 'all' | 'registration' | 'submission' | 'evaluation' | 'payment' | 'other';
   dateType: 'created' | 'updated';
   dateFrom: string;
   dateTo: string;
@@ -88,6 +88,7 @@ const FormFiltersComponent: React.FC<FormFiltersProps> = ({
             <option value="registration">Registration</option>
             <option value="submission">Submission</option>
             <option value="evaluation">Evaluation</option>
+            <option value="payment">Payment</option>
             <option value="other">Other</option>
           </select>
         </div>

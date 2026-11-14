@@ -1,179 +1,40 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CommitteeMember, Committee, ReviewCommitteeMember, SocialLink } from '../../../../types';
-import { Plus, Trash2, ImageIcon, User, ChevronUp, ChevronDown, Users, Loader2 } from 'lucide-react';
+import type { Committee, ReviewCommitteeMember, ScientificCommitteeConfig, ScientificSubCommittee } from '../../../../types';
+import {
+  Plus,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  Users,
+  Loader2,
+  Crown,
+  Layers,
+} from 'lucide-react';
 import { useAdminTranslation } from '../../../../i18n/admin/hooks/useAdminTranslation';
 import { useAuth } from '../../../../hooks/useAuth';
 import { getCommittees } from '../../../../services/committeeService';
 import { getCommitteeMembers } from '../../../../services/committeeMemberService';
+import CommitteePersonFields from '../shared/CommitteePersonFields';
+import {
+  EVENT_TOPIC_ICON_OPTIONS,
+  resolveEventTopicIcon,
+} from '../shared/eventTopicIcons';
+import {
+  buildScientificCommitteeFromSaved,
+  createEmptyPerson,
+  createEmptySubCommittee,
+} from '../../../../utils/scientificCommitteeUtils';
 
 interface CommitteeEditorProps {
-  committee: CommitteeMember[];
-  onChange: (members: CommitteeMember[]) => void;
+  scientificCommittee: ScientificCommitteeConfig;
+  onChange: (config: ScientificCommitteeConfig) => void;
 }
 
-function formatAffiliation(a: ReviewCommitteeMember['affiliation']): string {
-  if (!a || typeof a !== 'object') return '';
-  const bits = [
-    a.position,
-    a.institution || a.university || a.organization,
-    a.department,
-    a.faculty,
-    a.country,
-  ].filter(Boolean);
-  return [...new Set(bits.map(String))].join(' · ');
-}
-
-function identifiersToSocials(rm: ReviewCommitteeMember): SocialLink[] {
-  const out: SocialLink[] = [];
-  const { identifiers } = rm;
-  let n = 0;
-  const push = (platform: SocialLink['platform'], url: string) => {
-    const u = url.trim();
-    if (!u) return;
-    out.push({
-      id: `soc-${rm.id}-${n++}`,
-      platform,
-      url: u.startsWith('http') ? u : `https://${u}`,
-    });
-  };
-  if (identifiers.orcidId) {
-    const u = identifiers.orcidId.trim();
-    push('website', u.includes('/') ? u : `https://orcid.org/${u}`);
-  }
-  if (identifiers.googleScholar) push('website', identifiers.googleScholar);
-  if (identifiers.researchGate) push('website', identifiers.researchGate);
-  for (const link of identifiers.otherLinks || []) {
-    if (link?.trim()) push('website', link);
-  }
-  return out;
-}
-
-function orderedUniqueMemberIds(field: {
-  chairMemberId?: string | null;
-  memberIds: string[];
-}): string[] {
-  const orderedIds: string[] = [];
-  const added = new Set<string>();
-  if (field.chairMemberId) {
-    orderedIds.push(field.chairMemberId);
-    added.add(field.chairMemberId);
-  }
-  for (const mid of field.memberIds) {
-    if (!added.has(mid)) {
-      orderedIds.push(mid);
-      added.add(mid);
-    }
-  }
-  return orderedIds;
-}
-
-function reviewToCommitteeMember(
-  rm: ReviewCommitteeMember,
-  opts: {
-    landingTier: NonNullable<CommitteeMember['landingTier']>;
-    subcommitteeName: string;
-    role: string;
-  }
-): CommitteeMember {
-  const name = [rm.title, rm.firstName, rm.lastName].filter(Boolean).join(' ').trim();
-  return {
-    id: `rcm-${rm.id}`,
-    name,
-    role: opts.role,
-    affiliation: formatAffiliation(rm.affiliation),
-    bio: '',
-    imageUrl: '',
-    socials: identifiersToSocials(rm),
-    landingTier: opts.landingTier,
-    subcommitteeName: opts.subcommitteeName,
-  };
-}
-
-function buildImportedMembers(
-  saved: Committee,
-  membersById: Map<string, ReviewCommitteeMember>,
-  t: (key: string, opts?: Record<string, string | number>) => string
-): CommitteeMember[] {
-  const fields = saved.fieldsOfIntervention;
-  if (fields.length === 0) return [];
-
-  const result: CommitteeMember[] = [];
-  const seen = new Set<string>();
-
-  const mainField = fields[0];
-  const restFields = fields.slice(1);
-
-  // President: chair of the first field (main committee)
-  if (mainField.chairMemberId) {
-    const rm = membersById.get(mainField.chairMemberId);
-    if (rm) {
-      seen.add(mainField.chairMemberId);
-      result.push(
-        reviewToCommitteeMember(rm, {
-          landingTier: 'president',
-          subcommitteeName: mainField.name,
-          role: t('edCommitteePresidentLabel'),
-        })
-      );
-    }
-  }
-
-  for (const memberId of orderedUniqueMemberIds(mainField)) {
-    if (seen.has(memberId)) continue;
-    const rm = membersById.get(memberId);
-    if (!rm) continue;
-    seen.add(memberId);
-    result.push(
-      reviewToCommitteeMember(rm, {
-        landingTier: 'member',
-        subcommitteeName: mainField.name,
-        role: t('edCommitteeImportMainMemberRole', { field: mainField.name }),
-      })
-    );
-  }
-
-  for (const field of restFields) {
-    if (field.chairMemberId && !seen.has(field.chairMemberId)) {
-      const rm = membersById.get(field.chairMemberId);
-      if (rm) {
-        seen.add(field.chairMemberId);
-        result.push(
-          reviewToCommitteeMember(rm, {
-            landingTier: 'subcommittee_chair',
-            subcommitteeName: field.name,
-            role: t('edCommitteeImportSubChairRole', { field: field.name }),
-          })
-        );
-      }
-    }
-    for (const memberId of orderedUniqueMemberIds(field)) {
-      if (seen.has(memberId)) continue;
-      const rm = membersById.get(memberId);
-      if (!rm) continue;
-      seen.add(memberId);
-      result.push(
-        reviewToCommitteeMember(rm, {
-          landingTier: 'member',
-          subcommitteeName: field.name,
-          role: t('edCommitteeImportSubMemberRole', { field: field.name }),
-        })
-      );
-    }
-  }
-
-  return result;
-}
-
-function mergeImported(current: CommitteeMember[], imported: CommitteeMember[]): CommitteeMember[] {
-  const existing = new Set(current.filter((m) => m.id.startsWith('rcm-')).map((m) => m.id));
-  const additions = imported.filter((m) => !existing.has(m.id));
-  return [...current, ...additions];
-}
-
-const CommitteeEditor: React.FC<CommitteeEditorProps> = ({ committee, onChange }) => {
+const CommitteeEditor: React.FC<CommitteeEditorProps> = ({ scientificCommittee, onChange }) => {
   const { t } = useAdminTranslation('pageBuilder');
   const { currentUser } = useAuth();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [expandedSection, setExpandedSection] = useState<string | null>('event-chair');
+  const [expandedSubId, setExpandedSubId] = useState<string | null>(null);
   const [savedCommittees, setSavedCommittees] = useState<Committee[]>([]);
   const [reviewMembersById, setReviewMembersById] = useState<Map<string, ReviewCommitteeMember>>(new Map());
   const [loadingSaved, setLoadingSaved] = useState(false);
@@ -189,8 +50,7 @@ const CommitteeEditor: React.FC<CommitteeEditorProps> = ({ committee, onChange }
         getCommitteeMembers(currentUser.id),
       ]);
       setSavedCommittees(committeesList);
-      const map = new Map<string, ReviewCommitteeMember>();
-      membersList.forEach((m) => map.set(m.id, m));
+      const map = new Map(membersList.map((m) => [m.id, m]));
       setReviewMembersById(map);
     } catch (e) {
       console.error('CommitteeEditor: failed to load saved committees', e);
@@ -214,34 +74,81 @@ const CommitteeEditor: React.FC<CommitteeEditorProps> = ({ committee, onChange }
     return () => document.removeEventListener('mousedown', close);
   }, [dropdownOpen]);
 
-  const addMember = () => {
-    const newMember: CommitteeMember = {
-      id: Date.now().toString(),
-      name: t('edDefaultNewCommitteeMember'),
-      role: t('edDefaultRoleLabel'),
-      affiliation: t('edDefaultAffiliation'),
-      bio: '',
-      imageUrl: '',
-      socials: [],
-    };
-    onChange([...committee, newMember]);
-    setExpandedId(newMember.id);
+  const updateConfig = (patch: Partial<ScientificCommitteeConfig>) => {
+    onChange({ ...scientificCommittee, ...patch });
   };
 
-  const removeMember = (id: string) => {
-    onChange(committee.filter((c) => c.id !== id));
+  const setEventChair = (chair: ScientificCommitteeConfig['eventChair']) => {
+    updateConfig({ eventChair: chair });
   };
 
-  const updateMember = (id: string, field: keyof CommitteeMember, value: any) => {
-    onChange(committee.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
+  const updateSubCommittee = (id: string, patch: Partial<ScientificSubCommittee>) => {
+    updateConfig({
+      subCommittees: scientificCommittee.subCommittees.map((s) =>
+        s.id === id ? { ...s, ...patch } : s
+      ),
+    });
+  };
+
+  const addSubCommittee = () => {
+    const sub = createEmptySubCommittee({ name: t('edCommitteeNewSubDefault') });
+    updateConfig({ subCommittees: [...scientificCommittee.subCommittees, sub] });
+    setExpandedSubId(sub.id);
+  };
+
+  const removeSubCommittee = (id: string) => {
+    updateConfig({
+      subCommittees: scientificCommittee.subCommittees.filter((s) => s.id !== id),
+    });
+    if (expandedSubId === id) setExpandedSubId(null);
+  };
+
+  const addSubMember = (subId: string) => {
+    const sub = scientificCommittee.subCommittees.find((s) => s.id === subId);
+    if (!sub) return;
+    updateSubCommittee(subId, {
+      members: [...sub.members, createEmptyPerson({ name: t('edDefaultNewCommitteeMember') })],
+    });
+  };
+
+  const updateSubMember = (
+    subId: string,
+    memberId: string,
+    person: ScientificSubCommittee['members'][number]
+  ) => {
+    const sub = scientificCommittee.subCommittees.find((s) => s.id === subId);
+    if (!sub) return;
+    updateSubCommittee(subId, {
+      members: sub.members.map((m) => (m.id === memberId ? person : m)),
+    });
+  };
+
+  const removeSubMember = (subId: string, memberId: string) => {
+    const sub = scientificCommittee.subCommittees.find((s) => s.id === subId);
+    if (!sub) return;
+    updateSubCommittee(subId, {
+      members: sub.members.filter((m) => m.id !== memberId),
+    });
   };
 
   const handlePickSavedCommittee = (saved: Committee) => {
-    const imported = buildImportedMembers(saved, reviewMembersById, t);
-    if (imported.length === 0) return;
-    onChange(mergeImported(committee, imported));
+    const imported = buildScientificCommitteeFromSaved(saved, reviewMembersById, {
+      president: t('edCommitteePresidentLabel'),
+      mainMember: (field) => t('edCommitteeImportMainMemberRole', { field }),
+      subChair: (field) => t('edCommitteeImportSubChairRole', { field }),
+      subMember: (field) => t('edCommitteeImportSubMemberRole', { field }),
+    });
+    if (!imported.eventChair && imported.subCommittees.length === 0) return;
+    onChange(imported);
     setDropdownOpen(false);
   };
+
+  const memberCount =
+    (scientificCommittee.eventChair?.name ? 1 : 0) +
+    scientificCommittee.subCommittees.reduce(
+      (acc, s) => acc + (s.chair.name ? 1 : 0) + s.members.length,
+      0
+    );
 
   const hasSavedCommittees = savedCommittees.length > 0;
   const includeDisabled = loadingSaved || !currentUser?.id;
@@ -254,7 +161,7 @@ const CommitteeEditor: React.FC<CommitteeEditorProps> = ({ committee, onChange }
   return (
     <div className="space-y-4">
       <div className="flex justify-between items-center gap-2 flex-wrap">
-        <span className="text-xs text-slate-500">{t('edCommitteeMembersSummary', { count: committee.length })}</span>
+        <span className="text-xs text-slate-500">{t('edCommitteeMembersSummary', { count: memberCount })}</span>
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <div className="relative" ref={dropdownRef}>
             <button
@@ -294,89 +201,214 @@ const CommitteeEditor: React.FC<CommitteeEditorProps> = ({ committee, onChange }
               </ul>
             )}
           </div>
-          <button onClick={addMember} className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800">
-            <Plus size={12} /> {t('edAddCommitteeMember')}
-          </button>
         </div>
       </div>
 
-      <div className="space-y-3">
-        {committee.map((member) => (
-          <div key={member.id} className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
-            <div
-              className="p-3 bg-white flex justify-between items-center cursor-pointer hover:bg-slate-50 transition-colors"
-              onClick={() => setExpandedId(expandedId === member.id ? null : member.id)}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center overflow-hidden shrink-0">
-                  {member.imageUrl ? (
-                    <img src={member.imageUrl} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <User size={16} className="text-emerald-500" />
-                  )}
-                </div>
-                <div className="overflow-hidden">
-                  <p className="text-sm font-semibold text-slate-800 truncate">{member.name || t('edDefaultNewCommitteeMember')}</p>
-                  <p className="text-xs text-slate-500 truncate">{member.role || t('edNoTitleYet')}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeMember(member.id);
-                  }}
-                  className="text-slate-400 hover:text-red-500 p-1"
-                >
-                  <Trash2 size={14} />
-                </button>
-                {expandedId === member.id ? (
-                  <ChevronUp size={16} className="text-slate-400" />
-                ) : (
-                  <ChevronDown size={16} className="text-slate-400" />
-                )}
-              </div>
+      {/* Event Chair */}
+      <div className="border border-indigo-200 rounded-lg overflow-hidden bg-indigo-50/30">
+        <button
+          type="button"
+          className="w-full p-3 bg-white flex justify-between items-center hover:bg-indigo-50/50 transition-colors text-left"
+          onClick={() => setExpandedSection(expandedSection === 'event-chair' ? null : 'event-chair')}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 text-indigo-600">
+              <Crown size={16} />
             </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800">{t('edCommitteeEventChair')}</p>
+              <p className="text-xs text-slate-500 truncate">
+                {scientificCommittee.eventChair?.name || t('edCommitteeEventChairEmpty')}
+              </p>
+            </div>
+          </div>
+          {expandedSection === 'event-chair' ? (
+            <ChevronUp size={16} className="text-slate-400 shrink-0" />
+          ) : (
+            <ChevronDown size={16} className="text-slate-400 shrink-0" />
+          )}
+        </button>
 
-            {expandedId === member.id && (
-              <div className="p-4 border-t border-slate-100 space-y-3">
-                <input
-                  type="text"
-                  value={member.name}
-                  onChange={(e) => updateMember(member.id, 'name', e.target.value)}
-                  placeholder={t('edPlaceholderFullName')}
-                  className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+        {expandedSection === 'event-chair' && (
+          <div className="p-4 border-t border-indigo-100 space-y-3 bg-white">
+            {!scientificCommittee.eventChair ? (
+              <button
+                type="button"
+                onClick={() => setEventChair(createEmptyPerson({ role: t('edCommitteePresidentLabel') }))}
+                className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800"
+              >
+                <Plus size={12} /> {t('edCommitteeAddEventChair')}
+              </button>
+            ) : (
+              <>
+                <CommitteePersonFields
+                  person={scientificCommittee.eventChair}
+                  onChange={(p) => setEventChair(p)}
                 />
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    value={member.role}
-                    onChange={(e) => updateMember(member.id, 'role', e.target.value)}
-                    placeholder={t('edPlaceholderRoleChair')}
-                    className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
-                  />
-                  <input
-                    type="text"
-                    value={member.affiliation}
-                    onChange={(e) => updateMember(member.id, 'affiliation', e.target.value)}
-                    placeholder={t('edPlaceholderAffiliation')}
-                    className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
-                  />
-                </div>
-                <div className="relative">
-                  <ImageIcon size={12} className="absolute left-2 top-2.5 text-slate-400" />
-                  <input
-                    type="text"
-                    value={member.imageUrl}
-                    onChange={(e) => updateMember(member.id, 'imageUrl', e.target.value)}
-                    placeholder={t('edPlaceholderPhotoUrl')}
-                    className="w-full pl-7 pr-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
-                  />
-                </div>
-              </div>
+                <button
+                  type="button"
+                  onClick={() => setEventChair(null)}
+                  className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1"
+                >
+                  <Trash2 size={12} /> {t('edCommitteeRemoveEventChair')}
+                </button>
+              </>
             )}
           </div>
-        ))}
+        )}
+      </div>
+
+      {/* Sub-committees */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+            {t('edCommitteeSubCommittees')}
+          </span>
+          <button
+            type="button"
+            onClick={addSubCommittee}
+            className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800"
+          >
+            <Plus size={12} /> {t('edCommitteeAddSub')}
+          </button>
+        </div>
+
+        {scientificCommittee.subCommittees.length === 0 ? (
+          <p className="text-xs text-slate-400 italic px-1">{t('edCommitteeNoSubYet')}</p>
+        ) : (
+          scientificCommittee.subCommittees.map((sub) => {
+            const Icon = resolveEventTopicIcon(sub.icon);
+            const isExpanded = expandedSubId === sub.id;
+
+            return (
+              <div key={sub.id} className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+                <div className="p-3 bg-white flex justify-between items-center gap-2">
+                  <button
+                    type="button"
+                    className="flex items-center gap-3 min-w-0 flex-1 text-left hover:opacity-80"
+                    onClick={() => setExpandedSubId(isExpanded ? null : sub.id)}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 text-indigo-600">
+                      <Icon size={16} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-800 truncate">
+                        {sub.name || t('edCommitteeNewSubDefault')}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {t('edCommitteeSubSummary', {
+                          chair: sub.chair.name ? 1 : 0,
+                          members: sub.members.length,
+                        })}
+                      </p>
+                    </div>
+                  </button>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => removeSubCommittee(sub.id)}
+                      className="text-slate-400 hover:text-red-500 p-1"
+                      aria-label={t('edCommitteeRemoveSub')}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                    <button type="button" onClick={() => setExpandedSubId(isExpanded ? null : sub.id)} className="p-1">
+                      {isExpanded ? (
+                        <ChevronUp size={16} className="text-slate-400" />
+                      ) : (
+                        <ChevronDown size={16} className="text-slate-400" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="p-4 border-t border-slate-100 space-y-4 bg-white">
+                    <div className="grid grid-cols-2 gap-3">
+                      <input
+                        type="text"
+                        value={sub.name}
+                        onChange={(e) => updateSubCommittee(sub.id, { name: e.target.value })}
+                        placeholder={t('edCommitteeSubNamePlaceholder')}
+                        className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+                      />
+                      <select
+                        value={sub.icon}
+                        onChange={(e) =>
+                          updateSubCommittee(sub.id, {
+                            icon: e.target.value as ScientificSubCommittee['icon'],
+                          })
+                        }
+                        className="w-full px-2 py-1.5 border border-slate-200 rounded text-sm bg-white text-slate-900"
+                      >
+                        {EVENT_TOPIC_ICON_OPTIONS.map((iconKey) => (
+                          <option key={iconKey} value={iconKey}>
+                            {iconKey}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="rounded-lg border border-amber-100 bg-amber-50/40 p-3 space-y-2">
+                      <p className="text-xs font-semibold text-amber-900 flex items-center gap-1.5">
+                        <Crown size={12} /> {t('edCommitteeSubChair')}
+                      </p>
+                      <CommitteePersonFields
+                        person={sub.chair}
+                        onChange={(p) => updateSubCommittee(sub.id, { chair: p })}
+                        compact
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <p className="text-xs font-semibold text-slate-600 flex items-center gap-1.5">
+                          <Layers size={12} /> {t('edCommitteeSubMembers')}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => addSubMember(sub.id)}
+                          className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800"
+                        >
+                          <Plus size={12} /> {t('edAddCommitteeMember')}
+                        </button>
+                      </div>
+
+                      {sub.members.length === 0 ? (
+                        <p className="text-[10px] text-slate-400 italic">{t('edCommitteeSubNoMembers')}</p>
+                      ) : (
+                        sub.members.map((member) => (
+                          <div
+                            key={member.id}
+                            className="border border-slate-100 rounded-lg p-3 bg-slate-50/80 space-y-2"
+                          >
+                            <div className="flex justify-between items-center">
+                              <p className="text-xs font-medium text-slate-700 truncate">
+                                {member.name || t('edDefaultNewCommitteeMember')}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => removeSubMember(sub.id, member.id)}
+                                className="text-slate-400 hover:text-red-500 p-1"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                            <CommitteePersonFields
+                              person={member}
+                              onChange={(p) => updateSubMember(sub.id, member.id, p)}
+                              compact
+                            />
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

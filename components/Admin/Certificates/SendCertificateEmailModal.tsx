@@ -5,7 +5,8 @@ import { getUserEmailTemplates, getEmailTemplate } from '../../../services/email
 import { EmailTemplate, CertificateTemplate, FormSubmission } from '../../../types';
 import { sendInvitationEmail } from '../../../services/emailService';
 import { getCertificateTemplate } from '../../../services/certificateTemplateService';
-import { saveCertificate } from '../../../services/certificateService';
+import { resolveCertificateQrPdfUrl, saveCertificate } from '../../../services/certificateService';
+import { createCertificatePdfBlob } from '../../../services/certificateGenerationService';
 import { getParticipantProfile } from '../../../services/participantProfileService';
 import { supabase, STORAGE_BUCKETS } from '../../../supabase';
 import QRCode from 'qrcode';
@@ -379,66 +380,18 @@ const SendCertificateEmailModal: React.FC<SendCertificateEmailModalProps> = ({
           let certificateImageData: string;
 
           if (hasQRCodes) {
-            // Step 1: Generate temp certificate to upload and get storage URL
-            const tempImageData = await generateCertificateImage(certTemplate, submission);
-            
-            // Step 2: Upload to get storage URL
-            const imageBlob = await fetch(tempImageData).then(r => r.blob());
-            const file = new File([imageBlob], `certificate-${Date.now()}.png`, { type: 'image/png' });
-            const fileName = `${currentUser!.id}/certificates/${Date.now()}-${Math.random().toString(36).substring(2)}.png`;
-            
-            let uploadData: any;
-            let bucketId: string;
-            
-            try {
-              bucketId = STORAGE_BUCKETS.MEDIA;
-              const result = await supabase.storage.from(bucketId).upload(fileName, file, {
-                cacheControl: '3600',
-                upsert: false
-              });
-              uploadData = result.data;
-              if (result.error) throw result.error;
-            } catch (err) {
-              bucketId = STORAGE_BUCKETS.GENERAL;
-              const result = await supabase.storage.from(bucketId).upload(fileName, file, {
-                cacheControl: '3600',
-                upsert: false
-              });
-              uploadData = result.data;
-              if (result.error) throw result.error;
-            }
-            
-            const { data: urlData } = supabase.storage.from(bucketId).getPublicUrl(uploadData.path);
-            certificateUrl = urlData.publicUrl;
-            
-            // Step 3: Generate final certificate with QR code
-            certificateImageData = await generateCertificateImage(certTemplate, submission, certificateUrl);
-            
-            // Step 4: Update uploaded image with final version
-            const finalBlob = await fetch(certificateImageData).then(r => r.blob());
-            const finalFile = new File([finalBlob], `certificate-${Date.now()}.png`, { type: 'image/png' });
-            await supabase.storage.from(bucketId).update(uploadData.path, finalFile, {
-              cacheControl: '3600',
-              upsert: true
-            });
-            
-            // Step 5: Save certificate record
             const certificateId = crypto.randomUUID();
-            await supabase.from('certificates').insert({
-              id: certificateId,
-              user_id: currentUser!.id,
-              event_id: eventId,
-              template_id: templateId,
-              participant_submission_id: submission.id,
-              certificate_image_url: certificateUrl,
-              certificate_url: `${window.location.origin}/certificate/${certificateId}`,
-              participant_name: participantName,
-              participant_email: participantEmail,
-              created_at: new Date().toISOString(),
-            });
-          } else {
-            // No QR codes, generate and save directly
-            certificateImageData = await generateCertificateImage(certTemplate, submission);
+            const qrPdfUrl = resolveCertificateQrPdfUrl(currentUser!.id, certificateId);
+            certificateImageData = await generateCertificateImage(
+              certTemplate,
+              submission,
+              qrPdfUrl
+            );
+            const pdfBlob = createCertificatePdfBlob(
+              certificateImageData,
+              certTemplate.width,
+              certTemplate.height
+            );
             const savedCert = await saveCertificate(
               currentUser!.id,
               eventId,
@@ -446,9 +399,31 @@ const SendCertificateEmailModal: React.FC<SendCertificateEmailModalProps> = ({
               submission.id,
               certificateImageData,
               participantName,
-              participantEmail
+              participantEmail,
+              certificateId,
+              pdfBlob
             );
-            certificateUrl = savedCert.certificateImageUrl;
+            certificateUrl = savedCert.certificatePdfUrl || savedCert.certificateUrl;
+          } else {
+            // No QR codes, generate and save directly
+            certificateImageData = await generateCertificateImage(certTemplate, submission);
+            const pdfBlob = createCertificatePdfBlob(
+              certificateImageData,
+              certTemplate.width,
+              certTemplate.height
+            );
+            const savedCert = await saveCertificate(
+              currentUser!.id,
+              eventId,
+              templateId,
+              submission.id,
+              certificateImageData,
+              participantName,
+              participantEmail,
+              undefined,
+              pdfBlob
+            );
+            certificateUrl = savedCert.certificatePdfUrl || savedCert.certificateUrl;
           }
 
           // Step 6: Send email with certificate

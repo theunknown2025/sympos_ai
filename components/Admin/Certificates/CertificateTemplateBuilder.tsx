@@ -11,8 +11,16 @@ import {
   updateBadgeTemplate,
   getBadgeTemplate
 } from '../../../services/badgeTemplateService';
-import { uploadImageToStorage, uploadBase64ImageToStorage } from '../../../services/storageService';
+import {
+  uploadCertificateBackgroundImage,
+  uploadBadgeBackgroundImage,
+} from '../../../services/storageService';
 import SaveTypeModal from './SaveTypeModal';
+import CertificateIncludeElementsModal from './CertificateIncludeElementsModal';
+import {
+  getCertificateFieldPreviewText,
+  type CertificateInsertableField,
+} from '../../../services/certificateTemplateFields';
 import { 
   ArrowLeft, 
   Save, 
@@ -22,11 +30,13 @@ import {
   Trash2, 
   Loader2, 
   Upload,
+  Link2,
   X,
   Move,
   Maximize2,
   Minimize2,
-  QrCode
+  QrCode,
+  Database
 } from 'lucide-react';
 
 interface CertificateTemplateBuilderProps {
@@ -46,13 +56,16 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showIncludeModal, setShowIncludeModal] = useState(false);
+  const [includeReplaceMode, setIncludeReplaceMode] = useState(false);
   const [templateType, setTemplateType] = useState<'certificate' | 'badge' | null>(null);
   
   const [title, setTitle] = useState('');
   const [backgroundImage, setBackgroundImage] = useState('');
   const [backgroundImageType, setBackgroundImageType] = useState<'url' | 'upload'>('url');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [previewImage, setPreviewImage] = useState<string>(''); // For preview only
+  const [previewImage, setPreviewImage] = useState<string>('');
+  const [uploadingBackground, setUploadingBackground] = useState(false);
   const [elements, setElements] = useState<CertificateTextElement[]>([]);
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -94,6 +107,11 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
   };
   
   const { width: canvasWidth, height: canvasHeight } = getCurrentDimensions();
+  const activeBackgroundPreview = previewImage || backgroundImage;
+  const hasBackground = Boolean(activeBackgroundPreview);
+
+  const getBackgroundUploadFolder = () =>
+    templateType === 'badge' ? 'badges' : 'certificate-templates';
 
   useEffect(() => {
     if (currentUser && templateId) {
@@ -172,19 +190,55 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleBackgroundUrlChange = (url: string) => {
+    setBackgroundImage(url);
+    setPreviewImage(url);
+    setUploadedFile(null);
+    setBackgroundImageType('url');
+  };
+
+  const clearBackgroundImage = () => {
+    setBackgroundImage('');
+    setPreviewImage('');
+    setUploadedFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setUploadedFile(file);
-      setBackgroundImageType('upload');
-      // Create preview for display
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        setPreviewImage(result);
-        // Don't set backgroundImage yet - we'll upload to Storage on save
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    if (!currentUser) {
+      setError('You must be logged in to upload images');
+      return;
+    }
+
+    setBackgroundImageType('upload');
+    setUploadedFile(file);
+    setError('');
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setPreviewImage(event.target?.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    try {
+      setUploadingBackground(true);
+      const uploadFn =
+        getBackgroundUploadFolder() === 'badges'
+          ? uploadBadgeBackgroundImage
+          : uploadCertificateBackgroundImage;
+      const publicUrl = await uploadFn(currentUser.id, file);
+      setBackgroundImage(publicUrl);
+      setPreviewImage(publicUrl);
+      setUploadedFile(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to upload background image. Please try again.');
+    } finally {
+      setUploadingBackground(false);
     }
   };
 
@@ -206,11 +260,12 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
     setSelectedElementId(newElement.id);
   };
 
-  const addFieldElement = () => {
+  const addFieldElement = (field?: CertificateInsertableField) => {
     const newElement: CertificateTextElement = {
       id: Date.now().toString(),
       type: 'field',
-      content: 'name', // Default to name field
+      content: field?.key ?? 'name',
+      fieldLabel: field?.label,
       x: 50,
       y: 50,
       fontSize: 24,
@@ -221,6 +276,20 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
     };
     setElements([...elements, newElement]);
     setSelectedElementId(newElement.id);
+  };
+
+  const handleIncludeField = (field: CertificateInsertableField) => {
+    if (includeReplaceMode && selectedElementId) {
+      updateElement(selectedElementId, { content: field.key, fieldLabel: field.label, type: 'field' });
+      setIncludeReplaceMode(false);
+      return;
+    }
+    addFieldElement(field);
+  };
+
+  const openIncludeModal = (replace = false) => {
+    setIncludeReplaceMode(replace);
+    setShowIncludeModal(true);
   };
 
   const addQRElement = () => {
@@ -301,8 +370,13 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
       return;
     }
 
-    if (!backgroundImage && !uploadedFile && !previewImage) {
+    if (!hasBackground) {
       setError('Please add a background image');
+      return;
+    }
+
+    if (uploadingBackground) {
+      setError('Please wait for the background image upload to finish');
       return;
     }
 
@@ -327,26 +401,19 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
       setSuccess(false);
       setShowSaveModal(false);
 
-      // Upload image to Storage if it's a file upload
-      let finalBackgroundImage = backgroundImage;
+      let finalBackgroundImage = backgroundImage || previewImage;
       let finalBackgroundImageType = backgroundImageType;
-      const folder = type === 'badge' ? 'badges' : 'certificate-templates';
 
       if (backgroundImageType === 'upload' && uploadedFile) {
         try {
-          setError('Uploading image to storage...');
-          // Upload the file to Storage
-          finalBackgroundImage = await uploadImageToStorage(currentUser.id, uploadedFile, folder);
+          const uploadFn =
+            type === 'badge' ? uploadBadgeBackgroundImage : uploadCertificateBackgroundImage;
+          finalBackgroundImage = await uploadFn(currentUser.id, uploadedFile);
           finalBackgroundImageType = 'upload';
-          setError(''); // Clear error on success
         } catch (err: any) {
           setError(err.message || 'Failed to upload image. Please try again.');
           throw err;
         }
-      } else if (backgroundImageType === 'url' && backgroundImage) {
-        // For URL images, save the URL directly (no conversion needed)
-        finalBackgroundImage = backgroundImage;
-        finalBackgroundImageType = 'url';
       } else if (!finalBackgroundImage) {
         setError('Please add a background image');
         return;
@@ -422,7 +489,7 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
         </div>
         <button
           onClick={handleSaveClick}
-          disabled={saving || !title.trim() || (!backgroundImage && !uploadedFile && !previewImage)}
+          disabled={saving || uploadingBackground || !title.trim() || !hasBackground}
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saving ? (
@@ -578,48 +645,103 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
             <div className="space-y-3">
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => setBackgroundImageType('url')}
-                  className={`flex-1 px-3 py-2 text-sm border rounded-lg ${
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm border rounded-lg ${
                     backgroundImageType === 'url'
                       ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
                       : 'bg-white border-slate-300 text-slate-700'
                   }`}
                 >
-                  URL
+                  <Link2 size={14} />
+                  Image URL
                 </button>
                 <button
-                  onClick={() => {
-                    setBackgroundImageType('upload');
-                    fileInputRef.current?.click();
-                  }}
-                  className={`flex-1 px-3 py-2 text-sm border rounded-lg ${
+                  type="button"
+                  onClick={() => setBackgroundImageType('upload')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-sm border rounded-lg ${
                     backgroundImageType === 'upload'
                       ? 'bg-indigo-50 border-indigo-500 text-indigo-700'
                       : 'bg-white border-slate-300 text-slate-700'
                   }`}
                 >
-                  Upload
+                  <Upload size={14} />
+                  Upload image
                 </button>
               </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-              />
-              {backgroundImageType === 'url' && (
-                <input
-                  type="text"
-                  value={backgroundImage}
-                  onChange={(e) => setBackgroundImage(e.target.value)}
-                  placeholder="https://example.com/image.jpg"
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
+
+              {backgroundImageType === 'url' ? (
+                <div className="space-y-2">
+                  <input
+                    type="url"
+                    value={backgroundImage}
+                    onChange={(e) => handleBackgroundUrlChange(e.target.value)}
+                    placeholder="https://example.com/certificate-background.jpg"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Paste a public image URL. The link is saved with the template.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp,image/gif"
+                    onChange={handleImageUpload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingBackground}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2.5 border border-dashed border-slate-300 rounded-lg text-sm text-slate-700 hover:border-indigo-400 hover:bg-indigo-50 disabled:opacity-50"
+                  >
+                    {uploadingBackground ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" />
+                        Uploading to storage…
+                      </>
+                    ) : (
+                      <>
+                        <Upload size={16} />
+                        Choose image file
+                      </>
+                    )}
+                  </button>
+                  <p className="text-xs text-slate-500">
+                    {templateType === 'badge' ? (
+                      <>Stored in the <span className="font-medium">badges</span> bucket.</>
+                    ) : (
+                      <>Stored in the <span className="font-medium">certificate-templates</span> bucket.</>
+                    )}
+                  </p>
+                  {uploadedFile && uploadingBackground && (
+                    <p className="text-xs text-slate-500">Selected: {uploadedFile.name}</p>
+                  )}
+                </div>
               )}
-              {backgroundImageType === 'upload' && (uploadedFile || previewImage) && (
-                <div className="text-xs text-slate-500">
-                  {uploadedFile ? `File selected: ${uploadedFile.name}` : 'Image ready to upload'}
+
+              {hasBackground && (
+                <div className="relative rounded-lg border border-slate-200 overflow-hidden bg-slate-50">
+                  <img
+                    src={activeBackgroundPreview}
+                    alt="Background preview"
+                    className="w-full h-28 object-cover"
+                    onError={() => setError('Could not load background image preview')}
+                  />
+                  <button
+                    type="button"
+                    onClick={clearBackgroundImage}
+                    className="absolute top-2 right-2 p-1.5 rounded-full bg-white/90 text-slate-600 hover:text-red-600 shadow-sm"
+                    title="Remove background"
+                  >
+                    <X size={14} />
+                  </button>
+                  <div className="px-2 py-1.5 text-xs text-slate-500 truncate border-t border-slate-200 bg-white">
+                    {backgroundImageType === 'url' ? 'External URL' : 'Uploaded to storage'}
+                  </div>
                 </div>
               )}
             </div>
@@ -630,7 +752,7 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
             <label className="block text-sm font-medium text-slate-700 mb-2">
               Add Elements
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={addTextElement}
                 className="flex flex-col items-center justify-center gap-1 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
@@ -639,15 +761,15 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
                 <span className="text-xs">Text</span>
               </button>
               <button
-                onClick={addFieldElement}
-                className="flex flex-col items-center justify-center gap-1 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                onClick={() => openIncludeModal(false)}
+                className="flex flex-col items-center justify-center gap-1 px-3 py-2 border border-indigo-300 bg-indigo-50 rounded-lg hover:bg-indigo-100 text-indigo-800"
               >
-                <Type size={16} />
-                <span className="text-xs">Field</span>
+                <Database size={16} />
+                <span className="text-xs">Include elements</span>
               </button>
               <button
                 onClick={addQRElement}
-                className="flex flex-col items-center justify-center gap-1 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
+                className="col-span-2 flex flex-col items-center justify-center gap-1 px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-50"
               >
                 <QrCode size={16} />
                 <span className="text-xs">QR Code</span>
@@ -700,19 +822,21 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
                   />
                 </div>
               ) : selectedElement.type === 'field' ? (
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Field Name</label>
-                  <select
-                    value={selectedElement.content}
-                    onChange={(e) => updateElement(selectedElement.id, { content: e.target.value })}
-                    className="w-full px-2 py-1.5 border border-slate-300 rounded text-sm"
+                <div className="space-y-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600 mb-1">Field</label>
+                    <p className="text-sm font-medium text-slate-900">
+                      {selectedElement.fieldLabel || selectedElement.content}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1 font-mono break-all">{selectedElement.content}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openIncludeModal(true)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
                   >
-                    <option value="name">Name</option>
-                    <option value="email">Email</option>
-                    <option value="organization">Organization</option>
-                    <option value="phone">Phone</option>
-                    <option value="address">Address</option>
-                  </select>
+                    Replace from database…
+                  </button>
                 </div>
               ) : (
                 <div>
@@ -807,7 +931,7 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
               style={{
                 width: `${canvasWidth}px`,
                 height: `${canvasHeight}px`,
-                backgroundImage: (previewImage || backgroundImage) ? `url(${previewImage || backgroundImage})` : 'none',
+                backgroundImage: hasBackground ? `url(${activeBackgroundPreview})` : 'none',
                 backgroundSize: 'cover',
                 backgroundPosition: 'center',
               }}
@@ -820,7 +944,7 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
                 }
               }}
             >
-              {!backgroundImage && (
+              {!hasBackground && (
                 <div className="absolute inset-0 flex items-center justify-center text-slate-400">
                   <div className="text-center">
                     <ImageIcon size={48} className="mx-auto mb-2 opacity-50" />
@@ -855,7 +979,7 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
                 >
                   {element.type === 'field' ? (
                     <span className="px-2 py-1 bg-indigo-100 border border-indigo-300 rounded text-indigo-700">
-                      {'{'}{element.content}{'}'}
+                      {getCertificateFieldPreviewText(element.content, element.fieldLabel)}
                     </span>
                   ) : element.type === 'qr' ? (
                     <div className="w-full h-full bg-slate-200 border-2 border-dashed border-slate-400 rounded flex items-center justify-center">
@@ -876,6 +1000,15 @@ const CertificateTemplateBuilder: React.FC<CertificateTemplateBuilderProps> = ({
         isOpen={showSaveModal}
         onClose={() => setShowSaveModal(false)}
         onSelect={handleSave}
+      />
+
+      <CertificateIncludeElementsModal
+        isOpen={showIncludeModal}
+        onClose={() => {
+          setShowIncludeModal(false);
+          setIncludeReplaceMode(false);
+        }}
+        onInclude={handleIncludeField}
       />
     </div>
   );

@@ -1,0 +1,115 @@
+{
+  "updatedAt": "2026-05-22T11:45:39.227Z",
+  "sections": {
+    "public": {
+      "smoke": {
+        "ranAt": "2026-05-21T23:52:21.720Z",
+        "successRate": 100,
+        "avgMs": 5,
+        "sampleCount": 30,
+        "errorCount": 0,
+        "testMode": "smoke"
+      },
+      "stress": {
+        "ranAt": "2026-05-22T11:44:45.498Z",
+        "successRate": 100,
+        "avgMs": 5,
+        "sampleCount": 60,
+        "errorCount": 0,
+        "testMode": "stress",
+        "threads": 50,
+        "loops": 15,
+        "rampUpSeconds": 60
+      }
+    },
+    "auth": {
+      "smoke": {
+        "ranAt": "2026-05-22T00:08:56.419Z",
+        "successRate": 100,
+        "avgMs": 4,
+        "sampleCount": 30,
+        "errorCount": 0,
+        "testMode": "smoke"
+      },
+      "stress": {
+        "ranAt": "2026-05-22T11:44:56.160Z",
+        "successRate": 100,
+        "avgMs": 4,
+        "sampleCount": 30,
+        "errorCount": 0,
+        "testMode": "stress",
+        "threads": 50,
+        "loops": 15,
+        "rampUpSeconds": 60
+      }
+    },
+    "organizer": {
+      "smoke": {
+        "ranAt": "2026-05-22T00:09:19.737Z",
+        "successRate": 100,
+        "avgMs": 3,
+        "sampleCount": 140,
+        "errorCount": 0,
+        "testMode": "smoke"
+      },
+      "stress": {
+        "ranAt": "2026-05-22T11:45:06.986Z",
+        "successRate": 100,
+        "avgMs": 3,
+        "sampleCount": 140,
+        "errorCount": 0,
+        "testMode": "stress",
+        "threads": 50,
+        "loops": 15,
+        "rampUpSeconds": 60
+      }
+    },
+    "participant": {
+      "smoke": {
+        "ranAt": "2026-05-22T11:11:00.463Z",
+        "successRate": 100,
+        "avgMs": 3,
+        "sampleCount": 100,
+        "errorCount": 0,
+        "testMode": "smoke"
+      },
+      "stress": {
+        "ranAt": "2026-05-22T11:45:17.690Z",
+        "successRate": 100,
+        "avgMs": 3,
+        "sampleCount": 100,
+        "errorCount": 0,
+        "testMode": "stress",
+        "threads": 50,
+        "loops": 15,
+        "rampUpSeconds": 60
+      }
+    },
+    "superadmin": {
+      "stress": {
+        "ranAt": "2026-05-22T11:45:28.498Z",
+        "successRate": 100,
+        "avgMs": 3,
+        "sampleCount": 50,
+        "errorCount": 0,
+        "testMode": "stress",
+        "threads": 50,
+        "loops": 15,
+        "rampUpSeconds": 60
+      }
+    },
+    "tools": {
+      "stress": {
+        "ranAt": "2026-05-22T11:45:39.227Z",
+        "successRate": 100,
+        "avgMs": 3,
+        "sampleCount": 80,
+        "errorCount": 0,
+        "testMode": "stress",
+        "threads": 50,
+        "loops": 15,
+        "rampUpSeconds": 60
+      }
+    }
+  }
+}

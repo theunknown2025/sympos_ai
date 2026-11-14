@@ -1,0 +1,46 @@
+import { createNamespace } from '../createNamespace';
+
+export const opportunityManagementNs = createNamespace({
+  en: {
+    pageTitle: 'Opportunity Management',
+    subtitle: 'Manage all aspects of your opportunities from one central location',
+    tabNewOpportunity: 'New Opportunity',
+    tabListOpportunities: 'List of Opportunities',
+    editOpportunity: 'Edit opportunity',
+    previewOpportunity: 'Preview opportunity',
+    publishPublicly: 'Publish publicly',
+    deleteOpportunity: 'Delete opportunity',
+    editOpportunityAction: 'Edit',
+    deleteConfirm: 'Delete this opportunity? This cannot be undone.',
+    publishModalTitle: 'Publish publicly',
+    publishModalBody:
+      'Generate a public link so anyone can view this opportunity and apply. The opportunity will be marked as Published.',
+    publicUrlLabel: 'Public URL',
+    copyLink: 'Copy',
+    copied: 'Copied',
+    openPublicPage: 'Open public page',
+    btnClose: 'Close',
+    publishBtn: 'Publish & get link',
+  },
+  fr: {
+    pageTitle: 'Gestion des opportunités',
+    subtitle: 'Gérez tous les aspects de vos opportunités depuis un seul endroit',
+    tabNewOpportunity: 'Nouvelle opportunité',
+    tabListOpportunities: 'Liste des opportunités',
+    editOpportunity: 'Modifier l’opportunité',
+    previewOpportunity: 'Aperçu de l’opportunité',
+    publishPublicly: 'Publier publiquement',
+    deleteOpportunity: 'Supprimer l’opportunité',
+    editOpportunityAction: 'Modifier',
+    deleteConfirm: 'Supprimer cette opportunité ? Cette action est irréversible.',
+    publishModalTitle: 'Publication publique',
+    publishModalBody:
+      'Générez un lien public pour que chacun puisse consulter cette opportunité et postuler. L’opportunité sera marquée comme Publiée.',
+    publicUrlLabel: 'URL publique',
+    copyLink: 'Copier',
+    copied: 'Copié',
+    openPublicPage: 'Ouvrir la page publique',
+    btnClose: 'Fermer',
+    publishBtn: 'Publier et obtenir le lien',
+  },
+});

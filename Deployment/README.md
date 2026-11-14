@@ -44,7 +44,7 @@ The `deploy-all.sh` script automates the entire deployment process:
 5. ✅ **Dependencies** - Installs all npm packages
 6. ✅ **Environment Configuration** - Interactive .env file setup
 7. ✅ **Frontend Build** - Builds the React application
-8. ✅ **PM2 Configuration** - Creates ecosystem file for process management
+8. ✅ **PM2 Configuration** - Creates `ecosystem.config.cjs` (CommonJS) so PM2 works with `"type": "module"` in `package.json`
 9. ✅ **Service Startup** - Starts email API and frontend with PM2
 10. ✅ **Nginx Setup** - Optional reverse proxy configuration
 11. ✅ **Firewall Configuration** - Sets up UFW firewall rules
@@ -96,6 +96,21 @@ pm2 logs sympos-ai-frontend
 - **Health Check:** http://localhost:3001/health
 
 ## Troubleshooting
+
+### PM2: `module is not defined in ES module scope` (ecosystem file)
+
+The app uses `"type": "module"` in `package.json`, so `ecosystem.config.js` is loaded as ESM and `module.exports` fails. Use **`ecosystem.config.cjs`** instead.
+
+On an existing server, from `/opt/sympos-ai`:
+
+```bash
+mv ecosystem.config.js ecosystem.config.cjs   # if the old filename exists
+pm2 delete all
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+Or re-run the latest `deploy-all.sh` so it regenerates the `.cjs` file.
 
 ### Services Not Starting
 

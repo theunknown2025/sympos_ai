@@ -1,0 +1,48 @@
+@keyframes lp-about-kenburns {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes lp-about-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lp-about-draw {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.lp-about-kenburns {
+  animation: lp-about-kenburns 16s ease-in-out infinite alternate;
+}
+
+.lp-about-rise {
+  animation: lp-about-rise 0.7s ease both;
+}
+
+.lp-about-draw {
+  animation: lp-about-draw 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-about-kenburns,
+  .lp-about-rise,
+  .lp-about-draw {
+    animation: none;
+  }
+}

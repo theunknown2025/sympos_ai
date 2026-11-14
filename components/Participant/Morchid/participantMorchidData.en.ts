@@ -1,0 +1,248 @@
+import {
+  LayoutDashboard,
+  User,
+  Bell,
+  FileText,
+  Calendar,
+  ClipboardList,
+  Send,
+  Award,
+  Briefcase,
+  Wrench,
+  GraduationCap,
+  MessageSquare,
+  Code,
+} from 'lucide-react';
+import type { MorchidPageCopy, MorchidTopic } from '../../Admin/Morchid/types';
+
+export const participantMorchidCopyEn: MorchidPageCopy = {
+  title: 'Morchid — Participant Guide',
+  subtitle: 'Learn how to use all features available in your participant space.',
+  topicGridTitle: 'Available features',
+  topicGridHint: 'Select a topic on the left to view detailed instructions on the right.',
+  guidelinesTitle: 'Usage guide',
+  stepLabel: 'Step',
+  tipLabel: 'Tip',
+  languageEn: 'English',
+  languageFr: 'Français',
+  languageAr: 'العربية',
+  selectTopicHint: 'Select a feature from the list to view its guide.',
+};
+
+export const participantMorchidTopicsEn: MorchidTopic[] = [
+  {
+    id: 'dashboard',
+    icon: LayoutDashboard,
+    color: 'bg-indigo-100',
+    iconColor: 'text-indigo-600',
+    title: 'Dashboard',
+    shortDescription: 'Your participant home page with a summary of your activity.',
+    guidelines: [{
+      title: 'Navigate the dashboard',
+      steps: [
+        'Log in and open Dashboard from the sidebar.',
+        'View upcoming events, pending invitations, and notifications.',
+        'Use quick cards to access main sections.',
+      ],
+      tip: 'Complete your profile to make future registrations easier.',
+    }],
+  },
+  {
+    id: 'profile',
+    icon: User,
+    color: 'bg-violet-100',
+    iconColor: 'text-violet-600',
+    title: 'My Profile',
+    shortDescription: 'Manage your personal and professional information.',
+    guidelines: [{
+      title: 'Update your profile',
+      steps: [
+        'Open Dashboard → Profile.',
+        'Enter your name, affiliation, photo, and contact details.',
+        'Save your changes.',
+      ],
+    }],
+  },
+  {
+    id: 'invitations',
+    icon: Bell,
+    color: 'bg-rose-100',
+    iconColor: 'text-rose-600',
+    title: 'Invitations',
+    shortDescription: 'Respond to scientific committee invitations.',
+    guidelines: [{
+      title: 'Accept or decline an invitation',
+      steps: [
+        'Go to Reviews → Invitations.',
+        'Read invitation details (event, role, deadlines).',
+        'Click Accept or Decline and confirm your response.',
+      ],
+      tip: 'Respond quickly so the organizer can plan evaluations.',
+    }],
+  },
+  {
+    id: 'reviews',
+    icon: FileText,
+    color: 'bg-orange-100',
+    iconColor: 'text-orange-600',
+    title: 'Reviews',
+    shortDescription: 'Evaluate submissions assigned to you.',
+    guidelines: [{
+      title: 'Submit a review',
+      steps: [
+        'Open Reviews → Reviews.',
+        'Select an assigned submission.',
+        'Fill in the evaluation form and add your comments.',
+        'Submit your verdict (accepted, revision, rejected).',
+      ],
+    }],
+  },
+  {
+    id: 'events',
+    icon: Calendar,
+    color: 'bg-sky-100',
+    iconColor: 'text-sky-600',
+    title: 'Events',
+    shortDescription: 'Discover and follow events you participate in.',
+    guidelines: [{
+      title: 'Explore events',
+      steps: [
+        'Go to Participations → Events.',
+        'Browse your registered, shared, or saved events.',
+        'Click an event to see details and the submission pipeline.',
+      ],
+    }],
+  },
+  {
+    id: 'registrations',
+    icon: ClipboardList,
+    color: 'bg-teal-100',
+    iconColor: 'text-teal-600',
+    title: 'Registrations',
+    shortDescription: 'Track your event registrations.',
+    guidelines: [{
+      title: 'Manage your registrations',
+      steps: [
+        'Open Participations → Registrations.',
+        'Check the status of each registration (pending, accepted).',
+        'Download your badge or registration certificate if available.',
+      ],
+    }],
+  },
+  {
+    id: 'submissions',
+    icon: Send,
+    color: 'bg-amber-100',
+    iconColor: 'text-amber-600',
+    title: 'Submissions',
+    shortDescription: 'Submit and track your papers and abstracts.',
+    guidelines: [{
+      title: 'Submit a paper',
+      steps: [
+        'Go to Participations → Submissions.',
+        'Select the relevant event.',
+        'Fill in the submission form and attach your files.',
+        'Submit before the stated deadline.',
+      ],
+      tip: 'Follow the progress bar to see your submission status.',
+    }],
+  },
+  {
+    id: 'certificates',
+    icon: Award,
+    color: 'bg-yellow-100',
+    iconColor: 'text-yellow-700',
+    title: 'Certificates',
+    shortDescription: 'Download your participation certificates.',
+    guidelines: [{
+      title: 'Get a certificate',
+      steps: [
+        'Open Participations → Certificates.',
+        'Select the available certificate.',
+        'Download the PDF or share the verification link.',
+      ],
+    }],
+  },
+  {
+    id: 'opportunities',
+    icon: Briefcase,
+    color: 'bg-lime-100',
+    iconColor: 'text-lime-700',
+    title: 'Opportunities',
+    shortDescription: 'Apply to jobs, training, and funding offers.',
+    guidelines: [{
+      title: 'Apply to an opportunity',
+      steps: [
+        'Go to Opportunities → Browse.',
+        'Read the description and offer criteria.',
+        'Complete the application form step by step.',
+        'Track progress in My Applications.',
+      ],
+    }],
+  },
+  {
+    id: 'tools',
+    icon: Wrench,
+    color: 'bg-slate-100',
+    iconColor: 'text-slate-600',
+    title: 'Tools',
+    shortDescription: 'LaTeX, CV, public profile, and blog.',
+    guidelines: [{
+      title: 'Use participant tools',
+      steps: [
+        'LaTeX Editor: write scientific articles online.',
+        'CV Builder: create an exportable professional CV.',
+        'Profile Builder: build a shareable personal web page.',
+        'Blog: publish your articles and research.',
+      ],
+    }],
+  },
+  {
+    id: 'latex',
+    icon: Code,
+    color: 'bg-emerald-100',
+    iconColor: 'text-emerald-600',
+    title: 'LaTeX',
+    shortDescription: 'Write scientific documents.',
+    guidelines: [{
+      title: 'Create a LaTeX document',
+      steps: [
+        'Open Tools → LaTeX Editor.',
+        'Choose a template or start a blank document.',
+        'Compile and export as PDF.',
+      ],
+    }],
+  },
+  {
+    id: 'academy',
+    icon: GraduationCap,
+    color: 'bg-blue-100',
+    iconColor: 'text-blue-600',
+    title: 'Academy',
+    shortDescription: 'Take online courses.',
+    guidelines: [{
+      title: 'Follow a course',
+      steps: [
+        'Go to Academy from the sidebar.',
+        'Browse the catalog and enroll in a course.',
+        'Follow lessons and mark your progress.',
+      ],
+    }],
+  },
+  {
+    id: 'messaging',
+    icon: MessageSquare,
+    color: 'bg-fuchsia-100',
+    iconColor: 'text-fuchsia-600',
+    title: 'Chat',
+    shortDescription: 'Chat with organizers and other participants.',
+    guidelines: [{
+      title: 'Send a message',
+      steps: [
+        'Open Chat from the sidebar.',
+        'Select a conversation or start a new one.',
+        'Write your message and send.',
+      ],
+    }],
+  },
+];

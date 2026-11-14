@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { ViewState } from './types';
-import { isOrganizerOnlyView, isParticipantOnlyView } from './utils/roleGuard';
+import { isOrganizerOnlyView, isParticipantOnlyView, isSuperAdminPortalView } from './utils/roleGuard';
+import { SuperAdminSidebar } from './components/Admin/SuperAdmin/Layout/SuperAdminSidebar';
 import LandingPage from './components/LandingPage/LandingPage';
 import AuthContainer from './components/Admin/Auth/AuthContainer';
 import AIAssistant from './components/Admin/AIAssistant';
@@ -13,23 +14,26 @@ import ViewCertificate from './components/Admin/Certificates/ViewCertificate';
 import PublicLandingPageViewer from './components/Admin/LPBuilder/Publisher/PublicLandingPageViewer';
 import PublicEntityProfileViewer from './components/Admin/EntityProfile/PublicEntityProfileViewer';
 import PublicProfileViewer from './components/Participant/Tools/ProfileBuilder/PublicProfileViewer';
+import PublicOpportunityPage from './components/Admin/Opportunities/PublicOpportunityPage';
+import PublicOpportunitiesBrowsePage from './components/Public/Opportunities/PublicOpportunitiesBrowsePage';
+import PublicEventPage from './components/Admin/EventManagement/PublicEventPage';
+import PublicEventsBrowsePage from './components/Public/Events/PublicEventsBrowsePage';
 import { supabase, TABLES } from './supabase';
 import { useAuth } from './hooks/useAuth';
 import { getViewStateFromPath, getRoutePath } from './routes';
 import { AdminDisplaySettingsProvider } from './contexts/AdminDisplaySettingsContext';
 import {
   OrganizerEventScopeProvider,
-  useOrganizerChooserLayout,
 } from './contexts/OrganizerEventScopeContext';
+import { OrganizerPlatformSubscriptionProvider } from './contexts/OrganizerPlatformSubscriptionContext';
+import SubscriptionUnpaidBanner from './components/Admin/AccountManagement/SubscriptionUnpaidBanner';
+import OrganizerOfferGate from './components/Admin/AccountManagement/OrganizerOfferGate';
 
 const OrganizerAwareMain: React.FC<{
-  sidebarOpen: boolean;
   children: React.ReactNode;
-}> = ({ sidebarOpen, children }) => {
-  const hideOrganizerChooser = useOrganizerChooserLayout();
-  const marginClass = hideOrganizerChooser ? '' : sidebarOpen ? 'ml-64' : 'ml-20';
+}> = ({ children }) => {
   return (
-    <main className={`flex-1 flex flex-col transition-all duration-300 ${marginClass}`}>
+    <main className="flex-1 flex flex-col min-w-0 h-full overflow-hidden transition-all duration-300">
       {children}
     </main>
   );
@@ -39,9 +43,10 @@ const App: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const { currentUser, userRole, isOrganizer, isParticipant, isLoading: authLoading } = useAuth();
+  const { currentUser, userRole, isOrganizer, isParticipant, isRootSuperAdmin, isLoading: authLoading } = useAuth();
   const [isOrganizerSubscriptionBlocked, setIsOrganizerSubscriptionBlocked] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [accountManagementExpanded, setAccountManagementExpanded] = useState(true);
   const [dashboardExpanded, setDashboardExpanded] = useState(false);
   const [registrationsExpanded, setRegistrationsExpanded] = useState(false);
   const [certificatesExpanded, setCertificatesExpanded] = useState(false);
@@ -53,6 +58,8 @@ const App: React.FC = () => {
   const [participantToolsExpanded, setParticipantToolsExpanded] = useState(false);
   const [paiementManagementExpanded, setPaiementManagementExpanded] = useState(false);
   const [academyExpanded, setAcademyExpanded] = useState(false);
+  const [opportunitiesExpanded, setOpportunitiesExpanded] = useState(false);
+  const [participantOpportunitiesExpanded, setParticipantOpportunitiesExpanded] = useState(false);
 
   // Get current view from URL
   const currentView = getViewStateFromPath(location.pathname) || ViewState.LANDING_PAGE;
@@ -60,21 +67,56 @@ const App: React.FC = () => {
   const effectiveIsOrganizer = isOrganizer && !isOrganizerSubscriptionBlocked;
   const effectiveIsParticipant = isParticipant || isOrganizerSubscriptionBlocked;
 
-  // Auto-expand Participant section when on participant pages
+  // Auto-expand Account Management when on those views
   useEffect(() => {
-    if (currentView === ViewState.PARTICIPANT_REGISTRATIONS || 
-        currentView === ViewState.PARTICIPANT_SUBMISSIONS ||
-        currentView === ViewState.PARTICIPANT_MESSAGING ||
-        currentView === ViewState.JURY_DASHBOARD ||
-        currentView === ViewState.JURY_PROFILE ||
-        currentView === ViewState.JURY_INVITATIONS ||
-        currentView === ViewState.JURY_EVENTS ||
-        currentView === ViewState.JURY_REVIEWS) {
-      if (!juryExpanded) {
-        setJuryExpanded(true);
-      }
+    if (
+      currentView === ViewState.ENTITY_PROFILE ||
+      currentView === ViewState.ACCOUNT_LOGIN ||
+      currentView === ViewState.ACCOUNT_SUBSCRIPTIONS ||
+      currentView === ViewState.ACCOUNT_PRO
+    ) {
+      if (!accountManagementExpanded) setAccountManagementExpanded(true);
+    }
+  }, [currentView, accountManagementExpanded]);
+
+  // Auto-expand participant sidebar sections
+  useEffect(() => {
+    if (
+      currentView === ViewState.JURY_DASHBOARD ||
+      currentView === ViewState.JURY_PROFILE
+    ) {
+      if (!dashboardExpanded) setDashboardExpanded(true);
+    }
+  }, [currentView, dashboardExpanded]);
+
+  useEffect(() => {
+    if (
+      currentView === ViewState.JURY_INVITATIONS ||
+      currentView === ViewState.JURY_REVIEWS
+    ) {
+      if (!juryExpanded) setJuryExpanded(true);
     }
   }, [currentView, juryExpanded]);
+
+  useEffect(() => {
+    if (
+      currentView === ViewState.JURY_EVENTS ||
+      currentView === ViewState.PARTICIPANT_REGISTRATIONS ||
+      currentView === ViewState.PARTICIPANT_SUBMISSIONS ||
+      currentView === ViewState.PARTICIPANT_CERTIFICATES
+    ) {
+      if (!eventsExpanded) setEventsExpanded(true);
+    }
+  }, [currentView, eventsExpanded]);
+
+  useEffect(() => {
+    if (
+      currentView === ViewState.PARTICIPANT_ACADEMY ||
+      currentView === ViewState.PARTICIPANT_ACADEMY_COURSES
+    ) {
+      if (!academyExpanded) setAcademyExpanded(true);
+    }
+  }, [currentView, academyExpanded]);
 
   // Auto-expand Participant Tools section when on tools pages
   useEffect(() => {
@@ -122,6 +164,41 @@ const App: React.FC = () => {
     }
   }, [currentView, academyExpanded]);
 
+  useEffect(() => {
+    if (
+      currentView === ViewState.OPPORTUNITIES_DASHBOARD ||
+      currentView === ViewState.OPPORTUNITIES_MANAGE ||
+      currentView === ViewState.OPPORTUNITIES_APPLICATIONS
+    ) {
+      if (!opportunitiesExpanded) setOpportunitiesExpanded(true);
+    }
+  }, [currentView, opportunitiesExpanded]);
+
+  useEffect(() => {
+    if (
+      currentView === ViewState.FORM_BUILDER ||
+      currentView === ViewState.LANDING_PAGES ||
+      currentView === ViewState.BUILDER ||
+      currentView === ViewState.FILES_MANAGER ||
+      currentView === ViewState.CANVA_CERTIFICATE_BACKGROUND ||
+      currentView === ViewState.EMAILER ||
+      currentView === ViewState.BLOGS ||
+      currentView === ViewState.PRESENTER ||
+      currentView === ViewState.POSTER_MANAGER
+    ) {
+      if (!toolsExpanded) setToolsExpanded(true);
+    }
+  }, [currentView, toolsExpanded]);
+
+  useEffect(() => {
+    if (
+      currentView === ViewState.PARTICIPANT_OPPORTUNITIES ||
+      currentView === ViewState.PARTICIPANT_OPPORTUNITY_APPLICATIONS
+    ) {
+      if (!participantOpportunitiesExpanded) setParticipantOpportunitiesExpanded(true);
+    }
+  }, [currentView, participantOpportunitiesExpanded]);
+
   // Initialize auth state and handle role-based redirects
   useEffect(() => {
     if (!authLoading && currentUser && userRole) {
@@ -161,11 +238,20 @@ const App: React.FC = () => {
           setIsInitializing(false);
           return;
         }
+
+        // Root super admin: only super admin portal routes
+        if (userRole === 'SuperAdmin' && currentView && !isSuperAdminPortalView(currentView)) {
+          navigate(getRoutePath(ViewState.SUPERADMIN_DASHBOARD), { replace: true });
+          setIsInitializing(false);
+          return;
+        }
         
         // If on root and authenticated, redirect based on role
         if (location.pathname === '/' && currentView === ViewState.LANDING_PAGE) {
           if (effectiveIsParticipant) {
             navigate(getRoutePath(ViewState.JURY_DASHBOARD), { replace: true });
+          } else if (userRole === 'SuperAdmin') {
+            navigate(getRoutePath(ViewState.SUPERADMIN_DASHBOARD), { replace: true });
           } else if (effectiveIsOrganizer) {
             if (userRole === 'Organizer') {
               navigate(getRoutePath(ViewState.ORGANIZER_WORKSPACE), { replace: true });
@@ -240,6 +326,26 @@ const App: React.FC = () => {
       // Published professor profile viewing is public, render directly without app layout
       return <PublicProfileViewer slug={slug} />;
     }
+    if (location.pathname.startsWith('/o/')) {
+      const opportunitySlug = location.pathname.replace(/^\/o\/?/, '').split('/')[0];
+      return (
+        <PublicOpportunityPage
+          slug={opportunitySlug ? decodeURIComponent(opportunitySlug) : undefined}
+        />
+      );
+    }
+    if (location.pathname === '/opportunities/browse') {
+      return <PublicOpportunitiesBrowsePage />;
+    }
+    if (location.pathname.startsWith('/e/')) {
+      const eventSlug = location.pathname.replace(/^\/e\/?/, '').split('/')[0];
+      return (
+        <PublicEventPage slug={eventSlug ? decodeURIComponent(eventSlug) : undefined} />
+      );
+    }
+    if (location.pathname === '/events/browse') {
+      return <PublicEventsBrowsePage />;
+    }
     if (location.pathname === '/' || currentViewFromPath === ViewState.LANDING_PAGE) {
       return <LandingPage />;
     }
@@ -252,7 +358,9 @@ const App: React.FC = () => {
             const role = session?.user?.user_metadata?.role as string | undefined;
             if (role === 'Organizer') {
               navigate(getRoutePath(ViewState.ORGANIZER_WORKSPACE));
-            } else if (role === 'SuperAdmin' || role === 'SubSuperAdmin') {
+            } else if (role === 'SuperAdmin') {
+              navigate(getRoutePath(ViewState.SUPERADMIN_DASHBOARD));
+            } else if (role === 'SubSuperAdmin') {
               navigate(getRoutePath(ViewState.DASHBOARD));
             } else {
               navigate(getRoutePath(ViewState.JURY_DASHBOARD));
@@ -299,43 +407,85 @@ const App: React.FC = () => {
     const slug = location.pathname.replace('/p/', '').split('/')[0];
     return <PublicLandingPageViewer slug={slug} />;
   }
+  if (location.pathname.startsWith('/o/')) {
+    const opportunitySlug = location.pathname.replace(/^\/o\/?/, '').split('/')[0];
+    return (
+      <PublicOpportunityPage
+        slug={opportunitySlug ? decodeURIComponent(opportunitySlug) : undefined}
+      />
+    );
+  }
+  if (location.pathname === '/opportunities/browse') {
+    return <PublicOpportunitiesBrowsePage />;
+  }
+  if (location.pathname.startsWith('/e/')) {
+    const eventSlug = location.pathname.replace(/^\/e\/?/, '').split('/')[0];
+    return <PublicEventPage slug={eventSlug ? decodeURIComponent(eventSlug) : undefined} />;
+  }
+  if (location.pathname === '/events/browse') {
+    return <PublicEventsBrowsePage />;
+  }
 
   return (
     <AdminDisplaySettingsProvider userId={currentUser.id}>
       <OrganizerEventScopeProvider userId={currentUser.id} userRole={userRole}>
+        <OrganizerPlatformSubscriptionProvider
+          userId={currentUser.id}
+          enabled={userRole === 'Organizer' && !isOrganizerSubscriptionBlocked}
+        >
+        <OrganizerOfferGate />
         <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
-          <Sidebar
-            sidebarOpen={sidebarOpen}
-            currentView={currentView}
-            userRole={userRole}
-            isOrganizer={effectiveIsOrganizer}
-            dashboardExpanded={dashboardExpanded}
-            registrationsExpanded={registrationsExpanded}
-            certificatesExpanded={certificatesExpanded}
-            submissionsExpanded={submissionsExpanded}
-            toolsExpanded={toolsExpanded}
-            juryExpanded={juryExpanded}
-            eventsExpanded={eventsExpanded}
-            projectManagementExpanded={projectManagementExpanded}
-            participantToolsExpanded={participantToolsExpanded}
-            paiementManagementExpanded={paiementManagementExpanded}
-            academyExpanded={academyExpanded}
-            onNavigateToView={navigateToView}
-            onToggleDashboard={() => setDashboardExpanded(!dashboardExpanded)}
-            onToggleRegistrations={() => setRegistrationsExpanded(!registrationsExpanded)}
-            onToggleCertificates={() => setCertificatesExpanded(!certificatesExpanded)}
-            onToggleSubmissions={() => setSubmissionsExpanded(!submissionsExpanded)}
-            onToggleTools={() => setToolsExpanded(!toolsExpanded)}
-            onToggleJury={() => setJuryExpanded(!juryExpanded)}
-            onToggleEvents={() => setEventsExpanded(!eventsExpanded)}
-            onToggleProjectManagement={() => setProjectManagementExpanded(!projectManagementExpanded)}
-            onToggleParticipantTools={() => setParticipantToolsExpanded(!participantToolsExpanded)}
-            onTogglePaiementManagement={() => setPaiementManagementExpanded(!paiementManagementExpanded)}
-            onToggleAcademy={() => setAcademyExpanded(!academyExpanded)}
-            onSignOut={handleSignOut}
-          />
+          {isRootSuperAdmin ? (
+            <SuperAdminSidebar
+              sidebarOpen={sidebarOpen}
+              currentView={currentView}
+              onNavigateToView={navigateToView}
+              onSignOut={handleSignOut}
+            />
+          ) : (
+            <Sidebar
+              sidebarOpen={sidebarOpen}
+              currentView={currentView}
+              userRole={userRole}
+              isOrganizer={effectiveIsOrganizer}
+              accountManagementExpanded={accountManagementExpanded}
+              dashboardExpanded={dashboardExpanded}
+              registrationsExpanded={registrationsExpanded}
+              certificatesExpanded={certificatesExpanded}
+              submissionsExpanded={submissionsExpanded}
+              toolsExpanded={toolsExpanded}
+              juryExpanded={juryExpanded}
+              eventsExpanded={eventsExpanded}
+              projectManagementExpanded={projectManagementExpanded}
+              participantToolsExpanded={participantToolsExpanded}
+              paiementManagementExpanded={paiementManagementExpanded}
+              academyExpanded={academyExpanded}
+              opportunitiesExpanded={opportunitiesExpanded}
+              participantOpportunitiesExpanded={participantOpportunitiesExpanded}
+              onNavigateToView={navigateToView}
+              onToggleAccountManagement={() =>
+                setAccountManagementExpanded(!accountManagementExpanded)
+              }
+              onToggleDashboard={() => setDashboardExpanded(!dashboardExpanded)}
+              onToggleRegistrations={() => setRegistrationsExpanded(!registrationsExpanded)}
+              onToggleCertificates={() => setCertificatesExpanded(!certificatesExpanded)}
+              onToggleSubmissions={() => setSubmissionsExpanded(!submissionsExpanded)}
+              onToggleTools={() => setToolsExpanded(!toolsExpanded)}
+              onToggleJury={() => setJuryExpanded(!juryExpanded)}
+              onToggleEvents={() => setEventsExpanded(!eventsExpanded)}
+              onToggleProjectManagement={() => setProjectManagementExpanded(!projectManagementExpanded)}
+              onToggleParticipantTools={() => setParticipantToolsExpanded(!participantToolsExpanded)}
+              onTogglePaiementManagement={() => setPaiementManagementExpanded(!paiementManagementExpanded)}
+              onToggleAcademy={() => setAcademyExpanded(!academyExpanded)}
+              onToggleOpportunities={() => setOpportunitiesExpanded(!opportunitiesExpanded)}
+              onToggleParticipantOpportunities={() =>
+                setParticipantOpportunitiesExpanded(!participantOpportunitiesExpanded)
+              }
+              onSignOut={handleSignOut}
+            />
+          )}
 
-          <OrganizerAwareMain sidebarOpen={sidebarOpen}>
+          <OrganizerAwareMain>
             <Header
               currentUser={currentUser}
               userRole={userRole}
@@ -343,6 +493,11 @@ const App: React.FC = () => {
             />
 
             <div className="flex-1 p-8 overflow-auto">
+              {effectiveIsOrganizer &&
+                userRole === 'Organizer' &&
+                currentView !== ViewState.ACCOUNT_SUBSCRIPTIONS && (
+                  <SubscriptionUnpaidBanner />
+                )}
               <AppRoutes
                 isOrganizer={effectiveIsOrganizer}
                 userRole={userRole}
@@ -359,6 +514,7 @@ const App: React.FC = () => {
 
           <AIAssistant />
         </div>
+        </OrganizerPlatformSubscriptionProvider>
       </OrganizerEventScopeProvider>
     </AdminDisplaySettingsProvider>
   );

@@ -1,0 +1,31 @@
+{
+  "target": {
+    "baseUrl": "http://localhost:3000"
+  },
+  "checks": [
+    {
+      "id": "headers",
+      "order": 1,
+      "name": "HTTP security headers",
+      "description": "Checks key routes for security-related response headers (CSP, frame options, etc.)."
+    },
+    {
+      "id": "route-exposure",
+      "order": 2,
+      "name": "Route exposure",
+      "description": "Probes admin and app routes without authentication and records HTTP status patterns."
+    },
+    {
+      "id": "dependencies",
+      "order": 3,
+      "name": "Dependency audit",
+      "description": "Runs npm audit against the project for known vulnerable packages."
+    },
+    {
+      "id": "zap",
+      "order": 4,
+      "name": "OWASP ZAP quick scan",
+      "description": "Passive/active quick scan via locally installed OWASP ZAP (optional, slower)."
+    }
+  ]
+}
