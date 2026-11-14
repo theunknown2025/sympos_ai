@@ -1,0 +1,13 @@
+project_id = "gcgxgtixscwpiiuenlub"
+
+[api]
+enabled = true
+
+[auth]
+site_url = "https://master.d1oom0lj5oput.amplifyapp.com"
+additional_redirect_urls = [
+  "https://master.d1oom0lj5oput.amplifyapp.com",
+  "https://master.d1oom0lj5oput.amplifyapp.com/**",
+  "http://localhost:3000",
+  "http://localhost:3000/**",
+]

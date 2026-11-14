@@ -5,6 +5,17 @@ import { supabase } from "../../../supabase";
 import { SubscriptionType, SubscriptionRole } from "../../../types";
 import EmailConfirmationModal from './EmailConfirmationModal';
 
+/** Confirmation links must open the hosted site, not the local dev server. */
+const AUTH_CONFIRM_URL = 'https://master.d1oom0lj5oput.amplifyapp.com';
+
+function authEmailRedirectUrl(): string {
+  const configured = String(import.meta.env.VITE_APP_URL || '').replace(/\/$/, '');
+  if (configured && !/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(configured)) {
+    return configured;
+  }
+  return AUTH_CONFIRM_URL;
+}
+
 interface RegisterFormProps {
   onSuccess: () => void;
   onSwitchToLogin: () => void;
@@ -41,6 +52,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({ onSuccess, onSwitchToLogin 
         email,
         password,
         options: {
+          emailRedirectTo: authEmailRedirectUrl(),
           data: {
             subscriptionType,
             role,
