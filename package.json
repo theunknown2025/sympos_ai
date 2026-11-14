@@ -28,7 +28,7 @@
     "jmeter:run:all": "powershell -ExecutionPolicy Bypass -File jmeter/scripts/run-all.ps1",
     "jmeter:stress": "powershell -ExecutionPolicy Bypass -File jmeter/scripts/run-stress-section.ps1",
     "jmeter:stress:all": "powershell -ExecutionPolicy Bypass -File jmeter/scripts/run-stress-all.ps1",
-    "postinstall": "npm run jmeter:install"
+    "postinstall": "node scripts/postinstall.mjs"
   },
   "dependencies": {
     "@duyank/icons": "^0.1.2",
