@@ -1,5 +1,11 @@
 import { supabase, TABLES } from '../supabase';
 import { Event, EventPartner, EventDate, EventLink } from '../types';
+import {
+  mapParticipantEventRow,
+  isPublishedParticipantEvent,
+  PARTICIPANT_EVENT_LIST_COLUMNS,
+} from './participantEventRowMapper';
+import { mapEventTemplateFields } from './eventTemplateFields';
 
 /**
  * Save an event for a participant
@@ -71,7 +77,7 @@ export const getSavedEvents = async (userId: string): Promise<Event[]> => {
       .from(TABLES.PARTICIPANT_SAVED_EVENTS)
       .select(`
         event_id,
-        events (*)
+        events (${PARTICIPANT_EVENT_LIST_COLUMNS})
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
@@ -84,67 +90,14 @@ export const getSavedEvents = async (userId: string): Promise<Event[]> => {
       return [];
     }
 
-    // Helper function to deserialize JSON arrays
-    const deserializeArray = (value: any): any[] => {
-      if (Array.isArray(value)) return value;
-      if (typeof value === 'string') {
-        try {
-          const parsed = JSON.parse(value);
-          return Array.isArray(parsed) ? parsed : [];
-        } catch {
-          return [];
-        }
-      }
-      return [];
-    };
-    
-    // Helper function to get array from new column or fallback to old column
-    const getArrayOrFallback = (newColumnValue: any, oldColumnValue: any): string[] => {
-      const newArray = deserializeArray(newColumnValue);
-      if (newArray.length > 0) {
-        return newArray;
-      }
-      if (oldColumnValue) {
-        return [oldColumnValue];
-      }
-      return [];
-    };
-
-    // Transform the data to extract events
     const events: Event[] = [];
     for (const item of data) {
-      if (item.events) {
-        const eventData = Array.isArray(item.events) ? item.events[0] : item.events;
-        // Only include published events
-        if (eventData.publish_status === 'Published' || eventData.publish_status === 'Closed') {
-          events.push({
-            id: eventData.id,
-            userId: eventData.user_id,
-            name: eventData.name,
-            description: eventData.description || undefined,
-            keywords: deserializeArray(eventData.keywords) as string[],
-            fields: deserializeArray(eventData.fields) as string[],
-            subfields: deserializeArray(eventData.subfields) as string[],
-            eventType: eventData.event_type as 'Conference' | 'Seminar' | 'Workshop' | 'Webinar' | 'Continuing professional development event' | 'Online conference' | undefined,
-            eventFormat: eventData.event_format as 'Virtual' | 'In-Person' | 'Hybrid' | undefined,
-            partners: deserializeArray(eventData.partners) as EventPartner[],
-            dates: deserializeArray(eventData.dates) as EventDate[],
-            location: eventData.location || undefined,
-            links: deserializeArray(eventData.links) as EventLink[],
-            landingPageIds: getArrayOrFallback(eventData.landing_page_ids, eventData.landing_page_id),
-            registrationFormIds: getArrayOrFallback(eventData.registration_form_ids, eventData.registration_form_id),
-            submissionFormIds: getArrayOrFallback(eventData.submission_form_ids, eventData.submission_form_id),
-            evaluationFormIds: deserializeArray(eventData.evaluation_form_ids),
-            certificateTemplateIds: deserializeArray(eventData.certificate_template_ids),
-            committeeIds: deserializeArray(eventData.committee_ids),
-            banner: eventData.banner ? (typeof eventData.banner === 'string' ? JSON.parse(eventData.banner) : eventData.banner) : undefined,
-            publishStatus: (eventData.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
-            registrationDeadline: eventData.registration_deadline || undefined,
-            submissionDeadline: eventData.submission_deadline || undefined,
-            createdAt: new Date(eventData.created_at),
-            updatedAt: new Date(eventData.updated_at),
-          });
-        }
+      if (!item.events) continue;
+      const raw = Array.isArray(item.events) ? item.events[0] : item.events;
+      if (!raw) continue;
+      const event = mapParticipantEventRow(raw as Record<string, unknown>);
+      if (isPublishedParticipantEvent(event)) {
+        events.push(event);
       }
     }
 
@@ -286,12 +239,19 @@ export const getSharedEvents = async (userEmail: string): Promise<Event[]> => {
             registrationFormIds: getArrayOrFallback(eventData.registration_form_ids, eventData.registration_form_id),
             submissionFormIds: getArrayOrFallback(eventData.submission_form_ids, eventData.submission_form_id),
             evaluationFormIds: deserializeArray(eventData.evaluation_form_ids),
-            certificateTemplateIds: deserializeArray(eventData.certificate_template_ids),
+            ...mapEventTemplateFields(eventData),
             committeeIds: deserializeArray(eventData.committee_ids),
             banner: eventData.banner ? (typeof eventData.banner === 'string' ? JSON.parse(eventData.banner) : eventData.banner) : undefined,
             publishStatus: (eventData.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
             registrationDeadline: eventData.registration_deadline || undefined,
             submissionDeadline: eventData.submission_deadline || undefined,
+            submissionWorkflowPreset: (eventData.submission_workflow_preset as 'A' | 'B' | 'C' | 'D') || undefined,
+            abstractSubmissionFormIds: deserializeArray(eventData.abstract_submission_form_ids) as string[],
+            abstractSubmissionDeadline: eventData.abstract_submission_deadline || undefined,
+            paymentDeadline: eventData.payment_deadline || undefined,
+            submissionPaymentOfferId: eventData.submission_payment_offer_id || undefined,
+            submissionPaymentFormId: eventData.submission_payment_form_id || undefined,
+            publishedProgramId: eventData.published_program_id || undefined,
             createdAt: new Date(eventData.created_at),
             updatedAt: new Date(eventData.updated_at),
           });
@@ -379,12 +339,19 @@ export const getEventsSharedByUser = async (userId: string): Promise<Event[]> =>
             registrationFormIds: getArrayOrFallback(eventData.registration_form_ids, eventData.registration_form_id),
             submissionFormIds: getArrayOrFallback(eventData.submission_form_ids, eventData.submission_form_id),
             evaluationFormIds: deserializeArray(eventData.evaluation_form_ids),
-            certificateTemplateIds: deserializeArray(eventData.certificate_template_ids),
+            ...mapEventTemplateFields(eventData),
             committeeIds: deserializeArray(eventData.committee_ids),
             banner: eventData.banner ? (typeof eventData.banner === 'string' ? JSON.parse(eventData.banner) : eventData.banner) : undefined,
             publishStatus: (eventData.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
             registrationDeadline: eventData.registration_deadline || undefined,
             submissionDeadline: eventData.submission_deadline || undefined,
+            submissionWorkflowPreset: (eventData.submission_workflow_preset as 'A' | 'B' | 'C' | 'D') || undefined,
+            abstractSubmissionFormIds: deserializeArray(eventData.abstract_submission_form_ids) as string[],
+            abstractSubmissionDeadline: eventData.abstract_submission_deadline || undefined,
+            paymentDeadline: eventData.payment_deadline || undefined,
+            submissionPaymentOfferId: eventData.submission_payment_offer_id || undefined,
+            submissionPaymentFormId: eventData.submission_payment_form_id || undefined,
+            publishedProgramId: eventData.published_program_id || undefined,
             createdAt: new Date(eventData.created_at),
             updatedAt: new Date(eventData.updated_at),
           });

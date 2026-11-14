@@ -62,6 +62,17 @@ export const eventManagementNs = createNamespace({
     statusPublished: 'Published',
     statusDraft: 'Draft',
     statusClosed: 'Closed',
+    quotaModalTitle: 'You cannot create another event',
+    quotaModalTrialBody:
+      'During your free trial you can create and manage only 1 event. Choose a higher pack to create and manage more events.',
+    quotaModalProBodyOne:
+      'Your Pro pack includes 1 event. You have reached that limit. Choose a higher pack to create and manage more events.',
+    quotaModalProBodyMany:
+      'Your Pro pack includes {{max}} events ({{used}} already created). Choose a higher pack to create and manage more events.',
+    quotaModalInactiveBody:
+      'Your current plan does not allow a new event. Choose a higher pack to create and manage more events.',
+    quotaModalUpgrade: 'View higher packs',
+    quotaModalClose: 'Close',
   },
   fr: {
     pageTitle: 'Gestion d’événements',
@@ -125,5 +136,16 @@ export const eventManagementNs = createNamespace({
     statusPublished: 'Publié',
     statusDraft: 'Brouillon',
     statusClosed: 'Fermé',
+    quotaModalTitle: 'Vous ne pouvez pas créer un autre événement',
+    quotaModalTrialBody:
+      'Pendant l’essai gratuit, vous pouvez créer et gérer un seul événement. Passez à une offre supérieure pour en créer et en gérer davantage.',
+    quotaModalProBodyOne:
+      'Votre offre Pro comprend 1 événement. Cette limite est atteinte. Passez à une offre supérieure pour créer et gérer plus d’événements.',
+    quotaModalProBodyMany:
+      'Votre offre Pro comprend {{max}} événements ({{used}} déjà créés). Passez à une offre supérieure pour en créer et en gérer davantage.',
+    quotaModalInactiveBody:
+      'Votre offre actuelle ne permet pas de créer un nouvel événement. Passez à une offre supérieure pour créer et gérer plus d’événements.',
+    quotaModalUpgrade: 'Voir les offres supérieures',
+    quotaModalClose: 'Fermer',
   },
 });

@@ -4,18 +4,20 @@ import { useAuth } from '../../../hooks/useAuth';
 import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
 import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 import { getUserLandingPages } from '../../../services/landingPageService';
-import { getUserRegistrationForms } from '../../../services/registrationFormService';
+import { getUserRegistrationForms, inferRegistrationFormCategory } from '../../../services/registrationFormService';
 import { getUserEvaluationForms } from '../../../services/evaluationFormService';
 import { getUserCertificateTemplates } from '../../../services/certificateTemplateService';
 import { getUserBadgeTemplates } from '../../../services/badgeTemplateService';
 import { getCommittees } from '../../../services/committeeService';
 import { getPayments, getPaymentMethods, Payment, PaymentMethod } from '../../../services/paymentService';
 import { getEvent, updateEvent } from '../../../services/eventService';
+import { getUserPrograms, type SavedProgram } from '../../../services/programService';
 import { SavedLandingPage } from '../../../services/landingPageService';
 import { RegistrationForm, EvaluationForm, Committee, EventPartner, EventDate, EventLink, CertificateTemplate, EventBanner, SubmissionWorkflowPreset, RegistrationWorkflowPreset } from '../../../types';
 import { supabase, TABLES } from '../../../supabase';
 import TextEditorModal from './TextEditorModal';
 import TemplatePreviewModal from '../Certificates/TemplatePreviewModal';
+import { localISODate, maxISODate, normalizeStep2Deadlines } from './eventFormDeadlineUtils';
 
 interface EditEventProps {
   eventId: string;
@@ -59,6 +61,9 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
   const [registrationWorkflowPreset, setRegistrationWorkflowPreset] = useState<RegistrationWorkflowPreset>('A');
   const [registrationPaymentOfferId, setRegistrationPaymentOfferId] = useState('');
   const [submissionPaymentOfferId, setSubmissionPaymentOfferId] = useState('');
+  const [submissionPaymentFormId, setSubmissionPaymentFormId] = useState('');
+  const [publishedProgramId, setPublishedProgramId] = useState('');
+  const [savedProgramsForPicker, setSavedProgramsForPicker] = useState<SavedProgram[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -123,9 +128,28 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
       setSubfields(eventData.subfields || []);
       setEventType(eventData.eventType || '');
       setEventFormat(eventData.eventFormat || '');
-      // Format dates for date input (YYYY-MM-DD format)
-      setRegistrationDeadline(eventData.registrationDeadline ? eventData.registrationDeadline.split('T')[0] : '');
-      setSubmissionDeadline(eventData.submissionDeadline ? eventData.submissionDeadline.split('T')[0] : '');
+      // Format dates for date input (YYYY-MM-DD); enforce today minimum and abstract ≤ article ≤ payment
+      const presetLoad = (eventData.submissionWorkflowPreset || 'A') as SubmissionWorkflowPreset;
+      const wfAbsLoad = presetLoad === 'C' || presetLoad === 'D';
+      const wfPayLoad = presetLoad === 'B' || presetLoad === 'D';
+      const todayLoad = localISODate();
+      const rawReg = eventData.registrationDeadline ? eventData.registrationDeadline.split('T')[0] : '';
+      const rawArt = eventData.submissionDeadline ? eventData.submissionDeadline.split('T')[0] : '';
+      const rawAbs = eventData.abstractSubmissionDeadline
+        ? eventData.abstractSubmissionDeadline.split('T')[0]
+        : '';
+      const rawPay = eventData.paymentDeadline ? eventData.paymentDeadline.split('T')[0] : '';
+      const norm = normalizeStep2Deadlines({
+        today: todayLoad,
+        workflowNeedsAbstract: wfAbsLoad,
+        workflowNeedsPayment: wfPayLoad,
+        registrationDeadline: rawReg,
+        abstractSubmissionDeadline: rawAbs,
+        submissionDeadline: rawArt,
+        paymentDeadline: rawPay,
+      });
+      setRegistrationDeadline(norm.registrationDeadline);
+      setSubmissionDeadline(norm.submissionDeadline);
       setPartners(eventData.partners || []);
       setDates(eventData.dates || []);
       setLocation(eventData.location || '');
@@ -140,15 +164,15 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
       const legacyEval =
         (eventData.evaluationFormIds?.length ?? 0) > 0 || (eventData.committeeIds?.length ?? 0) > 0;
       setEvaluationEnabled(Boolean(eventData.evaluationEnabled) || legacyEval);
-      setSubmissionWorkflowPreset(eventData.submissionWorkflowPreset || 'A');
+      setSubmissionWorkflowPreset(presetLoad);
       setSelectedAbstractSubmissionFormIds(eventData.abstractSubmissionFormIds || []);
-      setAbstractSubmissionDeadline(
-        eventData.abstractSubmissionDeadline ? eventData.abstractSubmissionDeadline.split('T')[0] : ''
-      );
-      setPaymentDeadline(eventData.paymentDeadline ? eventData.paymentDeadline.split('T')[0] : '');
+      setAbstractSubmissionDeadline(norm.abstractSubmissionDeadline);
+      setPaymentDeadline(norm.paymentDeadline);
       setRegistrationWorkflowPreset(eventData.registrationWorkflowPreset || 'A');
       setRegistrationPaymentOfferId(eventData.registrationPaymentOfferId || '');
       setSubmissionPaymentOfferId(eventData.submissionPaymentOfferId || '');
+      setSubmissionPaymentFormId(eventData.submissionPaymentFormId || '');
+      setPublishedProgramId(eventData.publishedProgramId || '');
       setBanner(eventData.banner || {
         type: 'gradient',
         gradientColors: {
@@ -159,7 +183,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
       });
 
       // Load related resources
-      const [pages, certs, badges, forms, evalForms, comms, pays, methods] = await Promise.all([
+      const [pages, certs, badges, forms, evalForms, comms, pays, methods, programs] = await Promise.all([
         getUserLandingPages(currentUser.id),
         getUserCertificateTemplates(currentUser.id),
         getUserBadgeTemplates(currentUser.id),
@@ -168,6 +192,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
         getCommittees(currentUser.id),
         getPayments(currentUser.id),
         getPaymentMethods(currentUser.id),
+        getUserPrograms(currentUser.id),
       ]);
       
       setLandingPages(pages);
@@ -178,6 +203,9 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
       setCommittees(comms);
       setPaymentOffers(pays);
       setPaymentMethods(methods);
+      setSavedProgramsForPicker(
+        programs.filter((p) => !p.eventId || p.eventId === eventId)
+      );
     } catch (err: any) {
       console.error('Error loading event data:', err);
       setError(err.message || t('errLoadEventData'));
@@ -222,6 +250,26 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
 
     return () => clearTimeout(timeoutId);
   }, [partnerSearchQuery]);
+
+  useEffect(() => {
+    const needsAbstract = submissionWorkflowPreset === 'C' || submissionWorkflowPreset === 'D';
+    if (!needsAbstract) return;
+    if (
+      abstractSubmissionDeadline &&
+      submissionDeadline &&
+      submissionDeadline < abstractSubmissionDeadline
+    ) {
+      setSubmissionDeadline(abstractSubmissionDeadline);
+    }
+  }, [submissionWorkflowPreset, abstractSubmissionDeadline, submissionDeadline]);
+
+  useEffect(() => {
+    const needsPayment = submissionWorkflowPreset === 'B' || submissionWorkflowPreset === 'D';
+    if (!needsPayment) return;
+    if (submissionDeadline && paymentDeadline && paymentDeadline < submissionDeadline) {
+      setPaymentDeadline(submissionDeadline);
+    }
+  }, [submissionWorkflowPreset, submissionDeadline, paymentDeadline]);
 
   const handleKeywordInputChange = (value: string) => {
     setKeywordInput(value);
@@ -470,6 +518,15 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
   const workflowNeedsPayment = submissionWorkflowPreset === 'B' || submissionWorkflowPreset === 'D';
   const registrationNeedsPayment = registrationWorkflowPreset === 'B';
 
+  const todayISO = localISODate();
+  const articleDeadlineMin =
+    workflowNeedsAbstract && abstractSubmissionDeadline
+      ? maxISODate(todayISO, abstractSubmissionDeadline)
+      : todayISO;
+  const paymentDeadlineMin = workflowNeedsPayment
+    ? maxISODate(todayISO, submissionDeadline || '')
+    : todayISO;
+
   const renderPaymentOfferDetails = (offerId: string) => {
     const offer = paymentOffers.find((p) => p.id === offerId);
     if (!offer) return null;
@@ -518,29 +575,72 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
     form.title.startsWith('Reg')
   );
   
-  const submissionFormsFiltered = registrationForms.filter(form => 
+  const submissionFormsFiltered = registrationForms.filter(form =>
     form.title.startsWith('Sub')
   );
 
-  const evaluationFormsFiltered = evaluationForms.filter(form => 
+  const submissionPaymentFormsFiltered = registrationForms.filter(
+    (form) => inferRegistrationFormCategory(form) === 'payment'
+  );
+
+  const evaluationFormsFiltered = evaluationForms.filter(form =>
     form.title.startsWith('Eval')
   );
 
   const validateDeadlines = (): boolean => {
+    const todayCheck = localISODate();
     if (!registrationDeadline?.trim()) {
       setError(t('errRegistrationDeadlineRequired'));
+      return false;
+    }
+    if (registrationDeadline.trim() < todayCheck) {
+      setError(t('errDeadlineMustBeTodayOrLater'));
       return false;
     }
     if (!submissionDeadline?.trim()) {
       setError(t('errArticleDeadlineRequired'));
       return false;
     }
+    if (submissionDeadline.trim() < todayCheck) {
+      setError(t('errDeadlineMustBeTodayOrLater'));
+      return false;
+    }
     if (workflowNeedsAbstract && !abstractSubmissionDeadline?.trim()) {
       setError(t('errAbstractDeadlineRequired'));
       return false;
     }
+    if (workflowNeedsAbstract && abstractSubmissionDeadline.trim() < todayCheck) {
+      setError(t('errDeadlineMustBeTodayOrLater'));
+      return false;
+    }
+    if (
+      workflowNeedsAbstract &&
+      abstractSubmissionDeadline &&
+      submissionDeadline &&
+      submissionDeadline.trim() < abstractSubmissionDeadline.trim()
+    ) {
+      setError(t('errAbstractBeforeArticle'));
+      return false;
+    }
     if (workflowNeedsPayment && !paymentDeadline?.trim()) {
       setError(t('errPaymentDeadlineRequired'));
+      return false;
+    }
+    if (workflowNeedsPayment && paymentDeadline.trim() < todayCheck) {
+      setError(t('errDeadlineMustBeTodayOrLater'));
+      return false;
+    }
+    if (
+      workflowNeedsPayment &&
+      paymentDeadline &&
+      submissionDeadline &&
+      paymentDeadline.trim() < submissionDeadline.trim()
+    ) {
+      setError(t('errArticleBeforePayment'));
+      return false;
+    }
+    if (workflowNeedsPayment && !submissionPaymentFormId?.trim()) {
+      setError(t('errSubmissionPaymentFormRequired'));
       return false;
     }
     return true;
@@ -605,6 +705,8 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
         registrationWorkflowPreset,
         registrationPaymentOfferId: registrationNeedsPayment ? registrationPaymentOfferId : '',
         submissionPaymentOfferId: workflowNeedsPayment ? submissionPaymentOfferId : '',
+        submissionPaymentFormId: workflowNeedsPayment ? submissionPaymentFormId : '',
+        publishedProgramId: publishedProgramId.trim() || undefined,
       };
 
       await updateEvent(eventId, eventData);
@@ -1901,6 +2003,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 </label>
                 <input
                   type="date"
+                  min={todayISO}
                   value={registrationDeadline}
                   onChange={(e) => setRegistrationDeadline(e.target.value)}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -1972,6 +2075,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                 </label>
                 <input
                   type="date"
+                  min={articleDeadlineMin}
                   value={submissionDeadline}
                   onChange={(e) => setSubmissionDeadline(e.target.value)}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -2025,6 +2129,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                         setSubmissionWorkflowPreset(key);
                         if (key === 'A' || key === 'C') {
                           setSubmissionPaymentOfferId('');
+                          setSubmissionPaymentFormId('');
                         }
                       }}
                       className={`text-left rounded-lg border-2 p-3 text-sm transition-all ${
@@ -2093,6 +2198,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       </label>
                       <input
                         type="date"
+                        min={todayISO}
                         value={abstractSubmissionDeadline}
                         onChange={(e) => setAbstractSubmissionDeadline(e.target.value)}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
@@ -2136,6 +2242,7 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       <p className="text-xs text-slate-500 mb-1">{t('paymentDeadlineHintSubmission')}</p>
                       <input
                         type="date"
+                        min={paymentDeadlineMin}
                         value={paymentDeadline}
                         onChange={(e) => setPaymentDeadline(e.target.value)}
                         className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
@@ -2143,8 +2250,58 @@ const EditEvent: React.FC<EditEventProps> = ({ eventId, onSave, onCancel }) => {
                       />
                       </div>
                     </div>
+                    <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                      <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                        <FileText className="text-indigo-600" size={18} />
+                        {t('labelSubmissionPaymentForm')}
+                        <span className="text-red-500">*</span>
+                      </label>
+                      <p className="text-xs text-slate-500">{t('hintSubmissionPaymentForm')}</p>
+                      <select
+                        value={submissionPaymentFormId}
+                        onChange={(e) => setSubmissionPaymentFormId(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                        required
+                      >
+                        <option value="">{t('optSelectSubmissionPaymentForm')}</option>
+                        {submissionPaymentFormsFiltered.map((form) => (
+                          <option key={form.id} value={form.id}>
+                            {form.title}
+                          </option>
+                        ))}
+                      </select>
+                      {submissionPaymentFormsFiltered.length === 0 && (
+                        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                          {t('emptyNoPaymentOffers')}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
+                <div className="pt-2 border-t border-slate-200">
+                  <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                    <Layers className="text-indigo-600" size={18} />
+                    {t('labelPublishedProgram')}
+                  </label>
+                  <p className="text-xs text-slate-600 mt-1 mb-2">{t('hintPublishedProgram')}</p>
+                  <select
+                    value={publishedProgramId}
+                    onChange={(e) => setPublishedProgramId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+                  >
+                    <option value="">{t('optNoPublishedProgram')}</option>
+                    {savedProgramsForPicker.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.title}
+                      </option>
+                    ))}
+                  </select>
+                  {savedProgramsForPicker.length === 0 && (
+                    <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3 mt-2">
+                      {t('emptyNoProgramsForEvent')}
+                    </p>
+                  )}
+                </div>
               </div>
 
               <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-4">

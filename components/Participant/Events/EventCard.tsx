@@ -14,8 +14,13 @@ interface EventCardProps {
   onShare: (event: Event) => void;
   isFavorite: boolean;
   isEventRegistered: boolean;
-  isEventSubmitted: boolean;
   isEventConfirmed: boolean;
+  /** Primary label for the submission button. */
+  submitPaperLabel?: string;
+  /** Styling: pipeline finished on the participant side (may still open summary). */
+  submitPaperComplete?: boolean;
+  /** Block opening the form (e.g. step under organizer review). */
+  submitPaperActionDisabled?: boolean;
 }
 
 const EventCard: React.FC<EventCardProps> = ({
@@ -27,8 +32,10 @@ const EventCard: React.FC<EventCardProps> = ({
   onShare,
   isFavorite,
   isEventRegistered,
-  isEventSubmitted,
   isEventConfirmed,
+  submitPaperLabel = 'Submit paper',
+  submitPaperComplete = false,
+  submitPaperActionDisabled = false,
 }) => {
   const hasSubmissionForm = event.submissionFormIds && event.submissionFormIds.length > 0;
   const hasRegistrationForm = event.registrationFormIds && event.registrationFormIds.length > 0;
@@ -149,31 +156,31 @@ const EventCard: React.FC<EventCardProps> = ({
         
         <button
           onClick={() => onSubmitPaper(event)}
-          disabled={!hasSubmissionForm}
+          disabled={!hasSubmissionForm || (submitPaperActionDisabled && !submitPaperComplete)}
           className={`flex-1 px-3 py-2 rounded-lg transition-colors text-sm font-medium flex items-center justify-center gap-2 ${
             !hasSubmissionForm
               ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-              : isEventSubmitted
+              : submitPaperComplete
               ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 border border-indigo-300'
               : 'bg-indigo-600 text-white hover:bg-indigo-700'
           }`}
           title={
-            !hasSubmissionForm 
+            !hasSubmissionForm
               ? 'No submission form available'
-              : isEventSubmitted
-              ? 'Already submitted - Click to view/edit'
-              : 'Submit Paper'
+              : submitPaperComplete
+              ? 'View submission progress'
+              : submitPaperLabel
           }
         >
-          {isEventSubmitted ? (
+          {submitPaperComplete ? (
             <>
               <CheckCircle2 size={14} />
-              Submitted
+              {submitPaperLabel}
             </>
           ) : (
             <>
               <Send size={14} />
-              Submit
+              {submitPaperLabel}
             </>
           )}
         </button>

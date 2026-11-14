@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Event } from '../../../types';
 import { getSharedEvents } from '../../../services/participantEventService';
 import EventFilters from './EventFilters';
-import EventCard from './EventCard';
+import ParticipantEventCard from './ParticipantEventCard';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
 
@@ -14,7 +14,6 @@ interface SharedEventsProps {
   onShare: (event: Event) => void;
   isFavorite: (eventId: string) => boolean;
   isEventRegistered: (event: Event) => boolean;
-  isEventSubmitted: (event: Event) => boolean;
   isEventConfirmed: (eventId: string) => boolean;
   myRegistrations: any[];
   mySubmissions: any[];
@@ -28,7 +27,6 @@ const SharedEvents: React.FC<SharedEventsProps> = ({
   onShare,
   isFavorite,
   isEventRegistered,
-  isEventSubmitted,
   isEventConfirmed,
   myRegistrations,
   mySubmissions,
@@ -103,9 +101,10 @@ const SharedEvents: React.FC<SharedEventsProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredEvents.map((event) => (
-            <EventCard
+            <ParticipantEventCard
               key={event.id}
               event={event}
+              mySubmissions={mySubmissions}
               onPreview={onPreview}
               onSubscribe={onSubscribe}
               onSubmitPaper={onSubmitPaper}
@@ -113,7 +112,6 @@ const SharedEvents: React.FC<SharedEventsProps> = ({
               onShare={onShare}
               isFavorite={isFavorite(event.id)}
               isEventRegistered={isEventRegistered(event)}
-              isEventSubmitted={isEventSubmitted(event)}
               isEventConfirmed={isEventConfirmed(event.id)}
             />
           ))}

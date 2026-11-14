@@ -14,9 +14,10 @@ import { getRoutePath } from '../../../routes';
 import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
 import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 import NewEvent from './NewEvent';
-import EditEvent from './EditEvent';
 import EventPreview from './EventPreview';
 import PublishHandler from './PublishHandler';
+import EventPublishModal from './EventPublishModal';
+import { getEventPublicUrl } from '../../../services/eventService';
 
 type ViewMode = 'cards' | 'rows';
 
@@ -208,9 +209,28 @@ const ListOfEvents: React.FC = () => {
     setPublishingEventId(null);
   };
 
-  const handlePublishStatusChange = (eventId: string, newStatus: PublishStatus) => {
-    setEvents(events.map(e => e.id === eventId ? { ...e, publishStatus: newStatus } : e));
-    loadEvents(); // Reload to ensure consistency
+  const handlePublishStatusChange = (
+    eventId: string,
+    newStatus: PublishStatus,
+    publicSlug?: string | null
+  ) => {
+    setEvents(
+      events.map((e) =>
+        e.id === eventId
+          ? {
+              ...e,
+              publishStatus: newStatus,
+              publicSlug:
+                publicSlug !== undefined
+                  ? publicSlug || undefined
+                  : newStatus === 'Draft'
+                    ? undefined
+                    : e.publicSlug,
+            }
+          : e
+      )
+    );
+    loadEvents();
   };
 
   const toggleColumnVisibility = (columnId: string) => {
@@ -237,7 +257,7 @@ const ListOfEvents: React.FC = () => {
           <ArrowRight className="rotate-180" size={16} />
           {t('backToList')}
         </button>
-        <EditEvent 
+        <NewEvent
           eventId={editingEventId}
           onSave={handleEditClose}
           onCancel={handleEditClose}
@@ -395,12 +415,30 @@ const ListOfEvents: React.FC = () => {
         </div>
       )}
 
-      {/* Publish Handler Modal */}
-      {publishingEvent && (
+      {publishingEvent &&
+        currentUser &&
+        (publishingEvent.publishStatus === 'Draft' ||
+          (publishingEvent.publishStatus === 'Published' && !publishingEvent.publicSlug)) && (
+        <EventPublishModal
+          event={publishingEvent}
+          organizerUserId={currentUser.id}
+          onClose={handlePublishClose}
+          onPublished={(slug) => {
+            handlePublishStatusChange(publishingEvent.id, 'Published', slug);
+            handlePublishClose();
+          }}
+        />
+      )}
+
+      {publishingEvent &&
+        publishingEvent.publishStatus !== 'Draft' &&
+        (publishingEvent.publicSlug || publishingEvent.publishStatus === 'Closed') && (
         <PublishHandler
           eventId={publishingEvent.id}
           currentStatus={publishingEvent.publishStatus || 'Draft'}
-          onStatusChange={(newStatus) => handlePublishStatusChange(publishingEvent.id, newStatus)}
+          onStatusChange={(newStatus) =>
+            handlePublishStatusChange(publishingEvent.id, newStatus, newStatus === 'Draft' ? null : undefined)
+          }
           onClose={handlePublishClose}
         />
       )}
@@ -507,6 +545,18 @@ const EventCard: React.FC<EventCardProps> = ({
           >
             <Eye size={16} />
           </button>
+          {event.publicSlug && (
+            <a
+              href={getEventPublicUrl(event.publicSlug)}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+              title={t('openPublicPage')}
+            >
+              <Globe size={16} />
+            </a>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -913,14 +963,18 @@ const GeneralQuickAccess: React.FC<GeneralQuickAccessProps> = ({ event }) => {
       }
 
       // Load certificate titles
-      if (event.certificateTemplateIds.length > 0) {
-        const certPromises = event.certificateTemplateIds.map(id => getCertificateTemplate(id));
+      const registrationCertIds =
+        event.registrationCertificateTemplateIds?.length
+          ? event.registrationCertificateTemplateIds
+          : event.certificateTemplateIds;
+      if (registrationCertIds.length > 0) {
+        const certPromises = registrationCertIds.map(id => getCertificateTemplate(id));
         const certs = await Promise.all(certPromises);
         const validCerts = certs.filter(c => c !== null);
         setCertificateTitles(validCerts.map(c => c!.title));
         // Store the first certificate ID for navigation
         if (validCerts.length > 0) {
-          setFirstCertificateId(event.certificateTemplateIds[0]);
+          setFirstCertificateId(registrationCertIds[0]);
         } else {
           setFirstCertificateId(null);
         }

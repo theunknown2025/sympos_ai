@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Event } from '../../../types';
-import { getAvailableEvents } from '../../../services/juryMemberService';
-import { useAuth } from '../../../hooks/useAuth';
 import EventFilters from './EventFilters';
-import EventCard from './EventCard';
-import { Loader2, AlertCircle } from 'lucide-react';
+import ParticipantEventCard from './ParticipantEventCard';
 
 interface AllEventsProps {
+  events: Event[];
   onPreview: (event: Event) => void;
   onSubscribe: (event: Event) => void;
   onSubmitPaper: (event: Event) => void;
@@ -14,13 +12,13 @@ interface AllEventsProps {
   onShare: (event: Event) => void;
   isFavorite: (eventId: string) => boolean;
   isEventRegistered: (event: Event) => boolean;
-  isEventSubmitted: (event: Event) => boolean;
   isEventConfirmed: (eventId: string) => boolean;
   myRegistrations: any[];
   mySubmissions: any[];
 }
 
 const AllEvents: React.FC<AllEventsProps> = ({
+  events,
   onPreview,
   onSubscribe,
   onSubmitPaper,
@@ -28,70 +26,20 @@ const AllEvents: React.FC<AllEventsProps> = ({
   onShare,
   isFavorite,
   isEventRegistered,
-  isEventSubmitted,
   isEventConfirmed,
   myRegistrations,
   mySubmissions,
 }) => {
-  const { currentUser } = useAuth();
-  const [events, setEvents] = useState<Event[]>([]);
-  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [filteredEvents, setFilteredEvents] = useState<Event[]>(events);
 
-  useEffect(() => {
-    loadEvents();
-  }, [currentUser?.id]);
-
-  const loadEvents = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      if (!currentUser?.id) return;
-      const eventsData = await getAvailableEvents(currentUser.id);
-      setEvents(eventsData);
-      setFilteredEvents(eventsData);
-    } catch (err: any) {
-      console.error('Error loading events:', err);
-      setError(err.message || 'Failed to load events');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <Loader2 className="animate-spin text-indigo-600" size={32} />
-        <p className="text-slate-500 mt-4">Loading events...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-        <div className="flex items-start gap-3">
-          <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Error loading events</p>
-            <p className="text-sm mt-1">{error}</p>
-            <button
-              onClick={loadEvents}
-              className="mt-3 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  React.useEffect(() => {
+    setFilteredEvents(events);
+  }, [events]);
 
   return (
     <div>
       <EventFilters events={events} onFilterChange={setFilteredEvents} />
-      
+
       {filteredEvents.length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           <p className="font-medium">No events found</p>
@@ -100,9 +48,10 @@ const AllEvents: React.FC<AllEventsProps> = ({
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredEvents.map((event) => (
-            <EventCard
+            <ParticipantEventCard
               key={event.id}
               event={event}
+              mySubmissions={mySubmissions}
               onPreview={onPreview}
               onSubscribe={onSubscribe}
               onSubmitPaper={onSubmitPaper}
@@ -110,7 +59,6 @@ const AllEvents: React.FC<AllEventsProps> = ({
               onShare={onShare}
               isFavorite={isFavorite(event.id)}
               isEventRegistered={isEventRegistered(event)}
-              isEventSubmitted={isEventSubmitted(event)}
               isEventConfirmed={isEventConfirmed(event.id)}
             />
           ))}

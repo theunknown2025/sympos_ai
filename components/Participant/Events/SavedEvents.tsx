@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Event } from '../../../types';
-import { getSavedEvents, removeSavedEvent } from '../../../services/participantEventService';
 import EventFilters from './EventFilters';
-import EventCard from './EventCard';
-import { Loader2, AlertCircle } from 'lucide-react';
-import { useAuth } from '../../../hooks/useAuth';
+import ParticipantEventCard from './ParticipantEventCard';
 
 interface SavedEventsProps {
+  events: Event[];
   onPreview: (event: Event) => void;
   onSubscribe: (event: Event) => void;
   onSubmitPaper: (event: Event) => void;
@@ -14,13 +12,13 @@ interface SavedEventsProps {
   onShare: (event: Event) => void;
   isFavorite: (eventId: string) => boolean;
   isEventRegistered: (event: Event) => boolean;
-  isEventSubmitted: (event: Event) => boolean;
   isEventConfirmed: (eventId: string) => boolean;
   myRegistrations: any[];
   mySubmissions: any[];
 }
 
 const SavedEvents: React.FC<SavedEventsProps> = ({
+  events,
   onPreview,
   onSubscribe,
   onSubmitPaper,
@@ -28,96 +26,32 @@ const SavedEvents: React.FC<SavedEventsProps> = ({
   onShare,
   isFavorite,
   isEventRegistered,
-  isEventSubmitted,
   isEventConfirmed,
   myRegistrations,
   mySubmissions,
 }) => {
-  const { currentUser } = useAuth();
-  const [events, setEvents] = useState<Event[]>([]);
-  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [filteredEvents, setFilteredEvents] = useState<Event[]>(events);
 
-  useEffect(() => {
-    if (currentUser?.id) {
-      loadEvents();
-    }
-  }, [currentUser]);
-
-  const loadEvents = async () => {
-    if (!currentUser?.id) return;
-
-    try {
-      setLoading(true);
-      setError('');
-      const eventsData = await getSavedEvents(currentUser.id);
-      setEvents(eventsData);
-      setFilteredEvents(eventsData);
-    } catch (err: any) {
-      console.error('Error loading saved events:', err);
-      setError(err.message || 'Failed to load saved events');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRemoveSaved = async (eventId: string) => {
-    if (!currentUser?.id) return;
-
-    try {
-      await removeSavedEvent(currentUser.id, eventId);
-      await loadEvents();
-    } catch (err: any) {
-      console.error('Error removing saved event:', err);
-      alert(err.message || 'Failed to remove saved event');
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-12">
-        <Loader2 className="animate-spin text-indigo-600" size={32} />
-        <p className="text-slate-500 mt-4">Loading favorite events...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-        <div className="flex items-start gap-3">
-          <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="font-medium">Error loading favorite events</p>
-            <p className="text-sm mt-1">{error}</p>
-            <button
-              onClick={loadEvents}
-              className="mt-3 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              Try Again
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  React.useEffect(() => {
+    setFilteredEvents(events);
+  }, [events]);
 
   return (
     <div>
       <EventFilters events={events} onFilterChange={setFilteredEvents} />
-      
+
       {filteredEvents.length === 0 ? (
         <div className="text-center py-12 text-slate-400">
           <p className="font-medium">No favorite events</p>
-          <p className="text-sm">You haven't favorited any events yet</p>
+          <p className="text-sm">You haven&apos;t favorited any events yet</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredEvents.map((event) => (
-            <EventCard
+            <ParticipantEventCard
               key={event.id}
               event={event}
+              mySubmissions={mySubmissions}
               onPreview={onPreview}
               onSubscribe={onSubscribe}
               onSubmitPaper={onSubmitPaper}
@@ -125,7 +59,6 @@ const SavedEvents: React.FC<SavedEventsProps> = ({
               onShare={onShare}
               isFavorite={isFavorite(event.id)}
               isEventRegistered={isEventRegistered(event)}
-              isEventSubmitted={isEventSubmitted(event)}
               isEventConfirmed={isEventConfirmed(event.id)}
             />
           ))}

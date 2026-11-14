@@ -1,7 +1,87 @@
 import { supabase, TABLES } from '../supabase';
 import { Event, EventPartner, EventDate, EventLink, SubscriptionRole } from '../types';
+import { mapEventTemplateFields, serializeEventTemplateFields } from './eventTemplateFields';
+import {
+  mapEventCheckinDisplayFields,
+  serializeEventCheckinDisplayFields,
+} from './eventCheckinDisplayFields';
+import {
+  getEventOrganizerPartners,
+  isEventOrganizerPartner,
+  setEventOrganizerPartners,
+} from './eventPartnershipService';
+import {
+  assertOrganizerCanCreateEvent,
+  EventQuotaExceededError,
+  getOrganizerEventQuota,
+  isEventQuotaDbError,
+} from './organizerEventQuota';
+import { assertEventResourcePayload, EventResourceSlotFullError } from './eventResources/slots';
 
 const TABLE_NAME = TABLES.EVENTS;
+
+const getPartneredEventIdsForUser = async (userId: string): Promise<string[]> => {
+  try {
+    const { data, error } = await supabase
+      .from(TABLES.EVENT_ORGANIZER_PARTNERSHIPS)
+      .select('event_id')
+      .eq('partner_user_id', userId);
+
+    if (error) {
+      console.warn('Could not load event partnerships:', error.message);
+      return [];
+    }
+
+    return (data || []).map((row) => row.event_id as string).filter(Boolean);
+  } catch (err) {
+    console.warn('Could not load event partnerships:', err);
+    return [];
+  }
+};
+
+/** Owned events plus events where the user is a co-organizer partner. */
+const fetchOrganizerEventRows = async (
+  userId: string,
+  select: string
+): Promise<Record<string, unknown>[]> => {
+  const partneredEventIds = await getPartneredEventIdsForUser(userId);
+
+  const ownedRes = await supabase
+    .from(TABLE_NAME)
+    .select(select)
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+
+  if (ownedRes.error) {
+    throw ownedRes.error;
+  }
+
+  let partneredRows: Record<string, unknown>[] = [];
+  if (partneredEventIds.length > 0) {
+    const partneredRes = await supabase
+      .from(TABLE_NAME)
+      .select(select)
+      .in('id', partneredEventIds)
+      .order('updated_at', { ascending: false });
+
+    if (partneredRes.error) {
+      throw partneredRes.error;
+    }
+    partneredRows = (partneredRes.data || []) as Record<string, unknown>[];
+  }
+
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const row of [...(ownedRes.data || []), ...partneredRows] as Record<string, unknown>[]) {
+    const id = row.id as string;
+    if (id) byId.set(id, row);
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const aTime = new Date((a.updated_at as string) || 0).getTime();
+    const bTime = new Date((b.updated_at as string) || 0).getTime();
+    return bTime - aTime;
+  });
+};
 
 const getOrganizerCampusId = async (organizerUserId: string): Promise<string | null> => {
   const { data, error } = await supabase
@@ -60,8 +140,11 @@ export const saveEvent = async (
     if (!event.name || !event.name.trim()) {
       throw new Error('Event name is required');
     }
-    
+
+    await assertOrganizerCanCreateEvent(userId);
+
     const cleanedEvent = removeUndefined(event);
+    assertEventResourcePayload(cleanedEvent);
     
     // Serialize arrays to JSON strings for Supabase storage
     const insertData: any = {
@@ -87,8 +170,17 @@ export const saveEvent = async (
     insertData.registration_form_ids = JSON.stringify(cleanedEvent.registrationFormIds || []);
     insertData.submission_form_ids = JSON.stringify(cleanedEvent.submissionFormIds || []);
     insertData.evaluation_form_ids = JSON.stringify(cleanedEvent.evaluationFormIds || []);
-    insertData.certificate_template_ids = JSON.stringify(cleanedEvent.certificateTemplateIds || []);
-    insertData.badge_template_ids = JSON.stringify(cleanedEvent.badgeTemplateIds || []);
+    Object.assign(
+      insertData,
+      serializeEventTemplateFields({
+        registrationBadgeTemplateIds: cleanedEvent.registrationBadgeTemplateIds,
+        registrationCertificateTemplateIds:
+          cleanedEvent.registrationCertificateTemplateIds ?? cleanedEvent.certificateTemplateIds,
+        submissionBadgeTemplateIds:
+          cleanedEvent.submissionBadgeTemplateIds ?? cleanedEvent.badgeTemplateIds,
+        submissionCertificateTemplateIds: cleanedEvent.submissionCertificateTemplateIds,
+      })
+    );
     insertData.committee_ids = JSON.stringify(cleanedEvent.committeeIds || []);
     insertData.evaluation_enabled =
       cleanedEvent.evaluationEnabled === undefined ? false : Boolean(cleanedEvent.evaluationEnabled);
@@ -103,6 +195,9 @@ export const saveEvent = async (
     insertData.registration_workflow_preset = cleanedEvent.registrationWorkflowPreset || null;
     insertData.registration_payment_offer_id = cleanedEvent.registrationPaymentOfferId || null;
     insertData.submission_payment_offer_id = cleanedEvent.submissionPaymentOfferId || null;
+    insertData.submission_payment_form_id = cleanedEvent.submissionPaymentFormId || null;
+    insertData.published_program_id = cleanedEvent.publishedProgramId || null;
+    Object.assign(insertData, serializeEventCheckinDisplayFields(cleanedEvent));
 
     // Backward compatibility: Also populate old columns with first value from arrays
     // This ensures compatibility during migration period
@@ -125,9 +220,22 @@ export const saveEvent = async (
     if (error) {
       throw error;
     }
-    
-    return data.id;
+
+    const newEventId = data.id as string;
+
+    if (cleanedEvent.organizerPartnerUserIds?.length) {
+      await setEventOrganizerPartners(newEventId, cleanedEvent.organizerPartnerUserIds, userId);
+    }
+
+    return newEventId;
   } catch (error: any) {
+    if (error instanceof EventQuotaExceededError || error instanceof EventResourceSlotFullError) {
+      throw error;
+    }
+    if (isEventQuotaDbError(error)) {
+      const quota = await getOrganizerEventQuota(userId);
+      throw new EventQuotaExceededError(quota);
+    }
     console.error('Error saving event:', error);
     throw new Error(error.message || 'Failed to save event');
   }
@@ -146,6 +254,7 @@ export const updateEvent = async (
     }
     
     const cleanedEvent = removeUndefined(event);
+    assertEventResourcePayload(cleanedEvent);
     
     const updateData: any = {
       updated_at: new Date().toISOString(),
@@ -212,6 +321,18 @@ export const updateEvent = async (
           ? null
           : cleanedEvent.submissionPaymentOfferId;
     }
+    if (cleanedEvent.submissionPaymentFormId !== undefined) {
+      updateData.submission_payment_form_id =
+        cleanedEvent.submissionPaymentFormId === '' || !cleanedEvent.submissionPaymentFormId
+          ? null
+          : cleanedEvent.submissionPaymentFormId;
+    }
+    if (cleanedEvent.publishedProgramId !== undefined) {
+      updateData.published_program_id =
+        cleanedEvent.publishedProgramId === '' || !cleanedEvent.publishedProgramId
+          ? null
+          : cleanedEvent.publishedProgramId;
+    }
     if (cleanedEvent.landingPageIds !== undefined) {
       updateData.landing_page_ids = JSON.stringify(cleanedEvent.landingPageIds);
       // Backward compatibility: Also update old column with first value
@@ -242,11 +363,25 @@ export const updateEvent = async (
     if (cleanedEvent.evaluationFormIds !== undefined) {
       updateData.evaluation_form_ids = JSON.stringify(cleanedEvent.evaluationFormIds);
     }
-    if (cleanedEvent.certificateTemplateIds !== undefined) {
-      updateData.certificate_template_ids = JSON.stringify(cleanedEvent.certificateTemplateIds);
-    }
-    if (cleanedEvent.badgeTemplateIds !== undefined) {
-      updateData.badge_template_ids = JSON.stringify(cleanedEvent.badgeTemplateIds);
+    if (
+      cleanedEvent.registrationBadgeTemplateIds !== undefined ||
+      cleanedEvent.registrationCertificateTemplateIds !== undefined ||
+      cleanedEvent.submissionBadgeTemplateIds !== undefined ||
+      cleanedEvent.submissionCertificateTemplateIds !== undefined ||
+      cleanedEvent.certificateTemplateIds !== undefined ||
+      cleanedEvent.badgeTemplateIds !== undefined
+    ) {
+      Object.assign(
+        updateData,
+        serializeEventTemplateFields({
+          registrationBadgeTemplateIds: cleanedEvent.registrationBadgeTemplateIds,
+          registrationCertificateTemplateIds:
+            cleanedEvent.registrationCertificateTemplateIds ?? cleanedEvent.certificateTemplateIds,
+          submissionBadgeTemplateIds:
+            cleanedEvent.submissionBadgeTemplateIds ?? cleanedEvent.badgeTemplateIds,
+          submissionCertificateTemplateIds: cleanedEvent.submissionCertificateTemplateIds,
+        })
+      );
     }
     if (cleanedEvent.committeeIds !== undefined) {
       updateData.committee_ids = JSON.stringify(cleanedEvent.committeeIds);
@@ -260,7 +395,8 @@ export const updateEvent = async (
     if (cleanedEvent.publishStatus !== undefined) {
       updateData.publish_status = cleanedEvent.publishStatus;
     }
-    
+    Object.assign(updateData, serializeEventCheckinDisplayFields(cleanedEvent));
+
     const { error } = await supabase
       .from(TABLE_NAME)
       .update(updateData)
@@ -269,7 +405,18 @@ export const updateEvent = async (
     if (error) {
       throw error;
     }
+
+    if (cleanedEvent.organizerPartnerUserIds !== undefined) {
+      const { data: authData, error: authErr } = await supabase.auth.getUser();
+      if (authErr) throw authErr;
+      const actorId = authData.user?.id;
+      if (!actorId) {
+        throw new Error('User not authenticated');
+      }
+      await setEventOrganizerPartners(eventId, cleanedEvent.organizerPartnerUserIds, actorId);
+    }
   } catch (error: any) {
+    if (error instanceof EventResourceSlotFullError) throw error;
     console.error('Error updating event:', error);
     throw new Error(error.message || 'Failed to update event');
   }
@@ -324,6 +471,8 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
       return [];
     };
     
+    const organizerPartners = await getEventOrganizerPartners(data.id);
+
     return {
       id: data.id,
       userId: data.user_id,
@@ -336,6 +485,8 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
       eventType: data.event_type as 'Conference' | 'Seminar' | 'Workshop' | 'Webinar' | 'Continuing professional development event' | 'Online conference' | undefined,
       eventFormat: data.event_format as 'Virtual' | 'In-Person' | 'Hybrid' | undefined,
       partners: deserializeArray(data.partners) as EventPartner[],
+      organizerPartners,
+      organizerPartnerUserIds: organizerPartners.map((p) => p.userId),
       dates: deserializeArray(data.dates) as EventDate[],
       location: data.location || undefined,
       links: deserializeArray(data.links) as EventLink[],
@@ -343,12 +494,12 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
       registrationFormIds: getArrayOrFallback(data.registration_form_ids, data.registration_form_id),
       submissionFormIds: getArrayOrFallback(data.submission_form_ids, data.submission_form_id),
       evaluationFormIds: deserializeArray(data.evaluation_form_ids),
-      certificateTemplateIds: deserializeArray(data.certificate_template_ids),
-      badgeTemplateIds: deserializeArray(data.badge_template_ids) as string[],
+      ...mapEventTemplateFields(data),
       committeeIds: deserializeArray(data.committee_ids),
       evaluationEnabled: Boolean(data.evaluation_enabled),
       banner: data.banner ? (typeof data.banner === 'string' ? JSON.parse(data.banner) : data.banner) : undefined,
       publishStatus: (data.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
+      publicSlug: (data.public_slug as string) || undefined,
       registrationDeadline: data.registration_deadline || undefined,
       submissionDeadline: data.submission_deadline || undefined,
       submissionWorkflowPreset: (data.submission_workflow_preset as 'A' | 'B' | 'C' | 'D') || undefined,
@@ -358,6 +509,9 @@ export const getEvent = async (eventId: string): Promise<Event | null> => {
       registrationWorkflowPreset: (data.registration_workflow_preset as 'A' | 'B') || undefined,
       registrationPaymentOfferId: data.registration_payment_offer_id || undefined,
       submissionPaymentOfferId: data.submission_payment_offer_id || undefined,
+      submissionPaymentFormId: data.submission_payment_form_id || undefined,
+      publishedProgramId: data.published_program_id || undefined,
+      ...mapEventCheckinDisplayFields(data),
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
     };
@@ -376,12 +530,15 @@ export const getUserEvents = async (userId: string, userRole?: SubscriptionRole 
       throw new Error('User ID is required');
     }
 
-    let query = supabase
-      .from(TABLE_NAME)
-      .select('*');
+    let data: Record<string, unknown>[] | null = null;
 
     if (userRole === 'SuperAdmin') {
-      // Root super admin can see all events; RLS handles the rest
+      const res = await supabase
+        .from(TABLE_NAME)
+        .select('*')
+        .order('updated_at', { ascending: false });
+      if (res.error) throw res.error;
+      data = (res.data || []) as Record<string, unknown>[];
     } else if (userRole === 'SubSuperAdmin') {
       const { data: sm, error: smErr } = await supabase
         .from(TABLES.SUB_SUPER_ADMIN_MEMBERSHIPS)
@@ -395,16 +552,16 @@ export const getUserEvents = async (userId: string, userRole?: SubscriptionRole 
         return [];
       }
 
-      query = query.in('campus_id', campusIds);
-    } else {
-      // Default organizer behavior
-      query = query.eq('user_id', userId);
-    }
+      const res = await supabase
+        .from(TABLE_NAME)
+        .select('*')
+        .in('campus_id', campusIds)
+        .order('updated_at', { ascending: false });
 
-    const { data, error } = await query.order('updated_at', { ascending: false });
-    
-    if (error) {
-      throw error;
+      if (res.error) throw res.error;
+      data = (res.data || []) as Record<string, unknown>[];
+    } else {
+      data = await fetchOrganizerEventRows(userId, '*');
     }
     
     if (!data) {
@@ -457,12 +614,12 @@ export const getUserEvents = async (userId: string, userRole?: SubscriptionRole 
       registrationFormIds: getArrayOrFallback(doc.registration_form_ids, doc.registration_form_id),
       submissionFormIds: getArrayOrFallback(doc.submission_form_ids, doc.submission_form_id),
       evaluationFormIds: deserializeArray(doc.evaluation_form_ids),
-      certificateTemplateIds: deserializeArray(doc.certificate_template_ids),
-      badgeTemplateIds: deserializeArray(doc.badge_template_ids) as string[],
+      ...mapEventTemplateFields(doc),
       committeeIds: deserializeArray(doc.committee_ids),
       evaluationEnabled: Boolean(doc.evaluation_enabled),
       banner: doc.banner ? (typeof doc.banner === 'string' ? JSON.parse(doc.banner) : doc.banner) : undefined,
       publishStatus: (doc.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
+      publicSlug: (doc.public_slug as string) || undefined,
       registrationDeadline: doc.registration_deadline || undefined,
       submissionDeadline: doc.submission_deadline || undefined,
       submissionWorkflowPreset: (doc.submission_workflow_preset as 'A' | 'B' | 'C' | 'D') || undefined,
@@ -472,6 +629,9 @@ export const getUserEvents = async (userId: string, userRole?: SubscriptionRole 
       registrationWorkflowPreset: (doc.registration_workflow_preset as 'A' | 'B') || undefined,
       registrationPaymentOfferId: doc.registration_payment_offer_id || undefined,
       submissionPaymentOfferId: doc.submission_payment_offer_id || undefined,
+      submissionPaymentFormId: doc.submission_payment_form_id || undefined,
+      publishedProgramId: doc.published_program_id || undefined,
+      ...mapEventCheckinDisplayFields(doc),
       createdAt: new Date(doc.created_at),
       updatedAt: new Date(doc.updated_at),
     }));
@@ -482,7 +642,7 @@ export const getUserEvents = async (userId: string, userRole?: SubscriptionRole 
 };
 
 /**
- * Lightweight events for dashboard: no banner, partners, dates, or large JSON blobs.
+ * Lightweight events for dashboard: includes banner for cards; no partners, dates, or large JSON blobs.
  */
 export const getUserEventsForDashboard = async (
   userId: string,
@@ -493,14 +653,17 @@ export const getUserEventsForDashboard = async (
       throw new Error('User ID is required');
     }
 
-    let query = supabase
-      .from(TABLE_NAME)
-      .select(
-        'id, user_id, campus_id, name, publish_status, registration_deadline, event_type, event_format, committee_ids, created_at, updated_at'
-      );
+    let data: Record<string, unknown>[] | null = null;
+    const dashboardSelect =
+      'id, user_id, campus_id, name, publish_status, registration_deadline, event_type, event_format, committee_ids, banner, created_at, updated_at';
 
     if (userRole === 'SuperAdmin') {
-      // Root super admin can see all events; RLS handles the rest
+      const res = await supabase
+        .from(TABLE_NAME)
+        .select(dashboardSelect)
+        .order('updated_at', { ascending: false });
+      if (res.error) throw res.error;
+      data = (res.data || []) as Record<string, unknown>[];
     } else if (userRole === 'SubSuperAdmin') {
       const { data: sm, error: smErr } = await supabase
         .from(TABLES.SUB_SUPER_ADMIN_MEMBERSHIPS)
@@ -514,16 +677,16 @@ export const getUserEventsForDashboard = async (
         return [];
       }
 
-      query = query.in('campus_id', campusIds);
+      const res = await supabase
+        .from(TABLE_NAME)
+        .select(dashboardSelect)
+        .in('campus_id', campusIds)
+        .order('updated_at', { ascending: false });
+
+      if (res.error) throw res.error;
+      data = (res.data || []) as Record<string, unknown>[];
     } else {
-      // Default organizer behavior
-      query = query.eq('user_id', userId);
-    }
-
-    const { data, error } = await query.order('updated_at', { ascending: false });
-
-    if (error) {
-      throw error;
+      data = await fetchOrganizerEventRows(userId, dashboardSelect);
     }
 
     if (!data) {
@@ -564,7 +727,11 @@ export const getUserEventsForDashboard = async (
       evaluationFormIds: [],
       certificateTemplateIds: [],
       committeeIds: deserializeArray(doc.committee_ids),
-      banner: undefined,
+      banner: doc.banner
+        ? typeof doc.banner === 'string'
+          ? JSON.parse(doc.banner)
+          : doc.banner
+        : undefined,
       publishStatus: (doc.publish_status as Event['publishStatus']) || 'Draft',
       registrationDeadline: doc.registration_deadline || undefined,
       submissionDeadline: undefined,
@@ -612,7 +779,9 @@ export const updateEventPublishStatus = async (
     if (actorRole === 'SuperAdmin') {
       canUpdate = true;
     } else if (actorRole === 'Organizer') {
-      canUpdate = actorId === eventRow.user_id;
+      canUpdate =
+        actorId === eventRow.user_id ||
+        (actorId ? await isEventOrganizerPartner(eventId, actorId) : false);
     } else if (actorRole === 'SubSuperAdmin') {
       if (actorId && eventRow.campus_id) {
         const { data: smRow, error: smErr } = await supabase
@@ -626,20 +795,39 @@ export const updateEventPublishStatus = async (
         canUpdate = !!smRow;
       }
     } else {
-      // Fallback: allow only if the actor owns the event
-      canUpdate = actorId === eventRow.user_id;
+      canUpdate =
+        actorId === eventRow.user_id ||
+        (actorId ? await isEventOrganizerPartner(eventId, actorId) : false);
     }
 
     if (!canUpdate) {
       throw new Error('Not authorized to update this event publish status');
     }
     
+    const patch: Record<string, unknown> = {
+      publish_status: publishStatus,
+      updated_at: new Date().toISOString(),
+    };
+    if (publishStatus === 'Draft') {
+      patch.public_slug = null;
+    } else if (publishStatus === 'Published') {
+      const { data: evMeta, error: metaErr } = await supabase
+        .from(TABLE_NAME)
+        .select('name, public_slug')
+        .eq('id', eventId)
+        .single();
+      if (metaErr) throw metaErr;
+      if (!evMeta?.public_slug && evMeta?.name) {
+        patch.public_slug = await ensureUniqueEventPublicSlug(
+          slugifyEventName(evMeta.name as string),
+          eventId
+        );
+      }
+    }
+
     const { error } = await supabase
       .from(TABLE_NAME)
-      .update({ 
-        publish_status: publishStatus,
-        updated_at: new Date().toISOString()
-      })
+      .update(patch)
       .eq('id', eventId);
     
     if (error) {
@@ -668,5 +856,271 @@ export const deleteEvent = async (eventId: string): Promise<void> => {
     console.error('Error deleting event:', error);
     throw new Error(error.message || 'Failed to delete event');
   }
+};
+
+function mapEventDocument(doc: Record<string, unknown>): Event {
+  const deserializeArray = (value: unknown): unknown[] => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  };
+
+  const getArrayOrFallback = (newColumnValue: unknown, oldColumnValue: unknown): string[] => {
+    const newArray = deserializeArray(newColumnValue);
+    if (newArray.length > 0) {
+      return newArray as string[];
+    }
+    if (oldColumnValue) {
+      return [oldColumnValue as string];
+    }
+    return [];
+  };
+
+  return {
+    id: doc.id as string,
+    userId: doc.user_id as string,
+    campusId: (doc.campus_id as string) || undefined,
+    name: doc.name as string,
+    description: (doc.description as string) || undefined,
+    keywords: deserializeArray(doc.keywords) as string[],
+    fields: deserializeArray(doc.fields) as string[],
+    subfields: deserializeArray(doc.subfields) as string[],
+    eventType: doc.event_type as Event['eventType'],
+    eventFormat: doc.event_format as Event['eventFormat'],
+    partners: deserializeArray(doc.partners) as EventPartner[],
+    dates: deserializeArray(doc.dates) as EventDate[],
+    location: (doc.location as string) || undefined,
+    links: deserializeArray(doc.links) as EventLink[],
+    landingPageIds: getArrayOrFallback(doc.landing_page_ids, doc.landing_page_id),
+    registrationFormIds: getArrayOrFallback(doc.registration_form_ids, doc.registration_form_id),
+    submissionFormIds: getArrayOrFallback(doc.submission_form_ids, doc.submission_form_id),
+    evaluationFormIds: deserializeArray(doc.evaluation_form_ids) as string[],
+    ...mapEventTemplateFields(doc),
+    committeeIds: deserializeArray(doc.committee_ids) as string[],
+    evaluationEnabled: Boolean(doc.evaluation_enabled),
+    banner: doc.banner
+      ? (typeof doc.banner === 'string' ? JSON.parse(doc.banner) : doc.banner)
+      : undefined,
+    publishStatus: (doc.publish_status as Event['publishStatus']) || 'Draft',
+    publicSlug: (doc.public_slug as string) || undefined,
+    registrationDeadline: (doc.registration_deadline as string) || undefined,
+    submissionDeadline: (doc.submission_deadline as string) || undefined,
+    submissionWorkflowPreset: doc.submission_workflow_preset as Event['submissionWorkflowPreset'],
+    abstractSubmissionFormIds: deserializeArray(doc.abstract_submission_form_ids) as string[],
+    abstractSubmissionDeadline: (doc.abstract_submission_deadline as string) || undefined,
+    paymentDeadline: (doc.payment_deadline as string) || undefined,
+    registrationWorkflowPreset: doc.registration_workflow_preset as Event['registrationWorkflowPreset'],
+    registrationPaymentOfferId: (doc.registration_payment_offer_id as string) || undefined,
+    submissionPaymentOfferId: (doc.submission_payment_offer_id as string) || undefined,
+    submissionPaymentFormId: (doc.submission_payment_form_id as string) || undefined,
+    publishedProgramId: (doc.published_program_id as string) || undefined,
+    ...mapEventCheckinDisplayFields(doc),
+    createdAt: new Date(doc.created_at as string),
+    updatedAt: new Date(doc.updated_at as string),
+  };
+}
+
+function slugifyEventName(name: string): string {
+  const base = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48);
+  return base || 'event';
+}
+
+async function ensureUniqueEventPublicSlug(
+  baseSlug: string,
+  excludeEventId?: string
+): Promise<string> {
+  let candidate = baseSlug;
+  let suffix = 0;
+  for (;;) {
+    let query = supabase.from(TABLE_NAME).select('id').eq('public_slug', candidate);
+    if (excludeEventId) {
+      query = query.neq('id', excludeEventId);
+    }
+    const { data, error } = await query.maybeSingle();
+    if (error) throw new Error(error.message || 'Failed to validate public slug');
+    if (!data) return candidate;
+    suffix += 1;
+    candidate = `${baseSlug}-${suffix}`;
+  }
+}
+
+export function getEventPublicUrl(slug: string): string {
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin}/e/${slug}`;
+  }
+  return `/e/${slug}`;
+}
+
+export function isEventRegistrationDeadlinePassed(event: Event): boolean {
+  if (!event.registrationDeadline) return false;
+  const end = new Date(event.registrationDeadline);
+  end.setHours(23, 59, 59, 999);
+  return Date.now() > end.getTime();
+}
+
+export function isEventSubmissionDeadlinePassed(event: Event): boolean {
+  if (!event.submissionDeadline) return false;
+  const end = new Date(event.submissionDeadline);
+  end.setHours(23, 59, 59, 999);
+  return Date.now() > end.getTime();
+}
+
+export const getPublishedEventBySlug = async (slug: string): Promise<Event | null> => {
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select('*')
+    .eq('public_slug', slug)
+    .eq('publish_status', 'Published')
+    .maybeSingle();
+
+  if (error) throw new Error(error.message || 'Failed to load event');
+  if (!data) return null;
+
+  return mapEventDocument(data as Record<string, unknown>);
+};
+
+/**
+ * Find a published event that links the given landing page (via landing_page_id / landing_page_ids).
+ */
+export const getPublishedEventForLandingPage = async (
+  landingPageId: string
+): Promise<Event | null> => {
+  if (!landingPageId) return null;
+
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select('*')
+    .eq('publish_status', 'Published');
+
+  if (error) throw new Error(error.message || 'Failed to load events');
+  if (!data?.length) return null;
+
+  for (const row of data) {
+    const event = mapEventDocument(row as Record<string, unknown>);
+    if (event.landingPageIds?.includes(landingPageId)) {
+      return event;
+    }
+  }
+  return null;
+};
+
+export const publishEventPublicly = async (
+  eventId: string,
+  userId: string
+): Promise<{ slug: string; publicUrl: string }> => {
+  const existing = await getEvent(eventId);
+  if (!existing || existing.userId !== userId) {
+    throw new Error('Event not found');
+  }
+
+  const slug =
+    existing.publicSlug ||
+    (await ensureUniqueEventPublicSlug(slugifyEventName(existing.name), eventId));
+
+  const { error } = await supabase
+    .from(TABLE_NAME)
+    .update({
+      publish_status: 'Published',
+      public_slug: slug,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', eventId)
+    .eq('user_id', userId);
+
+  if (error) throw new Error(error.message || 'Failed to publish event');
+  return { slug, publicUrl: getEventPublicUrl(slug) };
+};
+
+export interface PublishedEventSearchFilters {
+  query?: string;
+  eventType?: Event['eventType'];
+  eventFormat?: Event['eventFormat'];
+}
+
+export interface PublishedEventSearchResult {
+  events: Event[];
+  total: number;
+}
+
+function publishedEventsBaseQuery() {
+  return supabase
+    .from(TABLE_NAME)
+    .select('*', { count: 'exact' })
+    .eq('publish_status', 'Published')
+    .not('public_slug', 'is', null);
+}
+
+export const searchPublishedEvents = async (
+  filters: PublishedEventSearchFilters,
+  page = 1,
+  pageSize = 15
+): Promise<PublishedEventSearchResult> => {
+  let query = publishedEventsBaseQuery();
+  const term = filters.query?.trim().replace(/,/g, ' ');
+  if (term) {
+    const pattern = `%${term}%`;
+    query = query.or(`name.ilike.${pattern},description.ilike.${pattern},location.ilike.${pattern}`);
+  }
+  if (filters.eventType) query = query.eq('event_type', filters.eventType);
+  if (filters.eventFormat) query = query.eq('event_format', filters.eventFormat);
+
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const { data, error, count } = await query
+    .order('updated_at', { ascending: false })
+    .range(from, to);
+
+  if (error) throw new Error(error.message || 'Failed to search events');
+
+  return {
+    events: (data || []).map((row) => mapEventDocument(row as Record<string, unknown>)),
+    total: count ?? 0,
+  };
+};
+
+/**
+ * Latest published events for marketing landing page.
+ * Includes all Published events (public_slug optional; cards link to /e/{slug} when set).
+ */
+export const getLatestPublishedEvents = async (limit = 6): Promise<Event[]> => {
+  const runQuery = () =>
+    supabase
+      .from(TABLE_NAME)
+      .select('*')
+      .eq('publish_status', 'Published')
+      .order('updated_at', { ascending: false })
+      .limit(limit);
+
+  let { data, error } = await runQuery();
+
+  // Backward compat if migration not applied yet (no public_slug column).
+  if (error?.message?.includes('public_slug')) {
+    ({ data, error } = await supabase
+      .from(TABLE_NAME)
+      .select('*')
+      .eq('publish_status', 'Published')
+      .order('updated_at', { ascending: false })
+      .limit(limit));
+  }
+
+  if (error) {
+    throw new Error(error.message || 'Failed to load published events');
+  }
+
+  return (data || []).map((doc) => mapEventDocument(doc as Record<string, unknown>));
 };
 

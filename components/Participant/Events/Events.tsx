@@ -12,23 +12,42 @@ import {
   getJuryMemberEvents,
   confirmEventAttendance,
 } from '../../../services/juryMemberService';
-import { getRegistrationSubmissions } from '../../../services/registrationSubmissionService';
-import { getRegistrationForm } from '../../../services/registrationFormService';
-import { saveEventForParticipant, removeSavedEvent } from '../../../services/participantEventService';
-import { Event, EventAttendance, FormSubmission } from '../../../types';
+import {
+  loadParticipantSubmissionBundle,
+} from '../../../services/participantRegistrationService';
+import {
+  filterRegistrationsWithFormTitles,
+  filterSubmissionsWithFormTitles,
+} from '../../../services/participantSubmissionUtils';
+import {
+  getSavedEvents,
+  saveEventForParticipant,
+  removeSavedEvent,
+} from '../../../services/participantEventService';
+import { getEventPublicUrl } from '../../../services/eventService';
+import { Event, EventAttendance, FormSubmission, SubmissionPipelineKind } from '../../../types';
 import FormModal from '../../Admin/Tools/FormBuilder/FormModal';
 import { useNavigate } from 'react-router-dom';
 import AllEvents from './AllEvents';
 import SavedEvents from './SavedEvents';
+import {
+  getParticipantAbstractSubmission,
+  getParticipantArticleSubmission,
+  isParticipantPipelineComplete,
+  tryLaunchParticipantSubmissionForm,
+} from '../../../services/submissionPipelineService';
 
 const Events: React.FC = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const [availableEvents, setAvailableEvents] = useState<Event[]>([]);
+  const [savedEvents, setSavedEvents] = useState<Event[]>([]);
+  const [savedEventIds, setSavedEventIds] = useState<Set<string>>(new Set());
   const [myEvents, setMyEvents] = useState<EventAttendance[]>([]);
   const [myRegistrations, setMyRegistrations] = useState<FormSubmission[]>([]);
   const [mySubmissions, setMySubmissions] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
   const [error, setError] = useState('');
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   
@@ -41,70 +60,41 @@ const Events: React.FC = () => {
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
   const [selectedRegistration, setSelectedRegistration] = useState<FormSubmission | null>(null);
   const [selectedSubmission, setSelectedSubmission] = useState<FormSubmission | null>(null);
-  
-  // Favorites state (using localStorage)
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [pipelineModalContext, setPipelineModalContext] = useState<{
+    submissionPipelineKind: SubmissionPipelineKind;
+    submissionPipelineGroupId: string;
+    parentSubmissionId?: string | null;
+  } | null>(null);
   
   // Tab state
   const [activeTab, setActiveTab] = useState<'all' | 'favorite'>('all');
 
   useEffect(() => {
-    if (currentUser) {
-      loadData();
-      loadFavorites();
+    if (currentUser?.id) {
+      loadCoreData();
     }
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
-  const loadFavorites = () => {
+  const loadSubmissions = async () => {
+    if (!currentUser?.email || !currentUser?.id) return;
+
     try {
-      const stored = localStorage.getItem('eventFavorites');
-      if (stored) {
-        const parsed = JSON.parse(stored) as string[];
-        setFavorites(new Set(parsed));
-      }
+      setSubmissionsLoading(true);
+      const { allSubmissions, formsById } = await loadParticipantSubmissionBundle(
+        currentUser.email,
+        currentUser.id
+      );
+
+      setMyRegistrations(filterRegistrationsWithFormTitles(allSubmissions, formsById));
+      setMySubmissions(filterSubmissionsWithFormTitles(allSubmissions, formsById));
     } catch (err) {
-      console.error('Error loading favorites:', err);
+      console.error('Error loading registrations/submissions:', err);
+    } finally {
+      setSubmissionsLoading(false);
     }
   };
 
-  const saveFavorites = (newFavorites: Set<string>) => {
-    try {
-      localStorage.setItem('eventFavorites', JSON.stringify(Array.from(newFavorites)));
-      setFavorites(newFavorites);
-    } catch (err) {
-      console.error('Error saving favorites:', err);
-    }
-  };
-
-  const toggleFavorite = async (eventId: string) => {
-    if (!currentUser?.id) return;
-
-    const newFavorites = new Set<string>(favorites);
-    if (newFavorites.has(eventId)) {
-      newFavorites.delete(eventId);
-      // Remove from saved events in database
-      try {
-        await removeSavedEvent(currentUser.id, eventId);
-      } catch (err) {
-        console.error('Error removing saved event:', err);
-      }
-    } else {
-      newFavorites.add(eventId);
-      // Save to database
-      try {
-        await saveEventForParticipant(currentUser.id, eventId);
-      } catch (err) {
-        console.error('Error saving event:', err);
-      }
-    }
-    saveFavorites(newFavorites);
-  };
-
-  const isFavorite = (eventId: string): boolean => {
-    return favorites.has(eventId);
-  };
-
-  const loadData = async () => {
+  const loadCoreData = async () => {
     if (!currentUser?.id) return;
 
     try {
@@ -112,64 +102,92 @@ const Events: React.FC = () => {
       setError('');
 
       const profile = await getJuryMemberProfile(currentUser.id);
-      
-      // Load events and attendance
-      const [eventsData, myEventsData] = await Promise.all([
+
+      const [eventsData, savedEventsData, myEventsData] = await Promise.all([
         getAvailableEvents(currentUser.id),
+        getSavedEvents(currentUser.id),
         profile ? getJuryMemberEvents(profile.id) : Promise.resolve([]),
       ]);
-      setAvailableEvents(eventsData);
-      setMyEvents(myEventsData);
 
-      // Load user's registrations and submissions
-      if (currentUser.email && currentUser.id) {
-        try {
-          let juryMemberEmail: string | undefined;
-          if (profile) {
-            juryMemberEmail = profile.email;
-          }
-          
-          const allSubmissions = await getRegistrationSubmissions(
-            currentUser.email,
-            currentUser.id,
-            juryMemberEmail
-          );
-          
-          // Separate registrations and submissions
-          const registrationSubmissions = [];
-          const submissionSubmissions = [];
-          for (const submission of allSubmissions) {
-            try {
-              const form = await getRegistrationForm(submission.formId);
-              if (form) {
-                const titleLower = form.title.toLowerCase();
-                const isSubmissionForm = titleLower.startsWith('sub - ') || titleLower.startsWith('sub-') || 
-                                         titleLower.includes('submission') || titleLower.includes('submit');
-                if (isSubmissionForm) {
-                  submissionSubmissions.push(submission);
-                } else {
-                  registrationSubmissions.push(submission);
-                }
-              }
-            } catch (err) {
-              console.error('Error loading form:', err);
-            }
-          }
-          
-          setMyRegistrations(registrationSubmissions);
-          setMySubmissions(submissionSubmissions);
-        } catch (err) {
-          console.error('Error loading registrations/submissions:', err);
-          // Don't fail the whole load if registrations/submissions fail
-        }
-      }
+      setAvailableEvents(eventsData);
+      setSavedEvents(savedEventsData);
+      setSavedEventIds(new Set(savedEventsData.map((e) => e.id)));
+      setMyEvents(myEventsData);
     } catch (err: any) {
       console.error('Error loading events:', err);
       setError(err.message || 'Failed to load events');
     } finally {
       setLoading(false);
     }
+
+    if (currentUser.email) {
+      void loadSubmissions();
+    }
   };
+
+  const reloadAfterFormSuccess = async () => {
+    if (!currentUser?.id) return;
+    const profile = await getJuryMemberProfile(currentUser.id);
+    const [eventsData, savedEventsData, myEventsData] = await Promise.all([
+      getAvailableEvents(currentUser.id),
+      getSavedEvents(currentUser.id),
+      profile ? getJuryMemberEvents(profile.id) : Promise.resolve([]),
+    ]);
+    setAvailableEvents(eventsData);
+    setSavedEvents(savedEventsData);
+    setSavedEventIds(new Set(savedEventsData.map((e) => e.id)));
+    setMyEvents(myEventsData);
+    await loadSubmissions();
+  };
+
+  const toggleFavorite = async (eventId: string) => {
+    if (!currentUser?.id) return;
+
+    const wasSaved = savedEventIds.has(eventId);
+
+    if (wasSaved) {
+      setSavedEventIds((prev) => {
+        const next = new Set(prev);
+        next.delete(eventId);
+        return next;
+      });
+      setSavedEvents((prev) => prev.filter((e) => e.id !== eventId));
+      try {
+        await removeSavedEvent(currentUser.id, eventId);
+      } catch (err) {
+        console.error('Error removing saved event:', err);
+        setSavedEventIds((prev) => new Set(prev).add(eventId));
+        const restored = availableEvents.find((e) => e.id === eventId);
+        if (restored) {
+          setSavedEvents((prev) => [restored, ...prev]);
+        }
+      }
+      return;
+    }
+
+    const eventToSave =
+      availableEvents.find((e) => e.id === eventId) ||
+      savedEvents.find((e) => e.id === eventId);
+
+    setSavedEventIds((prev) => new Set(prev).add(eventId));
+    if (eventToSave) {
+      setSavedEvents((prev) => [eventToSave, ...prev.filter((e) => e.id !== eventId)]);
+    }
+
+    try {
+      await saveEventForParticipant(currentUser.id, eventId);
+    } catch (err) {
+      console.error('Error saving event:', err);
+      setSavedEventIds((prev) => {
+        const next = new Set(prev);
+        next.delete(eventId);
+        return next;
+      });
+      setSavedEvents((prev) => prev.filter((e) => e.id !== eventId));
+    }
+  };
+
+  const isFavorite = (eventId: string): boolean => savedEventIds.has(eventId);
 
   const handleConfirmAttendance = async (event: Event) => {
     if (!currentUser?.id) {
@@ -240,22 +258,37 @@ const Events: React.FC = () => {
         return;
       }
 
-      // Check if user has already submitted for this event
-      const existingSubmission = mySubmissions.find(
-        sub => sub.eventId === event.id && event.submissionFormIds.includes(sub.formId)
-      );
+      const launch = tryLaunchParticipantSubmissionForm(event, mySubmissions);
 
-      if (existingSubmission) {
-        // User has already submitted - show modal
-        setSelectedEvent(event);
-        setSelectedSubmission(existingSubmission);
-        setShowAlreadySubmittedModal(true);
+      if (launch.outcome === 'misconfigured') {
+        alert(launch.message);
         return;
       }
 
-      // New submission
+      if (launch.outcome === 'complete') {
+        const abs = getParticipantAbstractSubmission(event, mySubmissions);
+        const art = getParticipantArticleSubmission(
+          event,
+          mySubmissions,
+          abs?.submissionPipelineGroupId
+        );
+        const primary = art || abs;
+        if (primary) {
+          setSelectedEvent(event);
+          setSelectedSubmission(primary);
+          setShowAlreadySubmittedModal(true);
+        }
+        return;
+      }
+
+      if (launch.outcome === 'wait') {
+        alert(launch.message);
+        return;
+      }
+
+      setPipelineModalContext(launch.pipelineContext);
       setSelectedEvent(event);
-      setSelectedFormId(event.submissionFormIds[0]);
+      setSelectedFormId(launch.formId);
       setShowSubmitModal(true);
     })();
   };
@@ -306,26 +339,14 @@ const Events: React.FC = () => {
     );
   };
 
-  const isEventSubmitted = (event: Event): boolean => {
-    return mySubmissions.some(
-      sub => sub.eventId === event.id && 
-      event.submissionFormIds.includes(sub.formId)
-    );
-  };
-
-  const getEventSubmission = (event: Event): FormSubmission | undefined => {
-    return mySubmissions.find(
-      sub => sub.eventId === event.id && 
-      event.submissionFormIds.includes(sub.formId)
-    );
-  };
-
   const handlePreview = (event: Event) => {
     navigate(`/jury/events/preview/${event.id}`);
   };
 
   const handleShare = async (event: Event) => {
-    const url = window.location.origin + `/jury/events/preview/${event.id}`;
+    const url = event.publicSlug
+      ? getEventPublicUrl(event.publicSlug)
+      : window.location.origin + `/jury/events/preview/${event.id}`;
     const shareData = {
       title: event.name,
       text: event.description || `Check out this event: ${event.name}`,
@@ -398,7 +419,7 @@ const Events: React.FC = () => {
             <p className="font-medium">Error loading events</p>
             <p className="text-sm mt-1">{error}</p>
             <button
-              onClick={loadData}
+              onClick={loadCoreData}
               className="mt-3 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
             >
               Try Again
@@ -418,7 +439,12 @@ const Events: React.FC = () => {
           <Calendar size={32} className="text-indigo-600" />
           Events
         </h1>
-        <p className="text-slate-500 mt-1 text-sm">Browse events, submit papers, and subscribe to participate</p>
+        <p className="text-slate-500 mt-1 text-sm">
+          Browse events, submit papers, and subscribe to participate
+          {submissionsLoading && (
+            <span className="text-slate-400"> · Updating your registrations…</span>
+          )}
+        </p>
       </header>
 
       {/* Statistics */}
@@ -502,9 +528,10 @@ const Events: React.FC = () => {
         </div>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'all' && (
+      {/* Tab Content — keep mounted so switching tabs does not refetch */}
+      <div className={activeTab === 'all' ? '' : 'hidden'}>
         <AllEvents
+          events={availableEvents}
           onPreview={handlePreview}
           onSubscribe={handleSubscribe}
           onSubmitPaper={handleSubmitPaper}
@@ -512,15 +539,15 @@ const Events: React.FC = () => {
           onShare={handleShare}
           isFavorite={isFavorite}
           isEventRegistered={isEventRegistered}
-          isEventSubmitted={isEventSubmitted}
           isEventConfirmed={isEventConfirmed}
           myRegistrations={myRegistrations}
           mySubmissions={mySubmissions}
         />
-      )}
+      </div>
 
-      {activeTab === 'favorite' && (
+      <div className={activeTab === 'favorite' ? '' : 'hidden'}>
         <SavedEvents
+          events={savedEvents}
           onPreview={handlePreview}
           onSubscribe={handleSubscribe}
           onSubmitPaper={handleSubmitPaper}
@@ -528,12 +555,11 @@ const Events: React.FC = () => {
           onShare={handleShare}
           isFavorite={isFavorite}
           isEventRegistered={isEventRegistered}
-          isEventSubmitted={isEventSubmitted}
           isEventConfirmed={isEventConfirmed}
           myRegistrations={myRegistrations}
           mySubmissions={mySubmissions}
         />
-      )}
+      </div>
 
       {/* Submit Paper Modal */}
       {showSubmitModal && selectedEvent && selectedFormId && (
@@ -541,17 +567,20 @@ const Events: React.FC = () => {
           formId={selectedFormId}
           eventId={selectedEvent.id}
           eventTitle={selectedEvent.name}
+          pipelineContext={pipelineModalContext}
           onClose={() => {
             setShowSubmitModal(false);
             setSelectedEvent(null);
             setSelectedFormId(null);
+            setPipelineModalContext(null);
           }}
           onSuccess={() => {
             setShowSubmitModal(false);
             setSelectedEvent(null);
             setSelectedFormId(null);
+            setPipelineModalContext(null);
             alert('Paper submitted successfully!');
-            loadData(); // Reload to update submissions
+            reloadAfterFormSuccess(); // Reload to update submissions
           }}
         />
       )}
@@ -572,7 +601,7 @@ const Events: React.FC = () => {
             setSelectedEvent(null);
             setSelectedFormId(null);
             alert('Subscription successful!');
-            loadData(); // Reload to update confirmed events and registrations
+            reloadAfterFormSuccess(); // Reload to update confirmed events and registrations
           }}
         />
       )}
@@ -660,9 +689,12 @@ const Events: React.FC = () => {
                 </button>
               </div>
               
-              <p className="text-slate-600 mb-6">
-                You have already submitted a paper for <span className="font-semibold text-slate-900">{selectedEvent.name}</span>.
-                You can view or edit your submission details.
+              <p className="text-slate-600 mb-4">
+                You have an active submission for{' '}
+                <span className="font-semibold text-slate-900">{selectedEvent.name}</span>.
+                {isParticipantPipelineComplete(selectedEvent, mySubmissions)
+                  ? ' All required steps are complete.'
+                  : ' You can view or edit from your submissions area.'}
               </p>
 
               <div className="flex gap-3">

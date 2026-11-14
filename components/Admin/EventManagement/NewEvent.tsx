@@ -4,18 +4,32 @@ import { useAuth } from '../../../hooks/useAuth';
 import { useAdminTranslation } from '../../../i18n/admin/hooks/useAdminTranslation';
 import { useAdminDisplaySettings } from '../../../contexts/AdminDisplaySettingsContext';
 import { getUserLandingPages } from '../../../services/landingPageService';
-import { getUserRegistrationForms } from '../../../services/registrationFormService';
+import { getUserRegistrationForms, inferRegistrationFormCategory } from '../../../services/registrationFormService';
 import { getUserEvaluationForms } from '../../../services/evaluationFormService';
 import { getUserCertificateTemplates } from '../../../services/certificateTemplateService';
 import { getUserBadgeTemplates } from '../../../services/badgeTemplateService';
 import { getCommittees } from '../../../services/committeeService';
 import { getPayments, getPaymentMethods, Payment, PaymentMethod } from '../../../services/paymentService';
 import { saveEvent, getEvent, updateEvent } from '../../../services/eventService';
+import { isEventQuotaExceededError, OrganizerEventQuota } from '../../../services/organizerEventQuota';
+import EventQuotaLimitModal from './EventQuotaLimitModal';
+import EventResourceLimitModal from '../EventResources/EventResourceLimitModal';
+import {
+  EventResourceSlot,
+  EventResourceSlotFullError,
+  isEventResourceSlotFullError,
+} from '../../../services/eventResources';
+import { getUserPrograms, type SavedProgram } from '../../../services/programService';
 import { SavedLandingPage } from '../../../services/landingPageService';
-import { RegistrationForm, EvaluationForm, Committee, EventPartner, EventDate, EventLink, CertificateTemplate, EventBanner, SubmissionWorkflowPreset, RegistrationWorkflowPreset } from '../../../types';
+import { RegistrationForm, EvaluationForm, Committee, EventPartner, EventOrganizerPartner, EventDate, EventLink, CertificateTemplate, EventBanner, SubmissionWorkflowPreset, RegistrationWorkflowPreset } from '../../../types';
 import { supabase, TABLES } from '../../../supabase';
 import TextEditorModal from './TextEditorModal';
 import TemplatePreviewModal from '../Certificates/TemplatePreviewModal';
+import { localISODate, maxISODate, normalizeStep2Deadlines } from './eventFormDeadlineUtils';
+import {
+  searchOrganizersForPartnership,
+  type OrganizerPartnerSearchResult,
+} from '../../../services/eventPartnershipService';
 
 interface NewEventProps {
   eventId?: string;
@@ -45,13 +59,15 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const [location, setLocation] = useState('');
   const [links, setLinks] = useState<EventLink[]>([]);
   const [selectedLandingPageIds, setSelectedLandingPageIds] = useState<string[]>([]);
-  const [selectedCertificateIds, setSelectedCertificateIds] = useState<string[]>([]);
-  const [selectedBadgeTemplateIds, setSelectedBadgeTemplateIds] = useState<string[]>([]);
+  const [selectedRegistrationBadgeTemplateIds, setSelectedRegistrationBadgeTemplateIds] = useState<string[]>([]);
+  const [selectedRegistrationCertificateIds, setSelectedRegistrationCertificateIds] = useState<string[]>([]);
+  const [selectedSubmissionBadgeTemplateIds, setSelectedSubmissionBadgeTemplateIds] = useState<string[]>([]);
+  const [selectedSubmissionCertificateIds, setSelectedSubmissionCertificateIds] = useState<string[]>([]);
   const [selectedRegistrationFormIds, setSelectedRegistrationFormIds] = useState<string[]>([]);
   const [selectedSubmissionFormIds, setSelectedSubmissionFormIds] = useState<string[]>([]);
   const [selectedEvaluationFormIds, setSelectedEvaluationFormIds] = useState<string[]>([]);
   const [selectedCommitteeIds, setSelectedCommitteeIds] = useState<string[]>([]);
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
   const [submissionWorkflowPreset, setSubmissionWorkflowPreset] = useState<SubmissionWorkflowPreset>('A');
   const [selectedAbstractSubmissionFormIds, setSelectedAbstractSubmissionFormIds] = useState<string[]>([]);
   const [abstractSubmissionDeadline, setAbstractSubmissionDeadline] = useState('');
@@ -59,9 +75,14 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const [registrationWorkflowPreset, setRegistrationWorkflowPreset] = useState<RegistrationWorkflowPreset>('A');
   const [registrationPaymentOfferId, setRegistrationPaymentOfferId] = useState('');
   const [submissionPaymentOfferId, setSubmissionPaymentOfferId] = useState('');
+  const [submissionPaymentFormId, setSubmissionPaymentFormId] = useState('');
+  const [publishedProgramId, setPublishedProgramId] = useState('');
+  const [savedProgramsForPicker, setSavedProgramsForPicker] = useState<SavedProgram[]>([]);
   const [evaluationEnabled, setEvaluationEnabled] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
+  const [quotaBlock, setQuotaBlock] = useState<OrganizerEventQuota | null>(null);
+  const [resourceSlotBlock, setResourceSlotBlock] = useState<EventResourceSlot | null>(null);
   
   const [landingPages, setLandingPages] = useState<SavedLandingPage[]>([]);
   const [certificates, setCertificates] = useState<CertificateTemplate[]>([]);
@@ -76,6 +97,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const [partnerSearchQuery, setPartnerSearchQuery] = useState('');
   const [partnerSearchResults, setPartnerSearchResults] = useState<{ name: string; entityId?: string }[]>([]);
   const [newPartnerName, setNewPartnerName] = useState('');
+  const [organizerPartners, setOrganizerPartners] = useState<EventOrganizerPartner[]>([]);
+  const [organizerPartnerSearchQuery, setOrganizerPartnerSearchQuery] = useState('');
+  const [organizerPartnerSearchResults, setOrganizerPartnerSearchResults] = useState<OrganizerPartnerSearchResult[]>([]);
+  const [organizerPartnerSearchLoading, setOrganizerPartnerSearchLoading] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [showTextEditor, setShowTextEditor] = useState(false);
   const [templatePreview, setTemplatePreview] = useState<{
@@ -95,17 +120,100 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const bannerImageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && eventId) {
+      loadEventData();
+    } else if (currentUser) {
       loadData();
     }
-  }, [currentUser]);
+  }, [currentUser, eventId]);
 
-  const loadData = async () => {
+  const loadEventData = async () => {
     try {
       setLoading(true);
-      if (!currentUser?.id) return;
-      
-      const [pages, certs, badges, forms, evalForms, comms, pays, methods] = await Promise.all([
+      setError('');
+      setWizardStep(1);
+
+      if (!currentUser?.id || !eventId) {
+        throw new Error(t('errUserNotAuth'));
+      }
+
+      const eventData = await getEvent(eventId);
+      if (!eventData) {
+        throw new Error(t('errEventNotFound'));
+      }
+
+      setName(eventData.name || '');
+      setDescription(eventData.description || '');
+      setKeywords(eventData.keywords || []);
+      setFields(eventData.fields || []);
+      setSubfields(eventData.subfields || []);
+      setEventType(eventData.eventType || '');
+      setEventFormat(eventData.eventFormat || '');
+      const presetLoad = (eventData.submissionWorkflowPreset || 'A') as SubmissionWorkflowPreset;
+      const wfAbsLoad = presetLoad === 'C' || presetLoad === 'D';
+      const wfPayLoad = presetLoad === 'B' || presetLoad === 'D';
+      const todayLoad = localISODate();
+      const rawReg = eventData.registrationDeadline ? eventData.registrationDeadline.split('T')[0] : '';
+      const rawArt = eventData.submissionDeadline ? eventData.submissionDeadline.split('T')[0] : '';
+      const rawAbs = eventData.abstractSubmissionDeadline
+        ? eventData.abstractSubmissionDeadline.split('T')[0]
+        : '';
+      const rawPay = eventData.paymentDeadline ? eventData.paymentDeadline.split('T')[0] : '';
+      const norm = normalizeStep2Deadlines({
+        today: todayLoad,
+        workflowNeedsAbstract: wfAbsLoad,
+        workflowNeedsPayment: wfPayLoad,
+        registrationDeadline: rawReg,
+        abstractSubmissionDeadline: rawAbs,
+        submissionDeadline: rawArt,
+        paymentDeadline: rawPay,
+      });
+      setRegistrationDeadline(norm.registrationDeadline);
+      setSubmissionDeadline(norm.submissionDeadline);
+      setPartners(eventData.partners || []);
+      setOrganizerPartners(eventData.organizerPartners || []);
+      setDates(eventData.dates || []);
+      setLocation(eventData.location || '');
+      setLinks(eventData.links || []);
+      setSelectedLandingPageIds(eventData.landingPageIds || []);
+      setSelectedRegistrationBadgeTemplateIds(eventData.registrationBadgeTemplateIds || []);
+      setSelectedRegistrationCertificateIds(
+        eventData.registrationCertificateTemplateIds?.length
+          ? eventData.registrationCertificateTemplateIds
+          : eventData.certificateTemplateIds || []
+      );
+      setSelectedSubmissionBadgeTemplateIds(
+        eventData.submissionBadgeTemplateIds?.length
+          ? eventData.submissionBadgeTemplateIds
+          : eventData.badgeTemplateIds || []
+      );
+      setSelectedSubmissionCertificateIds(eventData.submissionCertificateTemplateIds || []);
+      setSelectedRegistrationFormIds(eventData.registrationFormIds || []);
+      setSelectedSubmissionFormIds(eventData.submissionFormIds || []);
+      setSelectedEvaluationFormIds(eventData.evaluationFormIds || []);
+      setSelectedCommitteeIds(eventData.committeeIds || []);
+      const legacyEval =
+        (eventData.evaluationFormIds?.length ?? 0) > 0 || (eventData.committeeIds?.length ?? 0) > 0;
+      setEvaluationEnabled(Boolean(eventData.evaluationEnabled) || legacyEval);
+      setSubmissionWorkflowPreset(presetLoad);
+      setSelectedAbstractSubmissionFormIds(eventData.abstractSubmissionFormIds || []);
+      setAbstractSubmissionDeadline(norm.abstractSubmissionDeadline);
+      setPaymentDeadline(norm.paymentDeadline);
+      setRegistrationWorkflowPreset(eventData.registrationWorkflowPreset || 'A');
+      setRegistrationPaymentOfferId(eventData.registrationPaymentOfferId || '');
+      setSubmissionPaymentOfferId(eventData.submissionPaymentOfferId || '');
+      setSubmissionPaymentFormId(eventData.submissionPaymentFormId || '');
+      setPublishedProgramId(eventData.publishedProgramId || '');
+      setBanner(eventData.banner || {
+        type: 'gradient',
+        gradientColors: {
+          from: '#4f46e5',
+          to: '#7c3aed',
+          direction: 'to-r',
+        },
+      });
+
+      const [pages, certs, badges, forms, evalForms, comms, pays, methods, programs] = await Promise.all([
         getUserLandingPages(currentUser.id),
         getUserCertificateTemplates(currentUser.id),
         getUserBadgeTemplates(currentUser.id),
@@ -114,6 +222,43 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
         getCommittees(currentUser.id),
         getPayments(currentUser.id),
         getPaymentMethods(currentUser.id),
+        getUserPrograms(currentUser.id),
+      ]);
+
+      setLandingPages(pages);
+      setCertificates(certs);
+      setBadgeTemplates(badges);
+      setRegistrationForms(forms);
+      setEvaluationForms(evalForms);
+      setCommittees(comms);
+      setPaymentOffers(pays);
+      setPaymentMethods(methods);
+      setSavedProgramsForPicker(
+        programs.filter((p) => !p.eventId || p.eventId === eventId)
+      );
+    } catch (err: any) {
+      console.error('Error loading event data:', err);
+      setError(err.message || t('errLoadEventData'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      if (!currentUser?.id) return;
+      
+      const [pages, certs, badges, forms, evalForms, comms, pays, methods, programs] = await Promise.all([
+        getUserLandingPages(currentUser.id),
+        getUserCertificateTemplates(currentUser.id),
+        getUserBadgeTemplates(currentUser.id),
+        getUserRegistrationForms(currentUser.id),
+        getUserEvaluationForms(currentUser.id),
+        getCommittees(currentUser.id),
+        getPayments(currentUser.id),
+        getPaymentMethods(currentUser.id),
+        getUserPrograms(currentUser.id),
       ]);
       
       setLandingPages(pages);
@@ -124,6 +269,9 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
       setCommittees(comms);
       setPaymentOffers(pays);
       setPaymentMethods(methods);
+      setSavedProgramsForPicker(
+        programs.filter((p) => !p.eventId || (eventId && p.eventId === eventId))
+      );
     } catch (err: any) {
       console.error('Error loading data:', err);
       setError(err.message || t('errLoadData'));
@@ -168,6 +316,57 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
 
     return () => clearTimeout(timeoutId);
   }, [partnerSearchQuery]);
+
+  useEffect(() => {
+    if (!currentUser?.id) {
+      setOrganizerPartnerSearchResults([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(async () => {
+      if (!organizerPartnerSearchQuery.trim()) {
+        setOrganizerPartnerSearchResults([]);
+        return;
+      }
+      try {
+        setOrganizerPartnerSearchLoading(true);
+        const results = await searchOrganizersForPartnership(
+          organizerPartnerSearchQuery,
+          currentUser.id
+        );
+        setOrganizerPartnerSearchResults(
+          results.filter((r) => !organizerPartners.some((p) => p.userId === r.userId))
+        );
+      } catch (err) {
+        console.error('Error searching organizer partners:', err);
+        setOrganizerPartnerSearchResults([]);
+      } finally {
+        setOrganizerPartnerSearchLoading(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [organizerPartnerSearchQuery, currentUser?.id, organizerPartners]);
+
+  useEffect(() => {
+    const needsAbstract = submissionWorkflowPreset === 'C' || submissionWorkflowPreset === 'D';
+    if (!needsAbstract) return;
+    if (
+      abstractSubmissionDeadline &&
+      submissionDeadline &&
+      submissionDeadline < abstractSubmissionDeadline
+    ) {
+      setSubmissionDeadline(abstractSubmissionDeadline);
+    }
+  }, [submissionWorkflowPreset, abstractSubmissionDeadline, submissionDeadline]);
+
+  useEffect(() => {
+    const needsPayment = submissionWorkflowPreset === 'B' || submissionWorkflowPreset === 'D';
+    if (!needsPayment) return;
+    if (submissionDeadline && paymentDeadline && paymentDeadline < submissionDeadline) {
+      setPaymentDeadline(submissionDeadline);
+    }
+  }, [submissionWorkflowPreset, submissionDeadline, paymentDeadline]);
 
   const handleKeywordInputChange = (value: string) => {
     setKeywordInput(value);
@@ -298,6 +497,26 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
     setPartners(partners.filter(p => p.id !== partnerId));
   };
 
+  const handleAddOrganizerPartner = (result: OrganizerPartnerSearchResult) => {
+    if (organizerPartners.some((p) => p.userId === result.userId)) return;
+    setOrganizerPartners([
+      ...organizerPartners,
+      {
+        id: `organizer-partner-${result.userId}`,
+        userId: result.userId,
+        displayName: result.profileName || result.entityName,
+        entityLogo: result.entityLogo,
+        representativeEmail: result.primaryEmail,
+      },
+    ]);
+    setOrganizerPartnerSearchQuery('');
+    setOrganizerPartnerSearchResults([]);
+  };
+
+  const handleRemoveOrganizerPartner = (userId: string) => {
+    setOrganizerPartners(organizerPartners.filter((p) => p.userId !== userId));
+  };
+
   const handleAddDate = () => {
     const newDate: EventDate = {
       id: `date-${Date.now()}`,
@@ -332,40 +551,45 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
     setLinks(links.filter(l => l.id !== linkId));
   };
 
-  const handleAddLandingPage = (landingPageId: string) => {
-    if (!selectedLandingPageIds.includes(landingPageId)) {
-      setSelectedLandingPageIds([...selectedLandingPageIds, landingPageId]);
+  const refuseIfSlotFull = (slot: EventResourceSlot, current: string[], nextId: string) => {
+    if (current.includes(nextId)) return true;
+    if (current.length >= 1) {
+      setResourceSlotBlock(slot);
+      return true;
     }
+    return false;
+  };
+
+  const handleAddLandingPage = (landingPageId: string) => {
+    if (refuseIfSlotFull('landing_page', selectedLandingPageIds, landingPageId)) return;
+    setSelectedLandingPageIds([...selectedLandingPageIds, landingPageId]);
   };
 
   const handleRemoveLandingPage = (landingPageId: string) => {
     setSelectedLandingPageIds(selectedLandingPageIds.filter(id => id !== landingPageId));
   };
 
-  const handleAddCertificate = (certificateId: string) => {
-    if (!selectedCertificateIds.includes(certificateId)) {
-      setSelectedCertificateIds([...selectedCertificateIds, certificateId]);
-    }
+  const toggleTemplateSelection = (
+    slot: EventResourceSlot,
+    templateId: string,
+    selectedIds: string[],
+    setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>
+  ) => {
+    if (refuseIfSlotFull(slot, selectedIds, templateId)) return;
+    setSelectedIds([...selectedIds, templateId]);
   };
 
-  const handleRemoveCertificate = (certificateId: string) => {
-    setSelectedCertificateIds(selectedCertificateIds.filter(id => id !== certificateId));
-  };
-
-  const handleAddBadgeTemplate = (templateId: string) => {
-    if (!selectedBadgeTemplateIds.includes(templateId)) {
-      setSelectedBadgeTemplateIds([...selectedBadgeTemplateIds, templateId]);
-    }
-  };
-
-  const handleRemoveBadgeTemplate = (templateId: string) => {
-    setSelectedBadgeTemplateIds(selectedBadgeTemplateIds.filter((id) => id !== templateId));
+  const removeTemplateSelection = (
+    templateId: string,
+    selectedIds: string[],
+    setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>
+  ) => {
+    setSelectedIds(selectedIds.filter((id) => id !== templateId));
   };
 
   const handleAddRegistrationForm = (formId: string) => {
-    if (!selectedRegistrationFormIds.includes(formId)) {
-      setSelectedRegistrationFormIds([...selectedRegistrationFormIds, formId]);
-    }
+    if (refuseIfSlotFull('registration_form', selectedRegistrationFormIds, formId)) return;
+    setSelectedRegistrationFormIds([...selectedRegistrationFormIds, formId]);
   };
 
   const handleRemoveRegistrationForm = (formId: string) => {
@@ -373,9 +597,8 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   };
 
   const handleAddSubmissionForm = (formId: string) => {
-    if (!selectedSubmissionFormIds.includes(formId)) {
-      setSelectedSubmissionFormIds([...selectedSubmissionFormIds, formId]);
-    }
+    if (refuseIfSlotFull('submission_form', selectedSubmissionFormIds, formId)) return;
+    setSelectedSubmissionFormIds([...selectedSubmissionFormIds, formId]);
   };
 
   const handleRemoveSubmissionForm = (formId: string) => {
@@ -383,9 +606,8 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   };
 
   const handleAddEvaluationForm = (formId: string) => {
-    if (!selectedEvaluationFormIds.includes(formId)) {
-      setSelectedEvaluationFormIds([...selectedEvaluationFormIds, formId]);
-    }
+    if (refuseIfSlotFull('evaluation_form', selectedEvaluationFormIds, formId)) return;
+    setSelectedEvaluationFormIds([...selectedEvaluationFormIds, formId]);
   };
 
   const handleRemoveEvaluationForm = (formId: string) => {
@@ -403,9 +625,8 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   };
 
   const handleAddAbstractSubmissionForm = (formId: string) => {
-    if (!selectedAbstractSubmissionFormIds.includes(formId)) {
-      setSelectedAbstractSubmissionFormIds([...selectedAbstractSubmissionFormIds, formId]);
-    }
+    if (refuseIfSlotFull('abstract_submission_form', selectedAbstractSubmissionFormIds, formId)) return;
+    setSelectedAbstractSubmissionFormIds([...selectedAbstractSubmissionFormIds, formId]);
   };
 
   const handleRemoveAbstractSubmissionForm = (formId: string) => {
@@ -415,6 +636,15 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
   const workflowNeedsAbstract = submissionWorkflowPreset === 'C' || submissionWorkflowPreset === 'D';
   const workflowNeedsPayment = submissionWorkflowPreset === 'B' || submissionWorkflowPreset === 'D';
   const registrationNeedsPayment = registrationWorkflowPreset === 'B';
+
+  const todayISO = localISODate();
+  const articleDeadlineMin =
+    workflowNeedsAbstract && abstractSubmissionDeadline
+      ? maxISODate(todayISO, abstractSubmissionDeadline)
+      : todayISO;
+  const paymentDeadlineMin = workflowNeedsPayment
+    ? maxISODate(todayISO, submissionDeadline || '')
+    : todayISO;
 
   const renderPaymentOfferDetails = (offerId: string) => {
     const offer = paymentOffers.find((p) => p.id === offerId);
@@ -453,7 +683,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
 
   const goWizardNext = () => {
     setError('');
-    if (!eventId && wizardStep === 1) {
+    if (wizardStep === 1) {
       if (!name.trim()) {
         setError(t('errNameRequired'));
         return;
@@ -461,19 +691,109 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
       setWizardStep(2);
       return;
     }
-    if (!eventId && wizardStep === 2) {
+    if (wizardStep === 2) {
       if (!validateDeadlines()) {
         return;
       }
       setWizardStep(3);
+      return;
+    }
+    if (wizardStep === 3) {
+      setWizardStep(4);
     }
   };
 
   const goWizardBack = () => {
     setError('');
-    if (!eventId && wizardStep > 1) {
-      setWizardStep((s) => (s === 3 ? 2 : 1));
+    if (wizardStep > 1) {
+      setWizardStep((s) => (s === 4 ? 3 : s === 3 ? 2 : 1));
     }
+  };
+
+  const renderTemplatePicker = (
+    kind: 'badge' | 'certificate',
+    slot: EventResourceSlot,
+    selectedIds: string[],
+    setSelectedIds: React.Dispatch<React.SetStateAction<string[]>>,
+    templates: CertificateTemplate[],
+    labels: {
+      title: string;
+      addOption: string;
+      emptyMessage: string;
+    }
+  ) => {
+    const Icon = kind === 'badge' ? IdCard : Award;
+    const previewKind = kind;
+
+    return (
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
+          <Icon className={kind === 'badge' ? 'text-indigo-600' : 'text-slate-500'} size={16} />
+          {labels.title}
+        </label>
+        {selectedIds.length > 0 && (
+          <div className="mb-3 space-y-2">
+            {selectedIds.map((templateId) => {
+              const tpl = templates.find((c) => c.id === templateId);
+              return tpl ? (
+                <div
+                  key={templateId}
+                  className={`flex items-center justify-between gap-2 p-3 rounded-lg border ${
+                    kind === 'badge'
+                      ? 'bg-indigo-50/50 border-indigo-100'
+                      : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <span className="text-sm font-medium text-slate-700 flex-1 min-w-0 truncate">
+                    {tpl.title}
+                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setTemplatePreview({ kind: previewKind, id: templateId })}
+                      className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded transition-colors"
+                      title={t('btnPreviewTemplate')}
+                      aria-label={t('btnPreviewTemplate')}
+                    >
+                      <Eye size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeTemplateSelection(templateId, selectedIds, setSelectedIds)}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ) : null;
+            })}
+          </div>
+        )}
+        <select
+          value=""
+          onChange={(e) => {
+            if (e.target.value) {
+              toggleTemplateSelection(slot, e.target.value, selectedIds, setSelectedIds);
+              e.target.value = '';
+            }
+          }}
+          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+        >
+          <option value="">{labels.addOption}</option>
+          {templates
+            .filter((tpl) => !selectedIds.includes(tpl.id))
+            .map((tpl) => (
+              <option key={tpl.id} value={tpl.id}>
+                {tpl.title}
+              </option>
+            ))}
+        </select>
+        {templates.length === 0 && (
+          <p className="mt-2 text-sm text-slate-500">{labels.emptyMessage}</p>
+        )}
+      </div>
+    );
   };
 
   // Helper function to remove prefix from form title
@@ -493,25 +813,68 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
     form.title.startsWith('Sub')
   );
 
+  const submissionPaymentFormsFiltered = registrationForms.filter(
+    (form) => inferRegistrationFormCategory(form) === 'payment'
+  );
+
   const evaluationFormsFiltered = evaluationForms.filter(form => 
     form.title.startsWith('Eval')
   );
 
   const validateDeadlines = (): boolean => {
+    const todayCheck = localISODate();
     if (!registrationDeadline?.trim()) {
       setError(t('errRegistrationDeadlineRequired'));
+      return false;
+    }
+    if (registrationDeadline.trim() < todayCheck) {
+      setError(t('errDeadlineMustBeTodayOrLater'));
       return false;
     }
     if (!submissionDeadline?.trim()) {
       setError(t('errArticleDeadlineRequired'));
       return false;
     }
+    if (submissionDeadline.trim() < todayCheck) {
+      setError(t('errDeadlineMustBeTodayOrLater'));
+      return false;
+    }
     if (workflowNeedsAbstract && !abstractSubmissionDeadline?.trim()) {
       setError(t('errAbstractDeadlineRequired'));
       return false;
     }
+    if (workflowNeedsAbstract && abstractSubmissionDeadline.trim() < todayCheck) {
+      setError(t('errDeadlineMustBeTodayOrLater'));
+      return false;
+    }
+    if (
+      workflowNeedsAbstract &&
+      abstractSubmissionDeadline &&
+      submissionDeadline &&
+      submissionDeadline.trim() < abstractSubmissionDeadline.trim()
+    ) {
+      setError(t('errAbstractBeforeArticle'));
+      return false;
+    }
     if (workflowNeedsPayment && !paymentDeadline?.trim()) {
       setError(t('errPaymentDeadlineRequired'));
+      return false;
+    }
+    if (workflowNeedsPayment && paymentDeadline.trim() < todayCheck) {
+      setError(t('errDeadlineMustBeTodayOrLater'));
+      return false;
+    }
+    if (
+      workflowNeedsPayment &&
+      paymentDeadline &&
+      submissionDeadline &&
+      paymentDeadline.trim() < submissionDeadline.trim()
+    ) {
+      setError(t('errArticleBeforePayment'));
+      return false;
+    }
+    if (workflowNeedsPayment && !submissionPaymentFormId?.trim()) {
+      setError(t('errSubmissionPaymentFormRequired'));
       return false;
     }
     return true;
@@ -562,8 +925,19 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
         registrationFormIds: selectedRegistrationFormIds,
         submissionFormIds: selectedSubmissionFormIds,
         evaluationFormIds: evaluationEnabled ? selectedEvaluationFormIds : [],
-        certificateTemplateIds: selectedCertificateIds,
-        badgeTemplateIds: selectedBadgeTemplateIds.length > 0 ? selectedBadgeTemplateIds : undefined,
+        registrationBadgeTemplateIds:
+          selectedRegistrationBadgeTemplateIds.length > 0
+            ? selectedRegistrationBadgeTemplateIds
+            : undefined,
+        registrationCertificateTemplateIds: selectedRegistrationCertificateIds,
+        submissionBadgeTemplateIds:
+          selectedSubmissionBadgeTemplateIds.length > 0
+            ? selectedSubmissionBadgeTemplateIds
+            : undefined,
+        submissionCertificateTemplateIds:
+          selectedSubmissionCertificateIds.length > 0
+            ? selectedSubmissionCertificateIds
+            : undefined,
         committeeIds: evaluationEnabled ? selectedCommitteeIds : [],
         evaluationEnabled,
         banner: banner,
@@ -580,6 +954,10 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
           registrationNeedsPayment && registrationPaymentOfferId ? registrationPaymentOfferId : undefined,
         submissionPaymentOfferId:
           workflowNeedsPayment && submissionPaymentOfferId ? submissionPaymentOfferId : undefined,
+        submissionPaymentFormId:
+          workflowNeedsPayment && submissionPaymentFormId ? submissionPaymentFormId : undefined,
+        publishedProgramId: publishedProgramId.trim() || undefined,
+        organizerPartnerUserIds: organizerPartners.map((p) => p.userId),
       };
 
       if (eventId) {
@@ -592,6 +970,14 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
       
       onSave();
     } catch (err: any) {
+      if (isEventQuotaExceededError(err)) {
+        setQuotaBlock(err.quota);
+        return;
+      }
+      if (isEventResourceSlotFullError(err) || err instanceof EventResourceSlotFullError) {
+        setResourceSlotBlock(err.slot);
+        return;
+      }
       console.error('Error saving event:', err);
       setError(err.message || t('errSaveEvent'));
     } finally {
@@ -873,13 +1259,23 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   </section>
                 ` : ''}
 
-                ${selectedCertificateIds.length > 0 ? `
+                ${selectedRegistrationCertificateIds.length > 0 ? `
                   <section class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex items-center gap-2 mb-3">
-                      <h2 class="text-lg font-semibold text-slate-800">${t('secCertificates')}</h2>
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secRegistrationCertificates')}</h2>
                     </div>
                     <p class="text-sm text-slate-600">
-                      ${t('countTemplatesConfigured', { n: selectedCertificateIds.length })}
+                      ${t('countTemplatesConfigured', { n: selectedRegistrationCertificateIds.length })}
+                    </p>
+                  </section>
+                ` : ''}
+                ${selectedSubmissionCertificateIds.length > 0 ? `
+                  <section class="bg-white rounded-lg shadow-sm p-6">
+                    <div class="flex items-center gap-2 mb-3">
+                      <h2 class="text-lg font-semibold text-slate-800">${t('secSubmissionCertificates')}</h2>
+                    </div>
+                    <p class="text-sm text-slate-600">
+                      ${t('countTemplatesConfigured', { n: selectedSubmissionCertificateIds.length })}
                     </p>
                   </section>
                 ` : ''}
@@ -905,27 +1301,36 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
 
   return (
     <div className="space-y-8">
+      {quotaBlock && (
+        <EventQuotaLimitModal quota={quotaBlock} onClose={() => setQuotaBlock(null)} />
+      )}
+      {resourceSlotBlock && (
+        <EventResourceLimitModal
+          slot={resourceSlotBlock}
+          onClose={() => setResourceSlotBlock(null)}
+        />
+      )}
       <form onSubmit={handleSubmit} className="space-y-8">
-        {!eventId && (
-          <nav
-            className="mb-8 rounded-xl border border-slate-200 bg-white px-4 py-5 sm:px-6 shadow-sm"
-            aria-label="Event creation steps"
-          >
+        <nav
+          className="mb-8 rounded-xl border border-slate-200 bg-white px-4 py-5 sm:px-6 shadow-sm"
+          aria-label="Event form steps"
+        >
             <div className="mb-4 h-2.5 w-full overflow-hidden rounded-full bg-slate-200">
               <div
                 className="h-full min-w-0 rounded-full bg-indigo-600 transition-all duration-500 ease-out"
-                style={{ width: `${(wizardStep / 3) * 100}%` }}
+                style={{ width: `${(wizardStep / 4) * 100}%` }}
                 role="progressbar"
                 aria-valuemin={1}
-                aria-valuemax={3}
+                aria-valuemax={4}
                 aria-valuenow={wizardStep}
               />
             </div>
-            <div className="grid grid-cols-3 gap-2 sm:gap-4">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-4">
               {([
                 [1, 'wizardStep1'],
                 [2, 'wizardStep2'],
                 [3, 'wizardStep3'],
+                [4, 'wizardStep4'],
               ] as const).map(([step, labelKey]) => {
                 const completed = wizardStep > step;
                 const current = wizardStep === step;
@@ -944,7 +1349,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         return;
                       }
                       setError('');
-                      setWizardStep(step as 1 | 2 | 3);
+                      setWizardStep(step as 1 | 2 | 3 | 4);
                     }}
                     className={`flex flex-col items-center gap-2 rounded-lg px-1 py-2 text-center transition-colors sm:flex-row sm:justify-center sm:gap-3 ${
                       current
@@ -975,8 +1380,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
               })}
             </div>
           </nav>
-        )}
-        {(!eventId ? wizardStep === 1 : true) && (
+        {wizardStep === 1 && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Left Column: General Information */}
           <div className="bg-white rounded-lg border border-slate-200 p-6">
@@ -1361,7 +1765,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
           <div className="bg-white rounded-lg border border-slate-200 p-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
               <Building className="text-indigo-600" size={20} />
-              {!eventId ? t('labelBannerManager') : t('sectionOrganization')}
+              {t('labelBannerManager')}
             </h2>
             
             <div className="space-y-6">
@@ -1636,7 +2040,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
         </div>
         )}
 
-        {(!eventId && wizardStep === 2) && (
+        {wizardStep === 2 && (
         <div className="space-y-8">
           <div className="bg-white rounded-lg border border-slate-200 p-6">
             <h2 className="text-xl font-semibold text-slate-900 mb-4 flex items-center gap-2">
@@ -1738,6 +2142,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 </label>
                 <input
                   type="date"
+                  min={todayISO}
                   value={registrationDeadline}
                   onChange={(e) => setRegistrationDeadline(e.target.value)}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -1789,6 +2194,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   onClick={() => {
                     setSubmissionWorkflowPreset('A');
                     setSubmissionPaymentOfferId('');
+                    setSubmissionPaymentFormId('');
                   }}
                   className={`text-left rounded-xl border-2 p-4 transition-all ${
                     submissionWorkflowPreset === 'A'
@@ -1846,6 +2252,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   onClick={() => {
                     setSubmissionWorkflowPreset('C');
                     setSubmissionPaymentOfferId('');
+                    setSubmissionPaymentFormId('');
                   }}
                   className={`text-left rounded-xl border-2 p-4 transition-all ${
                     submissionWorkflowPreset === 'C'
@@ -1899,6 +2306,31 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   </div>
                 </button>
               </div>
+            </div>
+
+            <div className="mb-8 pb-6 border-b border-slate-100">
+              <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                <Layers className="text-indigo-600" size={18} />
+                {t('labelPublishedProgram')}
+              </label>
+              <p className="text-xs text-slate-600 mt-1 mb-2">{t('hintPublishedProgram')}</p>
+              <select
+                value={publishedProgramId}
+                onChange={(e) => setPublishedProgramId(e.target.value)}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white text-sm"
+              >
+                <option value="">{t('optNoPublishedProgram')}</option>
+                {savedProgramsForPicker.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title}
+                  </option>
+                ))}
+              </select>
+              {savedProgramsForPicker.length === 0 && (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3 mt-2">
+                  {t('emptyNoProgramsForEvent')}
+                </p>
+              )}
             </div>
 
             {workflowNeedsAbstract && (
@@ -1962,6 +2394,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                   </label>
                   <input
                     type="date"
+                    min={todayISO}
                     value={abstractSubmissionDeadline}
                     onChange={(e) => setAbstractSubmissionDeadline(e.target.value)}
                     className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -2031,6 +2464,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                 </label>
                 <input
                   type="date"
+                  min={articleDeadlineMin}
                   value={submissionDeadline}
                   onChange={(e) => setSubmissionDeadline(e.target.value)}
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -2075,6 +2509,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     <p className="text-xs text-slate-500 mb-2">{t('paymentDeadlineHintSubmission')}</p>
                     <input
                       type="date"
+                      min={paymentDeadlineMin}
                       value={paymentDeadline}
                       onChange={(e) => setPaymentDeadline(e.target.value)}
                       className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
@@ -2082,8 +2517,35 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                     />
                   </div>
                 </div>
+                <div className="mt-6 pt-4 border-t border-slate-200 space-y-2">
+                  <label className="block text-sm font-medium text-slate-700 flex items-center gap-2">
+                    <FileText className="text-indigo-600" size={18} />
+                    {t('labelSubmissionPaymentForm')}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-slate-500">{t('hintSubmissionPaymentForm')}</p>
+                  <select
+                    value={submissionPaymentFormId}
+                    onChange={(e) => setSubmissionPaymentFormId(e.target.value)}
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                    required
+                  >
+                    <option value="">{t('optSelectSubmissionPaymentForm')}</option>
+                    {submissionPaymentFormsFiltered.map((form) => (
+                      <option key={form.id} value={form.id}>
+                        {form.title}
+                      </option>
+                    ))}
+                  </select>
+                  {submissionPaymentFormsFiltered.length === 0 && (
+                    <p className="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+                      {t('emptyNoPaymentOffers')}
+                    </p>
+                  )}
+                </div>
               </div>
             )}
+
           </div>
 
         <div className="bg-white rounded-lg border border-slate-200 p-6">
@@ -2233,202 +2695,252 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
         </div>
         )}
 
-        {(!eventId && wizardStep === 3) && (
-        <div className="bg-white rounded-lg border border-slate-200 p-6">
-          <h2 className="text-xl font-semibold text-slate-900 mb-6 flex items-center gap-2">
-            <Layers className="text-indigo-600" size={20} />
-            {t('sectionStep3Tools')}
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <Globe className="text-slate-500" size={16} />
-                  {t('labelLandingPages')}
-                </label>
-                {selectedLandingPageIds.length > 0 && (
-                  <div className="mb-3 space-y-2">
-                    {selectedLandingPageIds.map((pageId) => {
-                      const page = landingPages.find((p) => p.id === pageId);
-                      return page ? (
-                        <div
-                          key={pageId}
-                          className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
-                        >
-                          <span className="text-sm font-medium text-slate-700">{page.title}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveLandingPage(pageId)}
-                            className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      ) : null;
-                    })}
-                  </div>
-                )}
-                <div className="relative">
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleAddLandingPage(e.target.value);
-                        e.target.value = '';
-                      }
-                    }}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value="">{t('optAddLandingPage')}</option>
-                    {landingPages
-                      .filter((page) => !selectedLandingPageIds.includes(page.id))
-                      .map((page) => (
-                        <option key={page.id} value={page.id}>
-                          {page.title}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                {landingPages.length === 0 && (
-                  <p className="mt-2 text-sm text-slate-500">{t('emptyNoLandingPages')}</p>
-                )}
-              </div>
+        {wizardStep === 3 && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
+              <Users className="text-indigo-600" size={20} />
+              {t('sectionStep3Partnership')}
+            </h3>
+            <p className="text-sm text-slate-600 mb-6">{t('sectionStep3PartnershipHint')}</p>
+
+            <label className="block text-sm font-medium text-slate-700 mb-2">
+              {t('organizerPartnerSearchLabel')}
+            </label>
+            <div className="relative mb-4">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+              <input
+                type="text"
+                value={organizerPartnerSearchQuery}
+                onChange={(e) => setOrganizerPartnerSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder={t('organizerPartnerSearchPh')}
+              />
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <IdCard className="text-indigo-600" size={16} />
-                  {t('labelBadges')}
-                </label>
-                {selectedBadgeTemplateIds.length > 0 && (
-                  <div className="mb-3 space-y-2">
-                    {selectedBadgeTemplateIds.map((tid) => {
-                      const tpl = badgeTemplates.find((c) => c.id === tid);
-                      return tpl ? (
-                        <div
-                          key={tid}
-                          className="flex items-center justify-between gap-2 p-3 bg-indigo-50/50 rounded-lg border border-indigo-100"
-                        >
-                          <span className="text-sm font-medium text-slate-700 flex-1 min-w-0 truncate">
-                            {tpl.title}
-                          </span>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setTemplatePreview({ kind: 'badge', id: tid })}
-                              className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded transition-colors"
-                              title={t('btnPreviewTemplate')}
-                              aria-label={t('btnPreviewTemplate')}
-                            >
-                              <Eye size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveBadgeTemplate(tid)}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </div>
-                      ) : null;
-                    })}
-                  </div>
-                )}
-                <div className="relative">
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleAddBadgeTemplate(e.target.value);
-                        e.target.value = '';
-                      }
-                    }}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  >
-                    <option value="">{t('optAddBadgeTemplate')}</option>
-                    {badgeTemplates
-                      .filter((c) => !selectedBadgeTemplateIds.includes(c.id))
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.title}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                {badgeTemplates.length === 0 && (
-                  <p className="mt-2 text-sm text-slate-500">{t('emptyNoBadgeTemplates')}</p>
-                )}
+            {organizerPartnerSearchLoading && (
+              <div className="flex items-center gap-2 text-sm text-slate-500 mb-4">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>{t('btnSaving')}</span>
               </div>
-            </div>
+            )}
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
-                  <Award className="text-slate-500" size={16} />
-                  {t('labelCertificates')}
-                </label>
-                {selectedCertificateIds.length > 0 && (
-                  <div className="mb-3 space-y-2">
-                    {selectedCertificateIds.map((certId) => {
-                      const cert = certificates.find((c) => c.id === certId);
-                      return cert ? (
-                        <div
-                          key={certId}
-                          className="flex items-center justify-between gap-2 p-3 bg-slate-50 rounded-lg border border-slate-200"
-                        >
-                          <span className="text-sm font-medium text-slate-700 flex-1 min-w-0 truncate">
-                            {cert.title}
-                          </span>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => setTemplatePreview({ kind: 'certificate', id: certId })}
-                              className="p-1.5 text-indigo-600 hover:bg-indigo-100 rounded transition-colors"
-                              title={t('btnPreviewTemplate')}
-                              aria-label={t('btnPreviewTemplate')}
-                            >
-                              <Eye size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveCertificate(certId)}
-                              className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </div>
-                      ) : null;
-                    })}
-                  </div>
-                )}
-                <div className="relative">
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        handleAddCertificate(e.target.value);
-                        e.target.value = '';
-                      }
-                    }}
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            {!organizerPartnerSearchLoading && organizerPartnerSearchQuery.trim() && organizerPartnerSearchResults.length === 0 && (
+              <p className="text-sm text-slate-500 mb-4">{t('organizerPartnerSearchNoResults')}</p>
+            )}
+
+            {organizerPartnerSearchResults.length > 0 && (
+              <div className="mb-6 space-y-2 max-h-56 overflow-y-auto">
+                {organizerPartnerSearchResults.map((result) => (
+                  <div
+                    key={result.userId}
+                    className="flex items-center justify-between gap-3 p-3 rounded-lg border border-slate-200 bg-slate-50"
                   >
-                    <option value="">{t('optAddCertificate')}</option>
-                    {certificates
-                      .filter((cert) => !selectedCertificateIds.includes(cert.id))
-                      .map((cert) => (
-                        <option key={cert.id} value={cert.id}>
-                          {cert.title}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-                {certificates.length === 0 && (
-                  <p className="mt-2 text-sm text-slate-500">{t('emptyNoCertificates')}</p>
-                )}
+                    <div className="flex items-center gap-3 min-w-0">
+                      {result.entityLogo ? (
+                        <img
+                          src={result.entityLogo}
+                          alt=""
+                          className="h-10 w-10 rounded-full object-cover border border-slate-200 shrink-0"
+                        />
+                      ) : (
+                        <div className="h-10 w-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                          <Building size={18} />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-900 truncate">
+                          {result.profileName || result.entityName}
+                        </p>
+                        {result.primaryEmail && (
+                          <p className="text-xs text-slate-500 truncate">{result.primaryEmail}</p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleAddOrganizerPartner(result)}
+                      className="shrink-0 px-3 py-1.5 text-sm text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-lg hover:bg-indigo-100 transition-colors"
+                    >
+                      {t('btnAddOrganizerPartner')}
+                    </button>
+                  </div>
+                ))}
               </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                {t('labelOrganizerPartners')}
+              </label>
+              {organizerPartners.length === 0 ? (
+                <p className="text-sm text-slate-500">{t('emptyNoOrganizerPartners')}</p>
+              ) : (
+                <div className="space-y-2">
+                  {organizerPartners.map((partner) => (
+                    <div
+                      key={partner.userId}
+                      className="flex items-center justify-between gap-3 p-3 rounded-lg border border-indigo-100 bg-indigo-50/40"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {partner.entityLogo ? (
+                          <img
+                            src={partner.entityLogo}
+                            alt=""
+                            className="h-10 w-10 rounded-full object-cover border border-slate-200 shrink-0"
+                          />
+                        ) : (
+                          <div className="h-10 w-10 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
+                            <Building size={18} />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-900 truncate">{partner.displayName}</p>
+                          {partner.representativeEmail ? (
+                            <p className="text-xs text-slate-500 truncate">{partner.representativeEmail}</p>
+                          ) : (
+                            <p className="text-xs text-indigo-700">{t('organizerPartnerAccessHint')}</p>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveOrganizerPartner(partner.userId)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded transition-colors shrink-0"
+                        aria-label={t('btnCancel')}
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        )}
+
+        {wizardStep === 4 && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <Globe className="text-indigo-600" size={20} />
+              {t('sectionStep3LandingPage')}
+            </h3>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                {t('labelLandingPages')}
+              </label>
+              {selectedLandingPageIds.length > 0 && (
+                <div className="mb-3 space-y-2">
+                  {selectedLandingPageIds.map((pageId) => {
+                    const page = landingPages.find((p) => p.id === pageId);
+                    return page ? (
+                      <div
+                        key={pageId}
+                        className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200"
+                      >
+                        <span className="text-sm font-medium text-slate-700">{page.title}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLandingPage(pageId)}
+                          className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+              )}
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleAddLandingPage(e.target.value);
+                    e.target.value = '';
+                  }
+                }}
+                className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="">{t('optAddLandingPage')}</option>
+                {landingPages
+                  .filter((page) => !selectedLandingPageIds.includes(page.id))
+                  .map((page) => (
+                    <option key={page.id} value={page.id}>
+                      {page.title}
+                    </option>
+                  ))}
+              </select>
+              {landingPages.length === 0 && (
+                <p className="mt-2 text-sm text-slate-500">{t('emptyNoLandingPages')}</p>
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <UserCheck className="text-emerald-600" size={20} />
+              {t('sectionStep3Registration')}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {renderTemplatePicker(
+                'badge',
+                'registration_badge',
+                selectedRegistrationBadgeTemplateIds,
+                setSelectedRegistrationBadgeTemplateIds,
+                badgeTemplates,
+                {
+                  title: t('labelBadges'),
+                  addOption: t('optAddBadgeTemplate'),
+                  emptyMessage: t('emptyNoBadgeTemplates'),
+                }
+              )}
+              {renderTemplatePicker(
+                'certificate',
+                'registration_certificate',
+                selectedRegistrationCertificateIds,
+                setSelectedRegistrationCertificateIds,
+                certificates,
+                {
+                  title: t('labelCertificates'),
+                  addOption: t('optAddCertificate'),
+                  emptyMessage: t('emptyNoCertificates'),
+                }
+              )}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg border border-slate-200 p-6">
+            <h3 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
+              <Send className="text-blue-600" size={20} />
+              {t('sectionStep3Submission')}
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {renderTemplatePicker(
+                'badge',
+                'submission_badge',
+                selectedSubmissionBadgeTemplateIds,
+                setSelectedSubmissionBadgeTemplateIds,
+                badgeTemplates,
+                {
+                  title: t('labelBadges'),
+                  addOption: t('optAddBadgeTemplate'),
+                  emptyMessage: t('emptyNoBadgeTemplates'),
+                }
+              )}
+              {renderTemplatePicker(
+                'certificate',
+                'submission_certificate',
+                selectedSubmissionCertificateIds,
+                setSelectedSubmissionCertificateIds,
+                certificates,
+                {
+                  title: t('labelCertificates'),
+                  addOption: t('optAddCertificate'),
+                  emptyMessage: t('emptyNoCertificates'),
+                }
+              )}
             </div>
           </div>
         </div>
@@ -2450,7 +2962,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
           >
             {t('btnCancel')}
           </button>
-          {!eventId && wizardStep > 1 && (
+          {wizardStep > 1 && (
             <button
               type="button"
               onClick={goWizardBack}
@@ -2459,7 +2971,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
               {t('btnBack')}
             </button>
           )}
-          {!eventId && wizardStep < 3 && (
+          {wizardStep < 4 && (
             <button
               type="button"
               onClick={goWizardNext}
@@ -2468,7 +2980,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
               {t('btnNext')}
             </button>
           )}
-          {(!eventId ? wizardStep === 3 : true) && (
+          {wizardStep === 4 && (
             <button
               type="button"
               onClick={handlePreview}
@@ -2478,7 +2990,7 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
               {t('btnPreview')}
             </button>
           )}
-          {(!eventId ? wizardStep === 3 : true) && (
+          {wizardStep === 4 && (
             <button
               type="submit"
               disabled={isSaving}
@@ -2872,15 +3384,27 @@ const NewEvent: React.FC<NewEventProps> = ({ eventId, onSave, onCancel }) => {
                         </section>
                       )}
 
-                      {/* Certificates */}
-                      {selectedCertificateIds.length > 0 && (
+                      {/* Registration certificates */}
+                      {selectedRegistrationCertificateIds.length > 0 && (
                         <section className="bg-white rounded-lg shadow-sm p-6">
                           <div className="flex items-center gap-2 mb-3">
                             <Award className="w-5 h-5 text-indigo-600" />
-                            <h2 className="text-lg font-semibold text-slate-800">{t('secCertificates')}</h2>
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secRegistrationCertificates')}</h2>
                           </div>
                           <p className="text-sm text-slate-600">
-                            {t('countTemplatesConfigured', { n: selectedCertificateIds.length })}
+                            {t('countTemplatesConfigured', { n: selectedRegistrationCertificateIds.length })}
+                          </p>
+                        </section>
+                      )}
+                      {/* Submission certificates */}
+                      {selectedSubmissionCertificateIds.length > 0 && (
+                        <section className="bg-white rounded-lg shadow-sm p-6">
+                          <div className="flex items-center gap-2 mb-3">
+                            <Award className="w-5 h-5 text-blue-600" />
+                            <h2 className="text-lg font-semibold text-slate-800">{t('secSubmissionCertificates')}</h2>
+                          </div>
+                          <p className="text-sm text-slate-600">
+                            {t('countTemplatesConfigured', { n: selectedSubmissionCertificateIds.length })}
                           </p>
                         </section>
                       )}
