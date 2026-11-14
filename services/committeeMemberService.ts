@@ -1,5 +1,6 @@
 import { supabase, TABLES } from '../supabase';
 import { ReviewCommitteeMember, CommitteeInvitation, InvitationStatus } from '../types';
+import { mapDbInvitation } from './committeeInvitationService';
 
 const TABLE_NAME = TABLES.COMMITTEE_MEMBERS;
 
@@ -403,6 +404,19 @@ export const createMemberInvitation = async (
         jury_member_email: memberEmail,
         invited_by: invitedBy,
         status: InvitationStatus.PENDING,
+        invitation_type: 'standard',
+        committee_member_id: memberId,
+        invitee_snapshot: {
+          committeeMemberId: member.committeeMemberId,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          title: member.title,
+          email: member.email,
+          phone: member.phone,
+          affiliation: member.affiliation,
+          researchDomains: member.researchDomains,
+          identifiers: member.identifiers,
+        },
       })
       .select()
       .single();
@@ -453,16 +467,7 @@ export const getMemberInvitations = async (memberId: string): Promise<CommitteeI
       return [];
     }
 
-    return data.map((inv) => ({
-      id: inv.id,
-      juryMemberId: inv.jury_member_id,
-      juryMemberEmail: inv.jury_member_email,
-      invitedBy: inv.invited_by,
-      status: inv.status as InvitationStatus,
-      commentary: inv.commentary,
-      createdAt: new Date(inv.created_at),
-      respondedAt: inv.responded_at ? new Date(inv.responded_at) : undefined,
-    }));
+    return data.map((inv) => mapDbInvitation(inv));
   } catch (error: any) {
     console.error('Error getting member invitations:', error);
     return [];

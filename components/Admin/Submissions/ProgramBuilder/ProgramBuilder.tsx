@@ -32,6 +32,15 @@ import { getUserEvents } from '../../../../services/eventService';
 import type { Event } from '../../../../types';
 import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
 import { formatDateRangeLabel, getDayCalendarLabel } from './programExportMeta';
+import { filterSubmissionsEligibleForProgram } from '../ManageSubmission/receivedSubmissionsUtils';
+import { workflowPresetLabel } from '../../../../services/submissionPipelineService';
+import ProgramLegendsEditor from './ProgramLegendsEditor';
+import ProgramLegendColorPicker from './ProgramLegendColorPicker';
+import {
+  DEFAULT_PROGRAM_COLORS,
+  getPrimaryCardColor,
+  type ProgramLegendEntry,
+} from './programLegends';
 
 export interface Venue {
   id: string;
@@ -63,6 +72,8 @@ export interface ProgramDisplaySettings {
   dateEnd?: string;
 }
 
+export type { ProgramLegendEntry } from './programLegends';
+
 export interface ProgramBuilderConfig {
   numVenues: number;
   numDays: number;
@@ -70,18 +81,9 @@ export interface ProgramBuilderConfig {
   endTime: string; // HH:mm format
   timeSlotWidth: number; // Minutes (15, 30, 60, etc.)
   display?: ProgramDisplaySettings;
+  /** Named color categories for sessions — persisted in config JSON */
+  legends?: ProgramLegendEntry[];
 }
-
-const DEFAULT_COLORS = [
-  '#3b82f6', // blue
-  '#8b5cf6', // violet
-  '#ec4899', // pink
-  '#f59e0b', // amber
-  '#10b981', // emerald
-  '#ef4444', // red
-  '#06b6d4', // cyan
-  '#84cc16', // lime
-];
 
 const ProgramBuilder: React.FC = () => {
   const [config, setConfig] = useState<ProgramBuilderConfig>({
@@ -226,31 +228,34 @@ const ProgramBuilder: React.FC = () => {
     }
   }, [organizerScopedEventId]);
 
-  // Fetch approved submissions for selected event
+  // Fetch article submissions that are accepted for the program under this event's workflow (abstract + payment when applicable)
   useEffect(() => {
     const loadApprovedSubmissions = async () => {
       if (!user?.id || !selectedEventId) {
         setApprovedSubmissions([]);
         return;
       }
-      
+
+      const event = events.find((e) => e.id === selectedEventId);
+      if (!event) {
+        setApprovedSubmissions([]);
+        return;
+      }
+
       try {
         setLoadingSubmissions(true);
-        // Get submissions for the selected event
         const eventSubmissions = await getEventSubmissions(selectedEventId);
-        // Filter for approved submissions only
-        const approved = eventSubmissions.filter(sub => sub.approvalStatus === 'accepted');
-        setApprovedSubmissions(approved);
+        setApprovedSubmissions(filterSubmissionsEligibleForProgram(event, eventSubmissions));
       } catch (error) {
-        console.error('Error loading approved submissions:', error);
+        console.error('Error loading program-eligible submissions:', error);
         setApprovedSubmissions([]);
       } finally {
         setLoadingSubmissions(false);
       }
     };
 
-    loadApprovedSubmissions();
-  }, [user?.id, selectedEventId]);
+    void loadApprovedSubmissions();
+  }, [user?.id, selectedEventId, events]);
 
   // Calculate grid position from time
   // Grid has: row 1 = header, row 2+ = time slots
@@ -295,7 +300,7 @@ const ProgramBuilder: React.FC = () => {
       endTime: rowToTime(timeToRow(config.startTime) + 2),
       venueId: venues[0]?.id || '',
       dayIndex: selectedDay,
-      color: DEFAULT_COLORS[0],
+      color: getPrimaryCardColor(config),
       rowStart: timeToRow(config.startTime),
       rowSpan: 2,
       colStart: 2, // Column 2 is first venue (column 1 is time column)
@@ -364,7 +369,11 @@ const ProgramBuilder: React.FC = () => {
       endTime,
       venueId: venue?.id || venues[0]?.id || '',
       dayIndex: selectedDay,
-      color: DEFAULT_COLORS[Math.floor(Math.random() * DEFAULT_COLORS.length)],
+      color: (() => {
+        const palette =
+          config.legends?.map((l) => l.color) ?? [...DEFAULT_PROGRAM_COLORS];
+        return palette[Math.floor(Math.random() * palette.length)] ?? getPrimaryCardColor(config);
+      })(),
       rowStart: row,
       rowSpan: 2,
       colStart: col,
@@ -430,7 +439,7 @@ const ProgramBuilder: React.FC = () => {
         endTime,
         venueId: venue.id,
         dayIndex: selectedDay,
-        color: DEFAULT_COLORS[0],
+        color: getPrimaryCardColor(config),
         rowStart: row,
         rowSpan: 2,
         colStart: col,
@@ -781,11 +790,9 @@ const ProgramBuilder: React.FC = () => {
     setActiveTab('new');
   };
 
-  const handleSaveSuccess = () => {
+  const handleSaveSuccess = (programId: string) => {
     setShowSaveModal(false);
-    // Keep currentProgramId as null for new programs
-    // Optionally switch to list tab to see the saved program
-    // setActiveTab('list');
+    setCurrentProgramId(programId);
   };
 
   const handleSaveChanges = async () => {
@@ -1183,6 +1190,11 @@ const ProgramBuilder: React.FC = () => {
                 </select>
               </div>
 
+              <ProgramLegendsEditor
+                config={config}
+                onChange={(legends) => setConfig((c) => ({ ...c, legends }))}
+              />
+
               <div className="pt-4 border-t border-slate-200">
                 <label className="block text-sm font-medium text-slate-700 mb-3">
                   Venues
@@ -1234,7 +1246,13 @@ const ProgramBuilder: React.FC = () => {
                         ))}
                       </select>
                     )}
-                    <p className="text-xs text-slate-500 mt-1">Select an event to view its approved submissions</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {selectedEvent
+                        ? `Accepted articles for this event (${workflowPresetLabel(
+                            selectedEvent.submissionWorkflowPreset || 'A'
+                          )}) — abstract and payment steps must be satisfied when the scenario includes them.`
+                        : "Select an event to list submissions that are fully complete for that event's workflow."}
+                    </p>
                   </div>
 
                   {/* Submissions List */}
@@ -1780,24 +1798,11 @@ const CardEditModal: React.FC<CardEditModalProps> = ({
             <label className="block text-sm font-medium text-slate-700 mb-3">
               Color
             </label>
-            <div className="flex gap-2 flex-wrap">
-              {DEFAULT_COLORS.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setColor(c)}
-                  className={`w-10 h-10 rounded-lg border-2 transition-all ${
-                    color === c ? 'border-slate-900 scale-110' : 'border-slate-300'
-                  }`}
-                  style={{ backgroundColor: c }}
-                />
-              ))}
-              <input
-                type="color"
-                value={color}
-                onChange={(e) => setColor(e.target.value)}
-                className="w-10 h-10 rounded-lg border-2 border-slate-300 cursor-pointer"
-              />
-            </div>
+            <ProgramLegendColorPicker
+              legends={config.legends}
+              value={color}
+              onChange={setColor}
+            />
           </div>
         </div>
 

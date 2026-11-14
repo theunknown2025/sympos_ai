@@ -3,11 +3,13 @@ import { X, Save, Loader2, AlertCircle, Plus, Trash2, ChevronLeft, ChevronRight,
 import { ReviewCommitteeMember, FormSubmission } from '../../../../types';
 import { useAuth } from '../../../../hooks/useAuth';
 import { saveCommitteeMember, updateCommitteeMember } from '../../../../services/committeeMemberService';
+import { updateInvitationFromMemberForm } from '../../../../services/committeeInvitationService';
 import ParticipantSearchModal from './ParticipantSearchModal';
 import ParticipantSearchInline from './ParticipantSearchInline';
 
 interface MemberFormProps {
   member?: ReviewCommitteeMember | null;
+  invitationId?: string;
   onClose: () => void;
   onSuccess?: () => void;
   inline?: boolean; // If true, render inline instead of as modal
@@ -15,7 +17,15 @@ interface MemberFormProps {
   onParticipantSelect?: () => void; // Callback when participant is selected
 }
 
-const MemberForm: React.FC<MemberFormProps> = ({ member, onClose, onSuccess, inline = false, showParticipantSearch = false, onParticipantSelect }) => {
+const MemberForm: React.FC<MemberFormProps> = ({
+  member,
+  invitationId,
+  onClose,
+  onSuccess,
+  inline = false,
+  showParticipantSearch = false,
+  onParticipantSelect,
+}) => {
   const { currentUser } = useAuth();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -356,7 +366,9 @@ const MemberForm: React.FC<MemberFormProps> = ({ member, onClose, onSuccess, inl
       // Remove undefined values before saving to Firestore
       const cleanedMemberData = removeUndefined(memberData);
 
-      if (member) {
+      if (invitationId) {
+        await updateInvitationFromMemberForm(invitationId, currentUser.id, cleanedMemberData);
+      } else if (member && !invitationId) {
         await updateCommitteeMember(member.id, cleanedMemberData);
       } else {
         await saveCommitteeMember(currentUser.id, cleanedMemberData);
@@ -985,7 +997,7 @@ const MemberForm: React.FC<MemberFormProps> = ({ member, onClose, onSuccess, inl
                 ) : (
                   <>
                     <Save size={18} />
-                    {member ? 'Update Member' : 'Save Member'}
+                    {invitationId ? 'Update Invitation' : member ? 'Update Member' : 'Save Member'}
                   </>
                 )}
               </button>

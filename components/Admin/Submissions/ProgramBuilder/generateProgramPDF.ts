@@ -1,5 +1,6 @@
 import jsPDF from 'jspdf';
 import type { ProgramCard, Venue, ProgramBuilderConfig } from './ProgramBuilder';
+import { getLegendsForExport, hexToRgb } from './programLegends';
 
 export interface GenerateProgramPdfParams {
   cards: ProgramCard[];
@@ -140,14 +141,55 @@ export async function generateProgramPDF(params: GenerateProgramPdfParams): Prom
     { align: 'right' }
   );
 
+  y += stripH;
+
+  // —— Legend ——
+  const exportLegends = getLegendsForExport(config, cards);
+  let legendH = 0;
+  if (exportLegends.length > 0) {
+    legendH = 7;
+    doc.setFillColor(...WHITE);
+    doc.rect(margin, y, pageW - margin * 2, legendH, 'F');
+    doc.setDrawColor(...SLATE_200);
+    doc.line(margin, y + legendH, pageW - margin, y + legendH);
+
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...SLATE_500);
+    doc.text('LEGEND', margin + 2, y + legendH / 2 + 2);
+
+    let lx = margin + 18;
+    const legendRight = pageW - margin - 2;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(...SLATE_700);
+
+    exportLegends.forEach((entry) => {
+      const label = entry.label.trim() || 'Unnamed';
+      const swatch = 2.8;
+      const gap = 1.5;
+      const labelW = doc.getTextWidth(label);
+      const itemW = swatch + gap + labelW + 5;
+      if (lx + itemW > legendRight) return;
+      const [r, g, b] = hexToRgb(entry.color);
+      doc.setFillColor(r, g, b);
+      doc.roundedRect(lx, y + 2.1, swatch, swatch, 0.3, 0.3, 'F');
+      doc.setDrawColor(...SLATE_200);
+      doc.roundedRect(lx, y + 2.1, swatch, swatch, 0.3, 0.3);
+      doc.text(label, lx + swatch + gap, y + legendH / 2 + 2);
+      lx += itemW;
+    });
+    y += legendH;
+  }
+
   // —— Grid ——
-  const startY = y + stripH + 4;
+  const startY = y + 4;
   const rowHeight = 5.2;
   const timeColW = 22;
   const gridBottom = pageH - margin;
   const availW = pageW - margin * 2 - timeColW;
   const venueColW = availW / Math.max(venues.length, 1);
-  const headerRowH = 7;
+  const headerRowH = 10.5;
   const maxRows = timeSlots.length;
   const gridH = Math.min(gridBottom - startY, maxRows * rowHeight + headerRowH);
 
@@ -161,10 +203,12 @@ export async function generateProgramPDF(params: GenerateProgramPdfParams): Prom
   doc.rect(margin, headerY, timeColW, headerRowH, 'F');
   doc.setDrawColor(...SLATE_200);
   doc.rect(margin, headerY, timeColW, headerRowH);
-  doc.setFontSize(7);
+  const headerLineH = 3.4;
+  const headerTextCenterY = headerY + headerRowH / 2 + 1.2;
+  doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...SLATE_700);
-  doc.text('TIME', margin + timeColW / 2, headerY + headerRowH / 2 + 1.5, { align: 'center' });
+  doc.text('TIME', margin + timeColW / 2, headerTextCenterY, { align: 'center' });
 
   venues.forEach((venue, index) => {
     const x = margin + timeColW + index * venueColW;
@@ -172,10 +216,15 @@ export async function generateProgramPDF(params: GenerateProgramPdfParams): Prom
     doc.rect(x, headerY, venueColW, headerRowH, 'F');
     doc.setDrawColor(...SLATE_200);
     doc.rect(x, headerY, venueColW, headerRowH);
-    doc.setFontSize(7);
-    doc.text(venue.name, x + venueColW / 2, headerY + headerRowH / 2 + 1.5, {
-      align: 'center',
-      maxWidth: venueColW - 2,
+    doc.setFontSize(7.5);
+    const venueLines = doc.splitTextToSize(venue.name.toUpperCase(), venueColW - 3).slice(0, 2);
+    const blockH = venueLines.length * headerLineH;
+    const firstLineY = headerY + (headerRowH - blockH) / 2 + headerLineH * 0.8;
+    venueLines.forEach((line, lineIndex) => {
+      doc.text(line, x + venueColW / 2, firstLineY + lineIndex * headerLineH, {
+        align: 'center',
+        maxWidth: venueColW - 3,
+      });
     });
   });
 
@@ -213,11 +262,18 @@ export async function generateProgramPDF(params: GenerateProgramPdfParams): Prom
     const cardW = colSpan * venueColW;
 
     const [r, g, b] = hexToRgb(card.color);
-    doc.setFillColor(...WHITE);
+    const tintR = Math.round(255 * 0.88 + r * 0.12);
+    const tintG = Math.round(255 * 0.88 + g * 0.12);
+    const tintB = Math.round(255 * 0.88 + b * 0.12);
+    doc.setFillColor(tintR, tintG, tintB);
     doc.roundedRect(cardX + 0.35, cardY + 0.35, cardW - 0.7, cardH - 0.7, 0.8, 0.8, 'F');
     doc.setFillColor(r, g, b);
     doc.rect(cardX + 0.35, cardY + 0.35, 1.1, cardH - 0.7, 'F');
-    doc.setDrawColor(...SLATE_200);
+    doc.setDrawColor(
+      Math.round(255 * 0.7 + r * 0.3),
+      Math.round(255 * 0.7 + g * 0.3),
+      Math.round(255 * 0.7 + b * 0.3)
+    );
     doc.setLineWidth(0.15);
     doc.roundedRect(cardX + 0.35, cardY + 0.35, cardW - 0.7, cardH - 0.7, 0.8, 0.8);
 
@@ -252,11 +308,4 @@ export async function generateProgramPDF(params: GenerateProgramPdfParams): Prom
   });
 
   doc.save(fileName);
-}
-
-function hexToRgb(hex: string): [number, number, number] {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result
-    ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)]
-    : [59, 130, 246];
 }

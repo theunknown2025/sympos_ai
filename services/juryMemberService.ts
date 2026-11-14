@@ -1,9 +1,140 @@
 import { supabase, TABLES } from '../supabase';
-import { JuryMember, CommitteeInvitation, InvitationStatus, EventAttendance } from '../types';
+import { JuryMember, CommitteeInvitation, InvitationStatus, EventAttendance, Event } from '../types';
+import { mapDbInvitation, syncCommitteeMemberForAcceptedInvitation } from './committeeInvitationService';
+import {
+  mapParticipantEventRow,
+  isPublishedParticipantEvent,
+  PARTICIPANT_EVENT_LIST_COLUMNS,
+} from './participantEventRowMapper';
+import { mapEventTemplateFields } from './eventTemplateFields';
 
 const TABLE_NAME = TABLES.JURY_MEMBERS;
 const INVITATIONS_TABLE = TABLES.COMMITTEE_INVITATIONS;
 const ATTENDANCE_TABLE = TABLES.EVENT_ATTENDANCE;
+
+const normalizeAuthEmail = (email: string): string => email.trim().toLowerCase();
+
+const mapJuryMemberRow = (data: Record<string, unknown>): JuryMember => {
+  const affiliation = data.affiliation
+    ? JSON.parse(data.affiliation as string)
+    : {};
+  const researchDomains = data.research_domains
+    ? JSON.parse(data.research_domains as string)
+    : [];
+  const identifiers = data.links ? JSON.parse(data.links as string) : {};
+
+  return {
+    id: data.id as string,
+    userId: data.user_id as string,
+    firstName: data.first_name as string,
+    lastName: data.last_name as string,
+    title: data.title as string | undefined,
+    gender: data.gender as string | undefined,
+    nationality: data.nationality as string | undefined,
+    email: data.email as string,
+    phone: data.phone as string | undefined,
+    address: data.address as string | undefined,
+    preferredLanguage: data.preferred_language as string | undefined,
+    affiliation,
+    researchDomains,
+    identifiers,
+    profileCompleted: Boolean(data.profile_completed),
+    createdAt: new Date(data.created_at as string),
+    updatedAt: new Date(data.updated_at as string),
+  };
+};
+
+/**
+ * When a participant logs in, link pre-created jury rows (from email invitations) to their account.
+ */
+export const linkJuryMemberToAuthUser = async (
+  authUserId: string,
+  authEmail: string
+): Promise<void> => {
+  const normalizedEmail = normalizeAuthEmail(authEmail);
+  if (!normalizedEmail) return;
+
+  const { data: byEmail, error } = await supabase
+    .from(TABLE_NAME)
+    .select('id, user_id')
+    .ilike('email', normalizedEmail)
+    .maybeSingle();
+
+  if (error || !byEmail?.id || byEmail.user_id) return;
+
+  await supabase.from(TABLE_NAME).update({ user_id: authUserId }).eq('id', byEmail.id);
+};
+
+/**
+ * Resolve jury member ids for the logged-in participant (by user id and/or email).
+ */
+export const resolveParticipantJuryMemberIds = async (
+  authUserId: string,
+  authEmail: string
+): Promise<string[]> => {
+  const normalizedEmail = normalizeAuthEmail(authEmail);
+  await linkJuryMemberToAuthUser(authUserId, normalizedEmail);
+
+  const ids = new Set<string>();
+
+  const { data: byUser } = await supabase
+    .from(TABLE_NAME)
+    .select('id')
+    .eq('user_id', authUserId);
+  (byUser || []).forEach((row) => ids.add(row.id));
+
+  if (normalizedEmail) {
+    const { data: byEmail } = await supabase
+      .from(TABLE_NAME)
+      .select('id')
+      .ilike('email', normalizedEmail);
+    (byEmail || []).forEach((row) => ids.add(row.id));
+  }
+
+  return [...ids];
+};
+
+/**
+ * Invitations for the logged-in participant (matched by account email).
+ */
+export const getParticipantInvitationsForUser = async (
+  authUserId: string,
+  authEmail: string
+): Promise<CommitteeInvitation[]> => {
+  const normalizedEmail = normalizeAuthEmail(authEmail);
+  const juryMemberIds = await resolveParticipantJuryMemberIds(authUserId, normalizedEmail);
+
+  if (juryMemberIds.length > 0) {
+    const { data, error } = await supabase
+      .from(INVITATIONS_TABLE)
+      .select('*')
+      .in('jury_member_id', juryMemberIds)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return (data || []).map((inv) => mapDbInvitation(inv));
+  }
+
+  if (!normalizedEmail) return [];
+
+  const { data, error } = await supabase
+    .from(INVITATIONS_TABLE)
+    .select('*')
+    .ilike('jury_member_email', normalizedEmail)
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data || []).map((inv) => mapDbInvitation(inv));
+};
+
+export const getParticipantInvitationById = async (
+  invitationId: string,
+  authUserId: string,
+  authEmail: string
+): Promise<CommitteeInvitation | null> => {
+  const invitations = await getParticipantInvitationsForUser(authUserId, authEmail);
+  return invitations.find((inv) => inv.id === invitationId) ?? null;
+};
 
 /**
  * Save or update a jury member profile
@@ -100,30 +231,7 @@ export const getJuryMemberProfile = async (userId: string): Promise<JuryMember |
       return null;
     }
 
-    // Deserialize JSON fields
-    const affiliation = data.affiliation ? JSON.parse(data.affiliation as string) : {};
-    const researchDomains = data.research_domains ? JSON.parse(data.research_domains as string) : [];
-    const identifiers = data.links ? JSON.parse(data.links as string) : {};
-
-    return {
-      id: data.id,
-      userId: data.user_id,
-      firstName: data.first_name,
-      lastName: data.last_name,
-      title: data.title,
-      gender: data.gender,
-      nationality: data.nationality,
-      email: data.email,
-      phone: data.phone,
-      address: data.address,
-      preferredLanguage: data.preferred_language,
-      affiliation,
-      researchDomains,
-      identifiers,
-      profileCompleted: data.profile_completed || false,
-      createdAt: new Date(data.created_at),
-      updatedAt: new Date(data.updated_at),
-    };
+    return mapJuryMemberRow(data as Record<string, unknown>);
   } catch (error: any) {
     console.error('Error getting jury member profile:', error);
     throw error;
@@ -149,16 +257,7 @@ export const getJuryMemberInvitations = async (juryMemberId: string): Promise<Co
       return [];
     }
 
-    return data.map((inv) => ({
-      id: inv.id,
-      juryMemberId: inv.jury_member_id,
-      juryMemberEmail: inv.jury_member_email,
-      invitedBy: inv.invited_by,
-      status: inv.status as InvitationStatus,
-      commentary: inv.commentary,
-      createdAt: new Date(inv.created_at),
-      respondedAt: inv.responded_at ? new Date(inv.responded_at) : undefined,
-    }));
+    return data.map((inv) => mapDbInvitation(inv));
   } catch (error: any) {
     console.error('Error getting invitations:', error);
     throw error;
@@ -171,9 +270,27 @@ export const getJuryMemberInvitations = async (juryMemberId: string): Promise<Co
 export const respondToInvitation = async (
   invitationId: string,
   status: InvitationStatus.ACCEPTED | InvitationStatus.REJECTED,
-  commentary?: string
+  commentary?: string,
+  authContext?: { userId: string; email: string }
 ): Promise<void> => {
   try {
+    let invitationType: CommitteeInvitation['invitationType'] | undefined;
+
+    if (authContext) {
+      const owned = await getParticipantInvitationById(
+        invitationId,
+        authContext.userId,
+        authContext.email
+      );
+      if (!owned) {
+        throw new Error('Invitation not found or you do not have access to respond');
+      }
+      if (owned.status !== InvitationStatus.PENDING) {
+        throw new Error('This invitation has already been answered');
+      }
+      invitationType = owned.invitationType;
+    }
+
     const { error } = await supabase
       .from(INVITATIONS_TABLE)
       .update({
@@ -185,6 +302,10 @@ export const respondToInvitation = async (
 
     if (error) {
       throw error;
+    }
+
+    if (status === InvitationStatus.ACCEPTED && invitationType !== 'participant') {
+      await syncCommitteeMemberForAcceptedInvitation(invitationId);
     }
   } catch (error: any) {
     console.error('Error responding to invitation:', error);
@@ -368,15 +489,56 @@ export const getAvailableEvents = async (participantUserId: string): Promise<any
       registrationFormIds: getArrayOrFallback(event.registration_form_ids, event.registration_form_id),
       submissionFormIds: getArrayOrFallback(event.submission_form_ids, event.submission_form_id),
       evaluationFormIds: deserializeArray(event.evaluation_form_ids),
-      certificateTemplateIds: deserializeArray(event.certificate_template_ids),
+      ...mapEventTemplateFields(event),
       committeeIds: deserializeArray(event.committee_ids),
+      evaluationEnabled: Boolean(event.evaluation_enabled),
       banner: event.banner ? (typeof event.banner === 'string' ? JSON.parse(event.banner) : event.banner) : undefined,
       publishStatus: (event.publish_status as 'Draft' | 'Published' | 'Closed') || 'Draft',
+      registrationDeadline: event.registration_deadline || undefined,
+      submissionDeadline: event.submission_deadline || undefined,
+      submissionWorkflowPreset: (event.submission_workflow_preset as 'A' | 'B' | 'C' | 'D') || undefined,
+      abstractSubmissionFormIds: deserializeArray(event.abstract_submission_form_ids) as string[],
+      abstractSubmissionDeadline: event.abstract_submission_deadline || undefined,
+      paymentDeadline: event.payment_deadline || undefined,
+      registrationWorkflowPreset: (event.registration_workflow_preset as 'A' | 'B') || undefined,
+      registrationPaymentOfferId: event.registration_payment_offer_id || undefined,
+      submissionPaymentOfferId: event.submission_payment_offer_id || undefined,
+      submissionPaymentFormId: event.submission_payment_form_id || undefined,
+      publishedProgramId: event.published_program_id || undefined,
       createdAt: new Date(event.created_at),
       updatedAt: new Date(event.updated_at),
     }));
   } catch (error: any) {
     console.error('Error getting available events:', error);
+    throw error;
+  }
+};
+
+/**
+ * Fetch only the events a participant needs (by id), with slim columns for pipeline UI.
+ */
+export const getParticipantEventsByIds = async (eventIds: string[]): Promise<Event[]> => {
+  try {
+    const uniqueIds = [...new Set(eventIds.filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from(TABLES.EVENTS)
+      .select(PARTICIPANT_EVENT_LIST_COLUMNS)
+      .in('id', uniqueIds)
+      .in('publish_status', ['Published', 'Closed']);
+
+    if (error) {
+      throw error;
+    }
+
+    return (data || [])
+      .map((row) => mapParticipantEventRow(row as Record<string, unknown>))
+      .filter(isPublishedParticipantEvent);
+  } catch (error: any) {
+    console.error('Error getting participant events by ids:', error);
     throw error;
   }
 };

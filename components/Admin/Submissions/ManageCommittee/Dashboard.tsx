@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
-import { Users, UserPlus, UserCheck, List, FilePlus, Search } from 'lucide-react';
+import { Users, UserPlus, UserCheck, List, FilePlus, Search, Mail, Inbox } from 'lucide-react';
 import NewCommittee from './NewCommittee';
 import CommitteesList from './CommitteesList';
 import MemberForm from './MemberForm';
 import MembersList from './MembersList';
+import InvitationsList from './Invitations/InvitationsList';
+import SendEmailInvitationPanel from './Invitations/SendEmailInvitationPanel';
 import { Committee } from '../../../types';
 
 const Dashboard: React.FC = () => {
   const [mainTab, setMainTab] = useState<'committees' | 'membres'>('committees');
   const [committeesSubTab, setCommitteesSubTab] = useState<'new' | 'list'>('new');
-  const [membresSubTab, setMembresSubTab] = useState<'new' | 'list'>('new');
+  const [membresSubTab, setMembresSubTab] = useState<'new' | 'invitations' | 'list'>('new');
+  const [showEmailInvitation, setShowEmailInvitation] = useState(false);
+  const [invitationsRefreshTrigger, setInvitationsRefreshTrigger] = useState(0);
   const [showMemberForm, setShowMemberForm] = useState(false);
   const [showParticipantSearch, setShowParticipantSearch] = useState(false);
   const [editingMember, setEditingMember] = useState<any>(null);
@@ -149,8 +153,25 @@ const Dashboard: React.FC = () => {
               </button>
               <button
                 onClick={() => {
+                  setMembresSubTab('invitations');
+                  setShowMemberForm(false);
+                  setShowEmailInvitation(false);
+                  setEditingMember(null);
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
+                  membresSubTab === 'invitations'
+                    ? 'border-indigo-600 text-indigo-600 bg-white'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Inbox size={18} className="flex-shrink-0" />
+                <span>Invitations</span>
+              </button>
+              <button
+                onClick={() => {
                   setMembresSubTab('list');
                   setShowMemberForm(false);
+                  setShowEmailInvitation(false);
                 }}
                 className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium transition-colors border-b-2 ${
                   membresSubTab === 'list'
@@ -165,18 +186,29 @@ const Dashboard: React.FC = () => {
 
             {/* Membres Sub-tab Content */}
             <div className="p-6">
-              {membresSubTab === 'new' ? (
+              {membresSubTab === 'invitations' ? (
+                <InvitationsList refreshTrigger={invitationsRefreshTrigger} />
+              ) : membresSubTab === 'new' ? (
                 <div>
-                  {!showMemberForm && !showParticipantSearch ? (
+                  {showEmailInvitation ? (
+                    <SendEmailInvitationPanel
+                      onClose={() => setShowEmailInvitation(false)}
+                      onSuccess={() => {
+                        setShowEmailInvitation(false);
+                        setInvitationsRefreshTrigger((n) => n + 1);
+                      }}
+                    />
+                  ) : !showMemberForm && !showParticipantSearch ? (
                     <div className="text-center py-12">
                       <UserPlus size={48} className="mx-auto mb-4 text-slate-300" />
                       <p className="text-slate-500 mb-4">Click the button below to add a new member</p>
-                      <div className="flex items-center justify-center gap-3">
+                      <div className="flex flex-wrap items-center justify-center gap-3">
                         <button
                           onClick={() => {
                             setShowMemberForm(true);
                             setEditingMember(null);
                             setShowParticipantSearch(false);
+                            setShowEmailInvitation(false);
                           }}
                           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                         >
@@ -188,11 +220,24 @@ const Dashboard: React.FC = () => {
                             setShowParticipantSearch(true);
                             setShowMemberForm(false);
                             setEditingMember(null);
+                            setShowEmailInvitation(false);
                           }}
                           className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
                         >
                           <Search size={18} />
                           Find in Database
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowEmailInvitation(true);
+                            setShowMemberForm(false);
+                            setShowParticipantSearch(false);
+                            setEditingMember(null);
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-white text-indigo-700 rounded-lg hover:bg-indigo-50 transition-colors border border-indigo-300"
+                        >
+                          <Mail size={18} />
+                          Send Email Invitation
                         </button>
                       </div>
                     </div>

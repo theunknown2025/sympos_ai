@@ -18,7 +18,7 @@ import { useAuth } from '../../../../hooks/useAuth';
 import { getUserEvents } from '../../../../services/eventService';
 import { getCommitteeMember } from '../../../../services/committeeMemberService';
 import { getEvaluationForm } from '../../../../services/evaluationFormService';
-import { updateSubmissionDecision } from '../../../../services/registrationSubmissionService';
+import { resyncAllDispatchProgressForOrganizer } from '../../../../services/submissionReviewProgressService';
 import { supabase, TABLES } from '../../../../supabase';
 import { Event, ParticipantReview, ReviewCommitteeMember, EvaluationForm, FormSubmission, DecisionStatus, ApprovalStatus } from '../../../../types';
 import SubmissionApprovalModal from './SubmissionApprovalModal';
@@ -202,6 +202,12 @@ const SubmissionsEvaluation: React.FC = () => {
       );
 
       setAllReviews(reviewsWithDetails);
+
+      try {
+        await resyncAllDispatchProgressForOrganizer(currentUser.id);
+      } catch (syncErr) {
+        console.warn('[SubmissionsEvaluation] dispatch progress resync:', syncErr);
+      }
     } catch (err: any) {
       console.error('Error loading reviews:', err);
       setError(err.message || 'Failed to load reviews');

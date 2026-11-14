@@ -1,22 +1,43 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import jsQR from 'jsqr';
 import { X, Camera, CheckCircle, AlertCircle, Loader2, Maximize2, Minimize2, User, Calendar, Info, ShieldCheck, Sparkles } from 'lucide-react';
 import { getBadgeByImageUrl } from '../../../../services/badgeGeneratorService';
 import { setCheckinStatus } from '../../../../services/checkinService';
 import { useAuth } from '../../../../hooks/useAuth';
-import { Event } from '../../../../types';
+import { Event, FormSubmission, RegistrationForm } from '../../../../types';
 import { getEvent } from '../../../../services/eventService';
+import { getProgramById } from '../../../../services/programService';
+import {
+  getSubmissionDisplayTitle,
+  verifySubmissionBadgeForCheckin,
+  isArticleSubmissionForEvent,
+  getFormSubmissionById,
+  type SubmissionBadgeVerification,
+} from '../../../../services/submissionBadgeService';
+import BadgerSubmissionResultPanel from './BadgerSubmissionResultPanel';
+import CheckinConfiguredFieldsPanel from './CheckinConfiguredFieldsPanel';
+import { resolveCheckinDisplayFields } from '../../../../services/checkinDisplayFields';
 
 interface BadgerDisplayProps {
   isOpen: boolean;
   onClose: () => void;
   eventId?: string;
   eventName?: string;
+  eventData?: Event | null;
+  eventForms?: RegistrationForm[];
 }
 
 type ScanStatus = 'idle' | 'scanning' | 'error' | 'checking_in' | 'checked_in';
+type BadgeScanKind = 'registration' | 'submission' | null;
 
-const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId, eventName: propEventName }) => {
+const BadgerDisplay: React.FC<BadgerDisplayProps> = ({
+  isOpen,
+  onClose,
+  eventId,
+  eventName: propEventName,
+  eventData: propEventData,
+  eventForms = [],
+}) => {
   const { currentUser } = useAuth();
 
   const [scanStatus, setScanStatus] = useState<ScanStatus>('idle');
@@ -26,6 +47,10 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
   const [participantName, setParticipantName] = useState<string>('');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [eventData, setEventData] = useState<Event | null>(null);
+  const [badgeKind, setBadgeKind] = useState<BadgeScanKind>(null);
+  const [verification, setVerification] = useState<SubmissionBadgeVerification | null>(null);
+  const [submissionTitle, setSubmissionTitle] = useState('');
+  const [scannedSubmission, setScannedSubmission] = useState<FormSubmission | null>(null);
 
   // Keep last successfully processed QR text to avoid duplicate processing
   const lastProcessedValueRef = useRef<string | null>(null);
@@ -37,6 +62,11 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
   // Load event data if eventId is provided, or sync propEventName
   useEffect(() => {
     const loadEventData = async () => {
+      if (propEventData) {
+        setEventData(propEventData);
+        setEventName(propEventData.name);
+        return;
+      }
       if (eventId) {
         try {
           const event = await getEvent(eventId);
@@ -55,7 +85,7 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
     if (isOpen) {
       loadEventData();
     }
-  }, [isOpen, eventId, propEventName]);
+  }, [isOpen, eventId, propEventName, propEventData]);
 
   // Handle fullscreen toggle
   const toggleFullscreen = useCallback(() => {
@@ -108,8 +138,18 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
     setError('');
     setBadgeUrl('');
     setParticipantName('');
+    setBadgeKind(null);
+    setVerification(null);
+    setSubmissionTitle('');
+    setScannedSubmission(null);
     lastProcessedValueRef.current = null;
   };
+
+  const configuredDisplayFields = useMemo(() => {
+    if (!eventData || !scannedSubmission) return [];
+    const kind = badgeKind === 'submission' ? 'submission' : 'registration';
+    return resolveCheckinDisplayFields(eventData, eventForms, scannedSubmission, kind);
+  }, [eventData, eventForms, scannedSubmission, badgeKind]);
 
   const handleClose = () => {
     resetState();
@@ -143,25 +183,47 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
           throw new Error('No badge found for this QR code.');
         }
 
-        setParticipantName(badge.participantName);
-
-        let eventTitle = '';
-        try {
-          const event: Event | null = await getEvent(badge.eventId);
-          if (event) {
-            eventTitle = event.name;
-            setEventData(event);
-          }
-          if (!eventTitle) {
-            eventTitle = eventName || '';
-          }
-        } catch {
-          eventTitle = eventName || '';
+        if (eventId && badge.eventId !== eventId) {
+          throw new Error('This badge belongs to a different event. Select the correct event and try again.');
         }
-        setEventName(eventTitle);
+
+        const event: Event | null =
+          eventData?.id === badge.eventId ? eventData : await getEvent(badge.eventId);
+        if (!event) {
+          throw new Error('Event not found for this badge.');
+        }
+        setEventData(event);
+        setEventName(event.name);
 
         if (!currentUser?.id) {
           throw new Error('You must be logged in to record check-in.');
+        }
+
+        const submission = await getFormSubmissionById(badge.formSubmissionId);
+        const isSubmissionBadge =
+          submission && isArticleSubmissionForEvent(submission, event);
+
+        setScannedSubmission(submission);
+        setParticipantName(badge.participantName);
+
+        if (isSubmissionBadge) {
+          setBadgeKind('submission');
+          let publishedProgram = null;
+          if (event.publishedProgramId) {
+            publishedProgram = await getProgramById(event.publishedProgramId);
+          }
+          const result = await verifySubmissionBadgeForCheckin(badge, event, publishedProgram);
+          setVerification(result);
+          if (!result.valid) {
+            throw new Error(result.error || 'Badge verification failed.');
+          }
+          if (result.articleSubmission) {
+            setSubmissionTitle(getSubmissionDisplayTitle(result.articleSubmission));
+          }
+        } else {
+          setBadgeKind('registration');
+          setVerification(null);
+          setSubmissionTitle('');
         }
 
         setScanStatus('checking_in');
@@ -186,7 +248,7 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
         setScanStatus('error');
       }
     },
-    [currentUser, eventName]
+    [currentUser, eventId, eventData]
   );
 
   // Start / stop camera and QR scanning when the modal is open
@@ -307,7 +369,7 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
             {eventName || 'QR Check-in Scanner'}
           </h1>
           <p className="text-sm text-slate-400 mt-1">
-            Scan participant badges to record check-ins
+            Scan registration or presenter submission badges to record check-ins
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -426,7 +488,17 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
             </div>
           )}
 
-          {participantName ? (
+          {participantName && badgeKind === 'submission' ? (
+            <BadgerSubmissionResultPanel
+              scanStatus={scanStatus}
+              participantName={participantName}
+              submissionTitle={submissionTitle}
+              verification={verification}
+              configuredFields={configuredDisplayFields}
+              onScanAnother={resetState}
+              onClose={handleClose}
+            />
+          ) : participantName ? (
             <>
               {/* Welcome Message with Approved Symbol */}
               <div className="bg-gradient-to-br from-indigo-600 via-indigo-700 to-purple-700 rounded-lg p-6 shadow-lg border border-indigo-500/30">
@@ -471,6 +543,10 @@ const BadgerDisplay: React.FC<BadgerDisplayProps> = ({ isOpen, onClose, eventId,
                   )}
                 </div>
               </div>
+
+              {scanStatus === 'checked_in' && configuredDisplayFields.length > 0 ? (
+                <CheckinConfiguredFieldsPanel fields={configuredDisplayFields} variant="dark" />
+              ) : null}
 
               {/* Participant Details Card */}
               <div className="bg-slate-800/50 rounded-lg p-6 border border-slate-700 space-y-4 flex-1">

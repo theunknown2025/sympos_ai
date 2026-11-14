@@ -61,8 +61,12 @@ const SubmissionsPrograms: React.FC<SubmissionsProgramsProps> = ({
     return (
       <div className="text-center py-8">
         <CheckCircle2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
-        <p className="text-sm text-slate-500">No approved submissions found</p>
-        <p className="text-xs text-slate-400 mt-1">Drag approved submissions here to add them to the program</p>
+        <p className="text-sm text-slate-500">No submissions ready for the program</p>
+        <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+          Papers appear here when the article is accepted and every required step for this event&apos;s scenario is
+          done (abstract accepted if applicable, payment marked received if applicable). Drag them onto the grid to
+          schedule.
+        </p>
       </div>
     );
   }
@@ -71,7 +75,8 @@ const SubmissionsPrograms: React.FC<SubmissionsProgramsProps> = ({
     <div className="space-y-2">
       <div className="mb-3">
         <p className="text-xs text-slate-500 mb-2">
-          Drag submissions to the program grid to schedule them
+          Drag submissions to the program grid to schedule them. Each item is an accepted article that completed this
+          event&apos;s workflow (including abstract and payment when required).
         </p>
       </div>
       
@@ -136,7 +141,7 @@ const SubmissionsPrograms: React.FC<SubmissionsProgramsProps> = ({
                 
                 <div className="mt-2 flex items-center gap-2">
                   <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700">
-                    Approved
+                    Ready for program
                   </span>
                   <span className="text-xs text-slate-400 flex items-center gap-1">
                     <Calendar size={12} />

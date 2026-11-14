@@ -1,9 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Loader2, Edit2, CheckCircle2, XCircle, Clock, Users, AlertCircle } from 'lucide-react';
-import { RegistrationForm, FormField, FormSubmission } from '../../../types';
+import { RegistrationForm, FormField, FormSubmission, Event } from '../../../types';
 import { getRegistrationForm } from '../../../services/registrationFormService';
+import { getEvent } from '../../../services/eventService';
 import { supabase, TABLES } from '../../../supabase';
 import { getCommitteeMembersByIds } from '../../../services/committeeMemberService';
+import {
+  eventSubmissionPreset,
+  workflowNeedsAbstract,
+} from '../../../services/submissionPipelineService';
+import {
+  buildArticleLifecycleMicroSteps,
+  eventUsesArticleReviewPipeline,
+  requiresFullArticlePostAcceptPath,
+} from '../../../services/participantArticleEvaluationService';
+import {
+  getRoundsForSubmission,
+} from '../../../services/submissionModificationService';
+import ArticleEvaluationMicroSteps from './ArticleEvaluationMicroSteps';
+import SubmissionModificationsModal from './SubmissionModificationsModal';
 
 interface PreviewSubmissionProps {
   submission: FormSubmission;
@@ -18,11 +33,48 @@ const PreviewSubmission: React.FC<PreviewSubmissionProps> = ({ submission, onClo
   const [reviewers, setReviewers] = useState<Array<{ firstName: string; lastName: string; email: string }>>([]);
   const [loadingReviewers, setLoadingReviewers] = useState(false);
   const [isDispatched, setIsDispatched] = useState(false);
+  const [linkedEvent, setLinkedEvent] = useState<Event | null>(null);
+  const [eventLoadError, setEventLoadError] = useState(false);
+  const [modificationRounds, setModificationRounds] = useState<Awaited<ReturnType<typeof getRoundsForSubmission>>>([]);
+  const [modificationsModalOpen, setModificationsModalOpen] = useState(false);
 
   useEffect(() => {
     loadForm();
     loadReviewers();
+    loadModificationRounds();
   }, [submission.id, submission.formId]);
+
+  useEffect(() => {
+    const eventId = submission.acceptedEventId || submission.eventId;
+    if (!eventId) {
+      setLinkedEvent(null);
+      return;
+    }
+    let cancelled = false;
+    setEventLoadError(false);
+    getEvent(eventId)
+      .then((ev) => {
+        if (!cancelled) setLinkedEvent(ev);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLinkedEvent(null);
+          setEventLoadError(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [submission.acceptedEventId, submission.eventId]);
+
+  const articlePipelineSteps = useMemo(() => {
+    if (!linkedEvent?.submissionFormIds?.length) return null;
+    if (linkedEvent.submissionPaymentFormId === submission.formId) return null;
+    if (!linkedEvent.submissionFormIds.includes(submission.formId)) return null;
+    const preset = eventSubmissionPreset(linkedEvent);
+    const abstractOk = !workflowNeedsAbstract(preset) || Boolean(submission.parentSubmissionId);
+    return buildArticleLifecycleMicroSteps(linkedEvent, submission, abstractOk, modificationRounds);
+  }, [linkedEvent, submission, modificationRounds]);
 
   const loadForm = async () => {
     try {
@@ -38,6 +90,15 @@ const PreviewSubmission: React.FC<PreviewSubmissionProps> = ({ submission, onClo
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadModificationRounds = async () => {
+    try {
+      const data = await getRoundsForSubmission(submission.id);
+      setModificationRounds(data);
+    } catch (err) {
+      console.error('Error loading modification rounds:', err);
     }
   };
 
@@ -334,141 +395,191 @@ const PreviewSubmission: React.FC<PreviewSubmissionProps> = ({ submission, onClo
             </div>
           </div>
 
-          {/* Right Section: Status Steps */}
-          <div className="w-80 flex-shrink-0">
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-6">
-              <h3 className="text-lg font-semibold text-slate-900 mb-4">Review Status</h3>
-              
-              {/* Acceptance Step */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 mb-2">
-                  <h4 className="text-sm font-semibold text-slate-900">Acceptance Step</h4>
-                  {submission.decisionStatus ? (
-                    submission.decisionStatus === 'accepted' ? (
-                      <CheckCircle2 size={16} className="text-emerald-600" />
-                    ) : submission.decisionStatus === 'reserved' ? (
-                      <Clock size={16} className="text-amber-600" />
-                    ) : (
-                      <XCircle size={16} className="text-red-600" />
-                    )
-                  ) : (
-                    <AlertCircle size={16} className="text-slate-400" />
-                  )}
-                </div>
-                <div className="pl-4 space-y-1">
-                  <p className="text-sm text-slate-600">
-                    <span className="font-medium">Status: </span>
-                    {submission.decisionStatus ? (
-                      <span className={`capitalize ${
-                        submission.decisionStatus === 'accepted' ? 'text-emerald-700' :
-                        submission.decisionStatus === 'reserved' ? 'text-amber-700' :
-                        'text-red-700'
-                      }`}>
-                        {submission.decisionStatus === 'accepted' ? 'Accepted' :
-                         submission.decisionStatus === 'reserved' ? 'Accepted under Reserve' :
-                         'Not Accepted'}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">Pending</span>
-                    )}
-                  </p>
-                  {submission.decisionComment && (
-                    <div className="mt-2">
-                      <p className="text-xs font-medium text-slate-500 mb-1">Comment:</p>
-                      <p className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-200">
+          {/* Right Section: article pipeline + status details */}
+          <div className="w-full max-w-md flex-shrink-0">
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-4">
+              {articlePipelineSteps ? (
+                <>
+                  <ArticleEvaluationMicroSteps
+                    steps={articlePipelineSteps}
+                    strictArticlePipeline={linkedEvent ? requiresFullArticlePostAcceptPath(linkedEvent) : true}
+                    committeeEvaluationForms={linkedEvent ? eventUsesArticleReviewPipeline(linkedEvent) : true}
+                    modificationRounds={modificationRounds}
+                    onOpenModificationsModal={() => setModificationsModalOpen(true)}
+                  />
+                  {submission.decisionComment ? (
+                    <div className="border-t border-slate-200 pt-3">
+                      <p className="text-xs font-medium text-slate-500 mb-1">Organizer comment (acceptance)</p>
+                      <p className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-200 whitespace-pre-wrap">
                         {submission.decisionComment}
                       </p>
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Dispatching Step */}
-              <div className="space-y-2 border-t border-slate-200 pt-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <h4 className="text-sm font-semibold text-slate-900">Dispatching Step</h4>
-                  {isDispatched || submission.dispatchingStatus ? (
-                    <Users size={16} className="text-blue-600" />
-                  ) : (
-                    <AlertCircle size={16} className="text-slate-400" />
-                  )}
-                </div>
-                <div className="pl-4 space-y-1">
-                  <p className="text-sm text-slate-600">
-                    <span className="font-medium">Status: </span>
-                    {isDispatched || submission.dispatchingStatus ? (
-                      <span className="text-blue-700 capitalize">
-                        {submission.dispatchingStatus ? submission.dispatchingStatus.replace('_', ' ') : 'Dispatched'}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">Not Dispatched</span>
-                    )}
-                  </p>
-                  {loadingReviewers ? (
-                    <div className="mt-2 flex items-center gap-2">
-                      <Loader2 size={14} className="animate-spin text-slate-400" />
-                      <span className="text-xs text-slate-500">Loading reviewers...</span>
-                    </div>
-                  ) : reviewers.length > 0 ? (
-                    <div className="mt-2">
-                      <p className="text-xs font-medium text-slate-500 mb-1">Reviewers:</p>
-                      <div className="space-y-1">
-                        {reviewers.map((reviewer, index) => (
-                          <p key={index} className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-200">
-                            {reviewer.firstName} {reviewer.lastName}
-                            {reviewer.email && (
-                              <span className="text-xs text-slate-500 block mt-0.5">{reviewer.email}</span>
-                            )}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (isDispatched || submission.dispatchingStatus) ? (
-                    <p className="text-xs text-slate-400 italic mt-2">No reviewers assigned</p>
                   ) : null}
-                </div>
-              </div>
+                  {linkedEvent && eventUsesArticleReviewPipeline(linkedEvent) ? (
+                    <div className="border-t border-slate-200 pt-3 space-y-2">
+                      <h4 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                        <Users size={16} className="text-blue-600" />
+                        Assigned reviewers
+                      </h4>
+                      {loadingReviewers ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 size={14} className="animate-spin text-slate-400" />
+                          <span className="text-xs text-slate-500">Loading…</span>
+                        </div>
+                      ) : reviewers.length > 0 ? (
+                        <div className="space-y-1">
+                          {reviewers.map((reviewer, index) => (
+                            <p key={index} className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-200">
+                              {reviewer.firstName} {reviewer.lastName}
+                              {reviewer.email ? (
+                                <span className="text-xs text-slate-500 block mt-0.5">{reviewer.email}</span>
+                              ) : null}
+                            </p>
+                          ))}
+                        </div>
+                      ) : isDispatched || submission.dispatchingStatus ? (
+                        <p className="text-xs text-slate-500 italic">No reviewers listed yet.</p>
+                      ) : (
+                        <p className="text-xs text-slate-500">Not dispatched to reviewers yet.</p>
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">Review status</h3>
+                  {!linkedEvent && !eventLoadError ? (
+                    <p className="text-sm text-slate-500 flex items-center gap-2">
+                      <Loader2 size={16} className="animate-spin text-slate-400" />
+                      Loading event…
+                    </p>
+                  ) : null}
 
-              {/* Approval Step */}
-              <div className="space-y-2 border-t border-slate-200 pt-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <h4 className="text-sm font-semibold text-slate-900">Approval Step</h4>
-                  {submission.approvalStatus ? (
-                    submission.approvalStatus === 'accepted' ? (
-                      <CheckCircle2 size={16} className="text-emerald-600" />
-                    ) : submission.approvalStatus === 'reserved' ? (
-                      <Clock size={16} className="text-amber-600" />
-                    ) : (
-                      <XCircle size={16} className="text-red-600" />
-                    )
-                  ) : (
-                    <AlertCircle size={16} className="text-slate-400" />
-                  )}
-                </div>
-                <div className="pl-4 space-y-1">
-                  <p className="text-sm text-slate-600">
-                    <span className="font-medium">Status: </span>
-                    {submission.approvalStatus ? (
-                      <span className={`capitalize ${
-                        submission.approvalStatus === 'accepted' ? 'text-emerald-700' :
-                        submission.approvalStatus === 'reserved' ? 'text-amber-700' :
-                        'text-red-700'
-                      }`}>
-                        {submission.approvalStatus === 'accepted' ? 'Approved' :
-                         submission.approvalStatus === 'reserved' ? 'Approved with Reserve' :
-                         'Rejected'}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">Pending</span>
-                    )}
-                  </p>
-                  {/* Note: Approval comment might not be in the current schema, but we can add it if needed */}
-                </div>
-              </div>
+                  {/* Acceptance Step */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h4 className="text-sm font-semibold text-slate-900">Acceptance</h4>
+                      {submission.decisionStatus ? (
+                        submission.decisionStatus === 'accepted' ? (
+                          <CheckCircle2 size={16} className="text-emerald-600" />
+                        ) : submission.decisionStatus === 'reserved' ? (
+                          <Clock size={16} className="text-amber-600" />
+                        ) : (
+                          <XCircle size={16} className="text-red-600" />
+                        )
+                      ) : (
+                        <AlertCircle size={16} className="text-slate-400" />
+                      )}
+                    </div>
+                    <div className="pl-1 space-y-1">
+                      <p className="text-sm text-slate-600">
+                        <span className="font-medium">Status: </span>
+                        {submission.decisionStatus ? (
+                          <span
+                            className={`capitalize ${
+                              submission.decisionStatus === 'accepted'
+                                ? 'text-emerald-700'
+                                : submission.decisionStatus === 'reserved'
+                                  ? 'text-amber-700'
+                                  : 'text-red-700'
+                            }`}
+                          >
+                            {submission.decisionStatus === 'accepted'
+                              ? 'Accepted'
+                              : submission.decisionStatus === 'reserved'
+                                ? 'Accepted under reserve'
+                                : 'Not accepted'}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">Pending</span>
+                        )}
+                      </p>
+                      {submission.decisionComment ? (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium text-slate-500 mb-1">Comment</p>
+                          <p className="text-sm text-slate-700 bg-white p-2 rounded border border-slate-200">
+                            {submission.decisionComment}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2 border-t border-slate-200 pt-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h4 className="text-sm font-semibold text-slate-900">Dispatch</h4>
+                      {isDispatched || submission.dispatchingStatus ? (
+                        <Users size={16} className="text-blue-600" />
+                      ) : (
+                        <AlertCircle size={16} className="text-slate-400" />
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-600 pl-1">
+                      <span className="font-medium">Status: </span>
+                      {isDispatched || submission.dispatchingStatus ? (
+                        <span className="text-blue-700 capitalize">
+                          {submission.dispatchingStatus
+                            ? submission.dispatchingStatus.replace('_', ' ')
+                            : 'Dispatched'}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">Not dispatched</span>
+                      )}
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 border-t border-slate-200 pt-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <h4 className="text-sm font-semibold text-slate-900">Final approval</h4>
+                      {submission.approvalStatus ? (
+                        submission.approvalStatus === 'accepted' ? (
+                          <CheckCircle2 size={16} className="text-emerald-600" />
+                        ) : submission.approvalStatus === 'reserved' ? (
+                          <Clock size={16} className="text-amber-600" />
+                        ) : (
+                          <XCircle size={16} className="text-red-600" />
+                        )
+                      ) : (
+                        <AlertCircle size={16} className="text-slate-400" />
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-600 pl-1">
+                      <span className="font-medium">Status: </span>
+                      {submission.approvalStatus ? (
+                        <span
+                          className={`capitalize ${
+                            submission.approvalStatus === 'accepted'
+                              ? 'text-emerald-700'
+                              : submission.approvalStatus === 'reserved'
+                                ? 'text-amber-700'
+                                : 'text-red-700'
+                          }`}
+                        >
+                          {submission.approvalStatus === 'accepted'
+                            ? 'Approved'
+                            : submission.approvalStatus === 'reserved'
+                              ? 'Approved with reserve'
+                              : 'Rejected'}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">Pending</span>
+                      )}
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
       </div>
+
+      {modificationsModalOpen && (
+        <SubmissionModificationsModal
+          submission={submission}
+          onClose={() => setModificationsModalOpen(false)}
+          onSuccess={loadModificationRounds}
+        />
+      )}
     </div>
   );
 };

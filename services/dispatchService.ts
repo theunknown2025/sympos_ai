@@ -26,25 +26,33 @@ export const saveDispatchSubmission = async (
       throw new Error('Form ID is required');
     }
     
-    // Check if a dispatch already exists for this event and form
     const { data: existing, error: fetchError } = await supabase
       .from(TABLE_NAME)
-      .select('id')
+      .select('*')
       .eq('user_id', userId)
       .eq('event_id', eventId)
       .eq('form_id', formId)
-      .single();
-    
-    if (fetchError && fetchError.code !== 'PGRST116') {
+      .maybeSingle();
+
+    if (fetchError) {
       throw fetchError;
     }
-    
+
+    let previousDispatching: Record<string, string[]> = {};
+    if (existing?.dispatching) {
+      previousDispatching =
+        typeof existing.dispatching === 'string'
+          ? JSON.parse(existing.dispatching)
+          : (existing.dispatching as Record<string, string[]>);
+    }
+
     const dispatchingJson = JSON.stringify(dispatching);
-    
+
     const deadlineISO = deadline ? deadline.toISOString() : null;
-    
+
+    let resultId: string;
+
     if (existing) {
-      // Update existing dispatch
       const { data, error } = await supabase
         .from(TABLE_NAME)
         .update({
@@ -55,14 +63,12 @@ export const saveDispatchSubmission = async (
         .eq('id', existing.id)
         .select()
         .single();
-      
+
       if (error) {
         throw error;
       }
-      
-      return data.id;
+      resultId = data.id;
     } else {
-      // Create new dispatch
       const { data, error } = await supabase
         .from(TABLE_NAME)
         .insert({
@@ -74,13 +80,27 @@ export const saveDispatchSubmission = async (
         })
         .select()
         .single();
-      
+
       if (error) {
         throw error;
       }
-      
-      return data.id;
+      resultId = data.id;
     }
+
+    try {
+      const { syncAfterDispatchTableSaved } = await import('./submissionReviewProgressService');
+      await syncAfterDispatchTableSaved({
+        organizerUserId: userId,
+        eventId,
+        formId,
+        dispatching,
+        previousDispatching,
+      });
+    } catch (syncErr) {
+      console.error('[saveDispatchSubmission] Dispatch progress sync failed:', syncErr);
+    }
+
+    return resultId;
   } catch (error: any) {
     console.error('Error saving dispatch submission:', error);
     throw new Error(error.message || 'Failed to save dispatch submission');

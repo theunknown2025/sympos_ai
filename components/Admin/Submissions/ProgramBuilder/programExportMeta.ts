@@ -66,6 +66,25 @@ function slugFileBase(title: string, dayIndex: number): string {
   return `${slug}-day-${dayIndex + 1}`;
 }
 
+/** Props for read-only program preview (participant modal, export layout). */
+export function getProgramDayViewProps(program: SavedProgram, dayIndex: number) {
+  const params = buildProgramPdfParams(program, dayIndex);
+  return {
+    title: params.programTitle,
+    subtitle: params.programSubtitle,
+    description: params.programDescription,
+    dateRangeLabel: params.dateRangeLabel,
+    dayDateLabel: params.dayDateLabel,
+    scheduleHoursLabel: params.scheduleHoursLabel,
+    selectedDay: dayIndex,
+    numDays: Math.max(1, program.config?.numDays ?? 1),
+    venues: params.venues,
+    timeSlots: params.timeSlots,
+    cards: params.cards,
+    config: params.config,
+  };
+}
+
 export function buildProgramPdfParams(program: SavedProgram, dayIndex: number): GenerateProgramPdfParams {
   const timeSlots = generateTimeSlots(program.config);
   const dayCards = program.cards.filter((c) => c.dayIndex === dayIndex);

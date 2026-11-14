@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save } from 'lucide-react';
 import { saveProgram } from '../../../../services/programService';
+import { updateEvent } from '../../../../services/eventService';
 import type { ProgramCard, Venue, ProgramBuilderConfig } from './ProgramBuilder';
 
 interface SaveProgramModalProps {
   onClose: () => void;
-  onSave: () => void;
+  /** Called with the new program id after a successful save. */
+  onSave: (programId: string) => void;
   config: ProgramBuilderConfig;
   venues: Venue[];
   cards: ProgramCard[];
@@ -30,12 +32,14 @@ const SaveProgramModal: React.FC<SaveProgramModalProps> = ({
   const [description, setDescription] = useState(initialDescription);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [publishToParticipants, setPublishToParticipants] = useState(Boolean(eventId));
 
   // Update state when initial values change
   useEffect(() => {
     setTitle(initialTitle);
     setDescription(initialDescription);
-  }, [initialTitle, initialDescription]);
+    setPublishToParticipants(Boolean(eventId?.trim()));
+  }, [initialTitle, initialDescription, eventId]);
 
   const handleSave = async () => {
     if (!title.trim()) {
@@ -46,8 +50,29 @@ const SaveProgramModal: React.FC<SaveProgramModalProps> = ({
     try {
       setSaving(true);
       setError(null);
-      await saveProgram(userId, title.trim(), description.trim() || undefined, config, venues, cards, eventId);
-      onSave();
+      const programId = await saveProgram(
+        userId,
+        title.trim(),
+        description.trim() || undefined,
+        config,
+        venues,
+        cards,
+        eventId
+      );
+      if (publishToParticipants && eventId?.trim()) {
+        try {
+          await updateEvent(eventId.trim(), { publishedProgramId: programId });
+        } catch (pubErr: unknown) {
+          const msg =
+            pubErr instanceof Error
+              ? pubErr.message
+              : 'Program saved, but linking it on the event failed. Set Published program in Event management.';
+          setError(msg);
+          console.error('Error publishing program to event:', pubErr);
+          return;
+        }
+      }
+      onSave(programId);
     } catch (err: any) {
       setError(err.message || 'Failed to save program');
       console.error('Error saving program:', err);
@@ -102,6 +127,23 @@ const SaveProgramModal: React.FC<SaveProgramModalProps> = ({
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
+
+          {eventId?.trim() ? (
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                checked={publishToParticipants}
+                onChange={(e) => setPublishToParticipants(e.target.checked)}
+              />
+              <span className="text-sm text-slate-700">
+                <span className="font-medium">Publish to participants</span>
+                <span className="block text-xs text-slate-500 mt-0.5">
+                  Links this program on the event so authors can see their slot and download the schedule as PNG.
+                </span>
+              </span>
+            </label>
+          ) : null}
 
           <div className="bg-slate-50 p-4 rounded-lg text-sm text-slate-600">
             <div className="flex justify-between mb-2">

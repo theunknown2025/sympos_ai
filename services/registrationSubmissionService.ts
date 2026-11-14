@@ -1,11 +1,110 @@
 import { supabase, TABLES } from '../supabase';
-import { FormSubmission, DecisionStatus } from '../types';
-import { getRegistrationForm } from './registrationFormService';
+import { FormSubmission, DecisionStatus, DispatchingStatus } from '../types';
+import { getRegistrationForm, inferRegistrationFormCategory } from './registrationFormService';
 import { saveRegistrationFormAnswers, saveSubmissionAnswers } from './formAnswersService';
+import { answersWithoutPricingOfferMeta } from './pricingOfferCapacity';
 
 export type { FormSubmission, DecisionStatus };
 
 const TABLE_NAME = TABLES.FORM_SUBMISSIONS;
+
+const ALLOWED_PIPELINE_KINDS = new Set(['abstract', 'article', 'payment']);
+
+/** DB CHECK on submission_pipeline_kind only allows these values (see scripts/fix-submission-pipeline-kind-include-payment.sql). */
+function normalizeSubmissionPipelineKindForDb(
+  kind: FormSubmission['submissionPipelineKind'] | undefined
+): 'abstract' | 'article' | 'payment' | undefined {
+  if (kind === undefined || kind === null) return undefined;
+  const k = String(kind).trim().toLowerCase();
+  if (ALLOWED_PIPELINE_KINDS.has(k)) {
+    return k as 'abstract' | 'article' | 'payment';
+  }
+  return undefined;
+}
+
+function parseGeneralInfo(doc: Record<string, unknown>): FormSubmission['generalInfo'] {
+  const raw = doc.general_info;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  return (raw as FormSubmission['generalInfo']) || {};
+}
+
+function parseAnswers(doc: Record<string, unknown>): FormSubmission['answers'] {
+  const raw = doc.answers;
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  return (raw as FormSubmission['answers']) || {};
+}
+
+/** Map DB row to FormSubmission (shared by list/detail queries). */
+export function mapDbRowToFormSubmission(doc: Record<string, any>): FormSubmission {
+  return {
+    id: doc.id,
+    formId: doc.form_id,
+    eventId: doc.event_id,
+    eventTitle: doc.event_title,
+    userId: doc.user_id,
+    participantUserId: doc.participant_user_id || undefined,
+    submittedBy: doc.submitted_by,
+    subscriptionType: (doc.subscription_type as 'self' | 'entity') || 'self',
+    entityName: doc.entity_name || undefined,
+    role: (doc.role as 'Organizer' | 'Participant') || 'Participant',
+    generalInfo: parseGeneralInfo(doc),
+    answers: parseAnswers(doc),
+    submittedAt: new Date(doc.created_at),
+    decisionStatus: doc.decision_status || undefined,
+    decisionComment: doc.decision_comment || undefined,
+    decisionDate: doc.decision_date ? new Date(doc.decision_date) : undefined,
+    decidedBy: doc.decided_by || undefined,
+    acceptedEventId: doc.accepted_event_id || undefined,
+    dispatchingStatus: doc.dispatching_status || undefined,
+    approvalStatus: doc.approval_status || undefined,
+    submissionPipelineKind: doc.submission_pipeline_kind || undefined,
+    submissionPipelineGroupId: doc.submission_pipeline_group_id || undefined,
+    parentSubmissionId: doc.parent_submission_id || undefined,
+    submissionPaymentCompleted: doc.submission_payment_completed === true,
+    pipelineReviewersExpected:
+      doc.pipeline_reviewers_expected != null && doc.pipeline_reviewers_expected !== ''
+        ? Number(doc.pipeline_reviewers_expected)
+        : undefined,
+    opportunityId: doc.opportunity_id || undefined,
+    opportunityApplicationId: doc.opportunity_application_id || undefined,
+    opportunityStepIndex:
+      doc.opportunity_step_index != null && doc.opportunity_step_index !== ''
+        ? Number(doc.opportunity_step_index)
+        : undefined,
+  };
+}
+
+/** Partial update for article dispatch / peer-review progress (organizer or automated sync). */
+export const patchSubmissionDispatchingFields = async (
+  submissionId: string,
+  patch: {
+    dispatchingStatus?: DispatchingStatus | null;
+    pipelineReviewersExpected?: number | null;
+  }
+): Promise<void> => {
+  const updateData: Record<string, unknown> = {};
+  if (patch.dispatchingStatus !== undefined) {
+    updateData.dispatching_status = patch.dispatchingStatus;
+  }
+  if (patch.pipelineReviewersExpected !== undefined) {
+    updateData.pipeline_reviewers_expected = patch.pipelineReviewersExpected;
+  }
+  if (Object.keys(updateData).length === 0) return;
+  const { error } = await supabase.from(TABLE_NAME).update(updateData).eq('id', submissionId);
+  if (error) throw error;
+};
 
 /**
  * Save a form submission
@@ -26,11 +125,37 @@ export const saveFormSubmission = async (
       entity_name: submission.entityName || null,
       role: submission.role,
     };
+    const nk = normalizeSubmissionPipelineKindForDb(submission.submissionPipelineKind);
+    if (nk) {
+      insertData.submission_pipeline_kind = nk;
+    }
+    if (submission.submissionPipelineGroupId) {
+      insertData.submission_pipeline_group_id = submission.submissionPipelineGroupId;
+    }
+    if (submission.parentSubmissionId) {
+      insertData.parent_submission_id = submission.parentSubmissionId;
+    }
+    if (submission.submissionPaymentCompleted === true) {
+      insertData.submission_payment_completed = true;
+    }
+    if (submission.opportunityId) {
+      insertData.opportunity_id = submission.opportunityId;
+    }
+    if (submission.opportunityApplicationId) {
+      insertData.opportunity_application_id = submission.opportunityApplicationId;
+    }
+    if (submission.opportunityStepIndex !== undefined && submission.opportunityStepIndex !== null) {
+      insertData.opportunity_step_index = submission.opportunityStepIndex;
+    }
     if (submission.generalInfo !== undefined) {
       insertData.general_info = JSON.stringify(submission.generalInfo);
     }
     if (submission.answers !== undefined) {
       insertData.answers = JSON.stringify(submission.answers);
+    }
+    if (submission.approvalStatus) {
+      insertData.approval_status = submission.approvalStatus;
+      insertData.decision_date = new Date().toISOString();
     }
     
     const { data, error } = await supabase
@@ -51,17 +176,17 @@ export const saveFormSubmission = async (
         // Load form to get field labels
         const form = await getRegistrationForm(submission.formId);
         if (form) {
-          // Determine if this is a registration form or submission form based on title prefix
-          const titleLower = form.title.toLowerCase();
-          const isSubmissionForm = titleLower.startsWith('sub - ') || titleLower.startsWith('sub-') || 
-                                   titleLower.includes('submission') || titleLower.includes('submit');
-          
-          if (isSubmissionForm) {
-            // Save to submissions_answers table
-            await saveSubmissionAnswers(submissionId, submission.formId, form, submission.answers);
+          const category = inferRegistrationFormCategory(form);
+          const useSubmissionAnswersTable =
+            category === 'submission' || category === 'payment';
+
+          const fieldAnswers = answersWithoutPricingOfferMeta(submission.answers);
+          if (useSubmissionAnswersTable) {
+            // Save to submissions_answers table (article + payment pipeline forms)
+            await saveSubmissionAnswers(submissionId, submission.formId, form, fieldAnswers);
           } else {
             // Save to registration_forms_answers table
-            await saveRegistrationFormAnswers(submissionId, submission.formId, form, submission.answers, submission.participantUserId);
+            await saveRegistrationFormAnswers(submissionId, submission.formId, form, fieldAnswers, submission.participantUserId);
           }
         }
       } catch (answerError) {
@@ -102,38 +227,7 @@ export const getEventSubmissions = async (
       return [];
     }
     
-    const submissions = data.map(doc => {
-      // Deserialize JSON fields from Supabase storage
-      const generalInfo = typeof doc.general_info === 'string' 
-        ? JSON.parse(doc.general_info) 
-        : (doc.general_info || {});
-      const answers = typeof doc.answers === 'string' 
-        ? JSON.parse(doc.answers) 
-        : (doc.answers || {});
-      
-      return {
-        id: doc.id,
-        formId: doc.form_id,
-        eventId: doc.event_id,
-        eventTitle: doc.event_title,
-        userId: doc.user_id,
-        participantUserId: doc.participant_user_id || undefined,
-        submittedBy: doc.submitted_by,
-        subscriptionType: (doc.subscription_type as 'self' | 'entity') || 'self',
-        entityName: doc.entity_name || undefined,
-        role: (doc.role as 'Organizer' | 'Participant') || 'Participant',
-        generalInfo: generalInfo,
-        answers: answers,
-        submittedAt: new Date(doc.created_at),
-        decisionStatus: doc.decision_status || undefined,
-        decisionComment: doc.decision_comment || undefined,
-        decisionDate: doc.decision_date ? new Date(doc.decision_date) : undefined,
-        decidedBy: doc.decided_by || undefined,
-        acceptedEventId: doc.accepted_event_id || undefined,
-        dispatchingStatus: doc.dispatching_status || undefined,
-        approvalStatus: doc.approval_status || undefined,
-      };
-    });
+    const submissions = data.map((doc) => mapDbRowToFormSubmission(doc));
     
     // Sort by submittedAt descending (already sorted by query, but ensure)
     return submissions.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
@@ -196,6 +290,11 @@ const mapSubmissionRowToFormSubmission = (doc: {
   acceptedEventId: doc.accepted_event_id || undefined,
   dispatchingStatus: undefined,
   approvalStatus: undefined,
+  submissionPipelineKind: undefined,
+  submissionPipelineGroupId: undefined,
+  parentSubmissionId: undefined,
+  submissionPaymentCompleted: undefined,
+  pipelineReviewersExpected: undefined,
 });
 
 /**
@@ -296,38 +395,7 @@ export const getUserSubmissions = async (
       return [];
     }
     
-    const submissions = data.map(doc => {
-      // Deserialize JSON fields from Supabase storage
-      const generalInfo = typeof doc.general_info === 'string' 
-        ? JSON.parse(doc.general_info) 
-        : (doc.general_info || {});
-      const answers = typeof doc.answers === 'string' 
-        ? JSON.parse(doc.answers) 
-        : (doc.answers || {});
-      
-      return {
-        id: doc.id,
-        formId: doc.form_id,
-        eventId: doc.event_id,
-        eventTitle: doc.event_title,
-        userId: doc.user_id,
-        participantUserId: doc.participant_user_id || undefined,
-        submittedBy: doc.submitted_by,
-        subscriptionType: (doc.subscription_type as 'self' | 'entity') || 'self',
-        entityName: doc.entity_name || undefined,
-        role: (doc.role as 'Organizer' | 'Participant') || 'Participant',
-        generalInfo: generalInfo,
-        answers: answers,
-        submittedAt: new Date(doc.created_at),
-        decisionStatus: doc.decision_status || undefined,
-        decisionComment: doc.decision_comment || undefined,
-        decisionDate: doc.decision_date ? new Date(doc.decision_date) : undefined,
-        decidedBy: doc.decided_by || undefined,
-        acceptedEventId: doc.accepted_event_id || undefined,
-        dispatchingStatus: doc.dispatching_status || undefined,
-        approvalStatus: doc.approval_status || undefined,
-      };
-    });
+    const submissions = data.map((doc) => mapDbRowToFormSubmission(doc));
     
     // Sort by submittedAt descending
     return submissions.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
@@ -367,38 +435,7 @@ export const getSubmissionsForUserForms = async (
       return [];
     }
     
-    const submissions = data.map(doc => {
-      // Deserialize JSON fields from Supabase storage
-      const generalInfo = typeof doc.general_info === 'string' 
-        ? JSON.parse(doc.general_info) 
-        : (doc.general_info || {});
-      const answers = typeof doc.answers === 'string' 
-        ? JSON.parse(doc.answers) 
-        : (doc.answers || {});
-      
-      return {
-        id: doc.id,
-        formId: doc.form_id,
-        eventId: doc.event_id,
-        eventTitle: doc.event_title,
-        userId: doc.user_id,
-        participantUserId: doc.participant_user_id || undefined,
-        submittedBy: doc.submitted_by,
-        subscriptionType: (doc.subscription_type as 'self' | 'entity') || 'self',
-        entityName: doc.entity_name || undefined,
-        role: (doc.role as 'Organizer' | 'Participant') || 'Participant',
-        generalInfo: generalInfo,
-        answers: answers,
-        submittedAt: new Date(doc.created_at),
-        decisionStatus: doc.decision_status || undefined,
-        decisionComment: doc.decision_comment || undefined,
-        decisionDate: doc.decision_date ? new Date(doc.decision_date) : undefined,
-        decidedBy: doc.decided_by || undefined,
-        acceptedEventId: doc.accepted_event_id || undefined,
-        dispatchingStatus: doc.dispatching_status || undefined,
-        approvalStatus: doc.approval_status || undefined,
-      };
-    });
+    const submissions = data.map((doc) => mapDbRowToFormSubmission(doc));
     
     // Sort by submittedAt descending
     return submissions.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
@@ -461,38 +498,7 @@ export const getRegistrationSubmissions = async (
       return [];
     }
     
-    const submissions = (data || []).map(doc => {
-      // Deserialize JSON fields from Supabase storage
-      const generalInfo = typeof doc.general_info === 'string' 
-        ? JSON.parse(doc.general_info) 
-        : (doc.general_info || {});
-      const answers = typeof doc.answers === 'string' 
-        ? JSON.parse(doc.answers) 
-        : (doc.answers || {});
-      
-      return {
-        id: doc.id,
-        formId: doc.form_id,
-        eventId: doc.event_id,
-        eventTitle: doc.event_title,
-        userId: doc.user_id,
-        participantUserId: doc.participant_user_id || undefined,
-        submittedBy: doc.submitted_by,
-        subscriptionType: (doc.subscription_type as 'self' | 'entity') || 'self',
-        entityName: doc.entity_name || undefined,
-        role: (doc.role as 'Organizer' | 'Participant') || 'Participant',
-        generalInfo: generalInfo,
-        answers: answers,
-        submittedAt: new Date(doc.created_at),
-        decisionStatus: doc.decision_status || undefined,
-        decisionComment: doc.decision_comment || undefined,
-        decisionDate: doc.decision_date ? new Date(doc.decision_date) : undefined,
-        decidedBy: doc.decided_by || undefined,
-        acceptedEventId: doc.accepted_event_id || undefined,
-        dispatchingStatus: doc.dispatching_status || undefined,
-        approvalStatus: doc.approval_status || undefined,
-      };
-    });
+    const submissions = (data || []).map((doc) => mapDbRowToFormSubmission(doc));
     
     // Sort by submittedAt descending
     return submissions.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
@@ -522,6 +528,19 @@ export const updateFormSubmission = async (
       entity_name: submission.entityName || null,
       role: submission.role,
     };
+    if (submission.submissionPipelineKind !== undefined) {
+      const nk = normalizeSubmissionPipelineKindForDb(submission.submissionPipelineKind);
+      updateData.submission_pipeline_kind = nk ?? null;
+    }
+    if (submission.submissionPipelineGroupId !== undefined) {
+      updateData.submission_pipeline_group_id = submission.submissionPipelineGroupId || null;
+    }
+    if (submission.parentSubmissionId !== undefined) {
+      updateData.parent_submission_id = submission.parentSubmissionId || null;
+    }
+    if (submission.submissionPaymentCompleted !== undefined) {
+      updateData.submission_payment_completed = Boolean(submission.submissionPaymentCompleted);
+    }
     if (submission.generalInfo !== undefined) {
       updateData.general_info = JSON.stringify(submission.generalInfo);
     }
@@ -660,6 +679,22 @@ export const updateSubmissionDecision = async (
     }
   } catch (error) {
     console.error('Error updating submission decision:', error);
+    throw error;
+  }
+};
+
+export const updateSubmissionPaymentCompleted = async (
+  submissionId: string,
+  completed: boolean
+): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from(TABLE_NAME)
+      .update({ submission_payment_completed: completed })
+      .eq('id', submissionId);
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error updating submission payment flag:', error);
     throw error;
   }
 };

@@ -80,6 +80,15 @@ const DispatchSubmissions: React.FC = () => {
     return event.submissionFormIds || [];
   }, [selectedEventId, events]);
 
+  /** Article forms only (excludes abstract forms — those are not dispatched). */
+  const selectedEventArticleFormIds = useMemo(() => {
+    if (!selectedEventId) return [];
+    const event = events.find((e) => e.id === selectedEventId);
+    if (!event) return [];
+    const abstractSet = new Set(event.abstractSubmissionFormIds || []);
+    return selectedEventSubmissionFormIds.filter((id) => !abstractSet.has(id));
+  }, [selectedEventId, events, selectedEventSubmissionFormIds]);
+
   // Get selected event's evaluation form IDs
   const selectedEventEvaluationFormIds = useMemo(() => {
     if (!selectedEventId) return [];
@@ -90,14 +99,13 @@ const DispatchSubmissions: React.FC = () => {
 
   // Filter to show only submission forms attached to the selected event
   const submissionForms = useMemo(() => {
-    if (!selectedEventId || selectedEventSubmissionFormIds.length === 0) {
+    if (!selectedEventId || selectedEventArticleFormIds.length === 0) {
       return [];
     }
     
-    // Filter forms to only include those in the selected event's submissionFormIds
+    // Filter forms to only include article (full paper) forms for the selected event
     return forms.filter(form => {
-      // Must be in the event's submission form IDs
-      if (!selectedEventSubmissionFormIds.includes(form.id)) {
+      if (!selectedEventArticleFormIds.includes(form.id)) {
         return false;
       }
       
@@ -108,7 +116,7 @@ const DispatchSubmissions: React.FC = () => {
              titleLower.includes('submission') || 
              titleLower.includes('submit');
     });
-  }, [forms, selectedEventId, selectedEventSubmissionFormIds]);
+  }, [forms, selectedEventId, selectedEventArticleFormIds]);
 
   // Filter to show only evaluation forms attached to the selected event
   const availableEvaluationForms = useMemo(() => {
@@ -132,10 +140,18 @@ const DispatchSubmissions: React.FC = () => {
     });
   }, [evaluationForms, selectedEventId, selectedEventEvaluationFormIds]);
 
-  // Filter to show only accepted submissions
+  // Accepted article submissions only (abstracts are never dispatched)
   const acceptedSubmissions = useMemo(() => {
-    return submissions.filter(sub => sub.decisionStatus === 'accepted');
-  }, [submissions]);
+    const ev = selectedEventId ? events.find((e) => e.id === selectedEventId) : undefined;
+    const abstractSet = new Set(ev?.abstractSubmissionFormIds || []);
+    return submissions.filter(
+      (sub) =>
+        sub.decisionStatus === 'accepted' &&
+        !abstractSet.has(sub.formId) &&
+        sub.submissionPipelineKind !== 'abstract' &&
+        sub.submissionPipelineKind !== 'payment'
+    );
+  }, [submissions, events, selectedEventId]);
 
   // All evaluation answers (no filtering needed as they're all "accepted" by default)
   const allEvaluationAnswers = useMemo(() => {

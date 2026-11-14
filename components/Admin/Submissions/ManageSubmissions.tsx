@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { FileText, Inbox, Send, CheckSquare } from 'lucide-react';
+import { FileText, Inbox, Send, CheckSquare, CreditCard, MessageSquare } from 'lucide-react';
 import ReceivedSubmissions from './ManageSubmission/ReceivedSubmissions';
 import DispatchSubmissions from './ManageSubmission/DispatchSubmissions';
+import SubmissionsModifications from './ManageSubmission/SubmissionsModifications';
 import SubmissionsEvaluation from './ManageSubmission/SubmissionsEvaluation';
+import SubmissionPayments from './ManageSubmission/SubmissionPayments';
 
-type TabType = 'received' | 'dispatch' | 'evaluation';
+type TabType = 'received' | 'dispatch' | 'modifications' | 'evaluation' | 'payment';
 
 const ManageSubmissions: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('received');
@@ -21,9 +23,19 @@ const ManageSubmissions: React.FC = () => {
       icon: Send,
     },
     {
+      id: 'modifications' as TabType,
+      label: 'Modifications',
+      icon: MessageSquare,
+    },
+    {
       id: 'evaluation' as TabType,
       label: 'Submissions Evaluation',
       icon: CheckSquare,
+    },
+    {
+      id: 'payment' as TabType,
+      label: 'Paiement',
+      icon: CreditCard,
     },
   ];
 
@@ -66,7 +78,9 @@ const ManageSubmissions: React.FC = () => {
         <div className="p-6">
           {activeTab === 'received' && <ReceivedSubmissions />}
           {activeTab === 'dispatch' && <DispatchSubmissions />}
+          {activeTab === 'modifications' && <SubmissionsModifications />}
           {activeTab === 'evaluation' && <SubmissionsEvaluation />}
+          {activeTab === 'payment' && <SubmissionPayments />}
         </div>
       </div>
     </div>
@@ -74,4 +88,3 @@ const ManageSubmissions: React.FC = () => {
 };
 
 export default ManageSubmissions;
-

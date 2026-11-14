@@ -35,6 +35,7 @@ import { generateAndSaveBadge, getBadgeForSubmission, ParticipantBadge } from '.
 import RegistrationApprovalModal from './RegistrationApprovalModal';
 import RegistrationEmailModal from './RegistrationEmailModal';
 import { useOrganizerScopedEventId } from '../../../contexts/OrganizerEventScopeContext';
+import { PRICING_OFFER_FREE_KEY, PRICING_OFFER_ID_KEY } from '../../../services/pricingOfferCapacity';
 
 const RegistrationsView: React.FC = () => {
   const { currentUser } = useAuth();
@@ -152,17 +153,23 @@ const RegistrationsView: React.FC = () => {
       // Note: submission.eventId might be a landing page ID (legacy) or an event ID (new)
       const registrationSubmissions = userSubmissions
         .map(submission => {
-          // Check if this formId is a registration form for any event
-          if (!registrationFormIds.has(submission.formId)) {
+          const ticketOfferId = submission.answers?.[PRICING_OFFER_ID_KEY];
+          const isFreeTicket = submission.answers?.[PRICING_OFFER_FREE_KEY] === 'true';
+          const isTicketRegistration = typeof ticketOfferId === 'string' && ticketOfferId.length > 0;
+
+          // Check if this formId is a registration form for any event, or a free ticket from the landing page
+          if (!registrationFormIds.has(submission.formId) && !(isTicketRegistration && isFreeTicket)) {
             return null;
           }
           
           // Find matching event - check both event ID and landing page IDs
           const matchingEvent = userEvents.find(event => {
-            // Check if formId is in this event's registration forms
-            if (!event.registrationFormIds || !event.registrationFormIds.includes(submission.formId)) {
-              return false;
-            }
+            const formLinked = Boolean(event.registrationFormIds?.includes(submission.formId));
+            const landingMatch =
+              event.id === submission.eventId ||
+              Boolean(event.landingPageIds?.includes(submission.eventId));
+            if (isTicketRegistration && isFreeTicket && landingMatch) return true;
+            if (!formLinked) return false;
             
             // Check if submission's eventId matches the event ID directly
             if (event.id === submission.eventId) {

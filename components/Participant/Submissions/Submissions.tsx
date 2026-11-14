@@ -1,21 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { Loader2, Send, Calendar, CheckCircle2, XCircle, Clock, AlertCircle, Trash2, Eye, Edit2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Loader2, Send, CheckCircle2, XCircle, Clock, AlertCircle, Trash2, Eye, Edit2 } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
-import { getRegistrationSubmissions, deleteFormSubmission } from '../../../services/registrationSubmissionService';
-import { FormSubmission, DecisionStatus, ApprovalStatus, DispatchingStatus } from '../../../types';
-import { getRegistrationForm } from '../../../services/registrationFormService';
-import { getJuryMemberProfile } from '../../../services/juryMemberService';
+import { loadParticipantSubmissionsPage } from '../../../services/participantRegistrationService';
+import { deleteFormSubmission } from '../../../services/registrationSubmissionService';
+import { FormSubmission, Event } from '../../../types';
+import { supabase, TABLES } from '../../../supabase';
+import type { ParticipantSubmissionFormLaunchContext } from '../../../services/submissionPipelineService';
+import { filterSubmissionsForEvent } from '../../../services/submissionPipelineService';
+import FormModal from '../../Admin/Tools/FormBuilder/FormModal';
 import EditSubmission from './EditSubmission';
 import PreviewSubmission from './PreviewSubmission';
+import ParticipantSubmissionsEventSection from './ParticipantSubmissionsEventSection';
 
 const Submissions: React.FC = () => {
   const { currentUser } = useAuth();
   const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedSubmission, setSelectedSubmission] = useState<FormSubmission | null>(null);
   const [previewSubmission, setPreviewSubmission] = useState<FormSubmission | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [submitModal, setSubmitModal] = useState<{
+    event: Event;
+    formId: string;
+    pipelineContext: ParticipantSubmissionFormLaunchContext | null;
+  } | null>(null);
 
   useEffect(() => {
     if (currentUser?.email) {
@@ -102,48 +112,12 @@ const Submissions: React.FC = () => {
     try {
       setLoading(true);
       setError('');
-      
-      // Get jury member profile to get their email
-      let juryMemberEmail: string | undefined;
-      try {
-        const juryProfile = await getJuryMemberProfile(currentUser.id);
-        if (juryProfile) {
-          juryMemberEmail = juryProfile.email;
-        }
-      } catch (err) {
-        console.error('Error loading jury member profile:', err);
-      }
-      
-      // Load all submissions for the current user by email(s)
-      const allSubmissions = await getRegistrationSubmissions(
-        currentUser.email,
-        currentUser.id,
-        juryMemberEmail
-      );
-      
-      // Filter for submission forms (forms that start with "Sub" or contain "submission")
-      const submissionForms = [];
-      for (const submission of allSubmissions) {
-        try {
-          const form = await getRegistrationForm(submission.formId);
-          if (form) {
-            const titleLower = form.title.toLowerCase();
-            const isSubmissionForm = titleLower.startsWith('sub - ') || titleLower.startsWith('sub-') || 
-                                     titleLower.includes('submission') || titleLower.includes('submit');
-            if (isSubmissionForm) {
-              submissionForms.push({
-                ...submission,
-                formTitle: form.title,
-              });
-            }
-          }
-        } catch (err) {
-          // If form not found, skip this submission
-          console.error('Error loading form:', err);
-        }
-      }
-      
-      setSubmissions(submissionForms);
+
+      const { submissions: submissionRows, events: eventRows } =
+        await loadParticipantSubmissionsPage(currentUser.email, currentUser.id);
+
+      setEvents(eventRows);
+      setSubmissions(submissionRows);
     } catch (err: any) {
       console.error('Error loading submissions:', err);
       setError(err.message || 'Failed to load submissions');
@@ -168,6 +142,33 @@ const Submissions: React.FC = () => {
       setDeletingId(null);
     }
   };
+
+  const isCampusBlockedForEvent = useCallback(
+    async (campusId?: string): Promise<boolean> => {
+      if (!campusId || !currentUser?.id) return false;
+      const { data, error } = await supabase
+        .from(TABLES.PARTICIPANT_MEMBERSHIPS)
+        .select('subscription_status')
+        .eq('participant_user_id', currentUser.id)
+        .eq('campus_id', campusId)
+        .maybeSingle();
+      if (error) return false;
+      return data?.subscription_status === 'blocked';
+    },
+    [currentUser?.id]
+  );
+
+  const eventById = useMemo(() => new Map(events.map((e) => [e.id, e])), [events]);
+
+  const eventsWithSubmissionRows = useMemo(() => {
+    return [...events]
+      .filter((e) => filterSubmissionsForEvent(submissions, e).length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [events, submissions]);
+
+  const orphanSubmissions = useMemo(() => {
+    return submissions.filter((s) => !eventById.has(s.eventId));
+  }, [submissions, eventById]);
 
   if (loading) {
     return (
@@ -201,99 +202,117 @@ const Submissions: React.FC = () => {
         <div className="text-center py-12 text-slate-400">
           <Send size={48} className="mx-auto mb-4 opacity-20" />
           <p className="font-medium">No submissions yet</p>
-          <p className="text-sm">You haven't submitted any papers yet</p>
+          <p className="text-sm">Start from Events — pick an event and use Submit paper. Your progress will appear here.</p>
         </div>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Event</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Submission Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Badge Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-slate-200">
-              {submissions.map((submission) => {
-                const statusBadge = getStatusBadge(submission);
-                const StatusIcon = statusBadge.icon;
-                const isDeleting = deletingId === submission.id;
-                
-                return (
-                  <tr
-                    key={submission.id}
-                    className="hover:bg-slate-50 transition-colors"
-                  >
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-slate-900">
-                        {submission.eventTitle || 'Paper Submission'}
-                      </div>
-                      {(submission as any).formTitle && (
-                        <div className="text-xs text-slate-500 mt-1">
-                          {((submission as any).formTitle || '').replace(/^Sub\s*-?\s*/i, '')}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-2 text-sm text-slate-600">
-                        <Calendar size={14} />
-                        <span>{new Date(submission.submittedAt).toLocaleDateString()}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm text-slate-600">{statusBadge.label}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 w-fit ${statusBadge.className}`}>
-                        <StatusIcon size={12} />
-                        {statusBadge.label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPreviewSubmission(submission);
-                          }}
-                          className="p-1.5 text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded transition-colors"
-                          title="Preview submission"
-                        >
-                          <Eye size={16} />
-                        </button>
-                        {!submission.decisionStatus && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedSubmission(submission);
-                            }}
-                            className="p-1.5 text-slate-600 hover:text-slate-700 hover:bg-slate-50 rounded transition-colors"
-                            title="Edit submission"
-                          >
-                            <Edit2 size={16} />
-                          </button>
-                        )}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(submission.id);
-                          }}
-                          disabled={isDeleting}
-                          className="p-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Delete submission"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-8">
+          {eventsWithSubmissionRows.map((event) => (
+            <ParticipantSubmissionsEventSection
+              key={event.id}
+              event={event}
+              allUserSubmissionRows={submissions}
+              onOpenSubmitModal={setSubmitModal}
+              isCampusBlocked={() => isCampusBlockedForEvent(event.campusId)}
+            />
+          ))}
+
+          {orphanSubmissions.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/40 overflow-hidden">
+              <div className="px-4 py-3 border-b border-amber-200 bg-amber-50">
+                <h2 className="text-sm font-semibold text-amber-950">Submissions without a matching event</h2>
+                <p className="text-xs text-amber-900 mt-1">
+                  These rows could not be matched to your published events list. The pipeline above is per event.
+                </p>
+              </div>
+              <div className="overflow-x-auto bg-white">
+                <table className="w-full min-w-[640px]">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Event title</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Form</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Submitted</th>
+                      <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase">Status</th>
+                      <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {orphanSubmissions.map((submission) => {
+                      const statusBadge = getStatusBadge(submission);
+                      const StatusIcon = statusBadge.icon;
+                      const isDeleting = deletingId === submission.id;
+                      return (
+                        <tr key={submission.id} className="hover:bg-slate-50/80">
+                          <td className="px-4 py-3 text-sm font-medium text-slate-900">
+                            {submission.eventTitle || '—'}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-700">
+                            {((submission as FormSubmission & { formTitle?: string }).formTitle || '').replace(
+                              /^Sub\s*-?\s*/i,
+                              ''
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">
+                            {new Date(submission.submittedAt).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${statusBadge.className}`}
+                            >
+                              <StatusIcon size={12} />
+                              {statusBadge.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right whitespace-nowrap">
+                            <div className="inline-flex gap-1 justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setPreviewSubmission(submission)}
+                                className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded"
+                              >
+                                <Eye size={16} />
+                              </button>
+                              {!submission.decisionStatus && (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedSubmission(submission)}
+                                  className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(submission.id)}
+                                disabled={isDeleting}
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
+      )}
+
+      {submitModal && (
+        <FormModal
+          formId={submitModal.formId}
+          eventId={submitModal.event.id}
+          eventTitle={submitModal.event.name}
+          pipelineContext={submitModal.pipelineContext ?? undefined}
+          onClose={() => setSubmitModal(null)}
+          onSuccess={() => {
+            setSubmitModal(null);
+            void loadSubmissions();
+          }}
+        />
       )}
 
       {/* Preview Submission Modal */}

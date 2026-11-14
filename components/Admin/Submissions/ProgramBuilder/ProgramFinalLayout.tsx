@@ -1,6 +1,8 @@
 import React from 'react';
 import { Calendar, Clock, MapPin } from 'lucide-react';
 import type { ProgramCard, Venue, ProgramBuilderConfig } from './ProgramBuilder';
+import ProgramLegendBar from './ProgramLegendBar';
+import { getLegendsForExport, getSessionBlockStyles } from './programLegends';
 
 export interface ProgramFinalLayoutProps {
   title: string;
@@ -66,6 +68,8 @@ const ProgramFinalLayout: React.FC<ProgramFinalLayoutProps> = ({
       ? `Day ${selectedDay + 1} of ${numDays}${dayDateLabel ? ` · ${dayDateLabel}` : ''}`
       : dayDateLabel || 'Program';
 
+  const exportLegends = getLegendsForExport(config, cards);
+
   return (
     <div
       id={id}
@@ -121,19 +125,20 @@ const ProgramFinalLayout: React.FC<ProgramFinalLayoutProps> = ({
           </span>
         </div>
 
+        <ProgramLegendBar legends={exportLegends} />
+
         {/* Grid */}
         <div className="p-8 pb-10">
-          <div
-            className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/50"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: `112px repeat(${venues.length}, minmax(0, 1fr))`,
-              gridTemplateRows: `auto repeat(${timeSlots.length}, minmax(44px, auto))`,
-              gap: '1px',
-            }}
-          >
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 overflow-hidden">
             <div
-              className="flex items-center bg-slate-100 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-600"
+              className="grid gap-px bg-slate-200"
+              style={{
+                gridTemplateColumns: `112px repeat(${venues.length}, minmax(0, 1fr))`,
+                gridTemplateRows: `minmax(4rem, auto) repeat(${timeSlots.length}, minmax(44px, auto))`,
+              }}
+            >
+            <div
+              className="flex min-h-16 items-center justify-center bg-slate-100 px-3 py-4 text-xs font-bold uppercase leading-snug tracking-wide text-slate-600"
               style={{ gridRow: 1, gridColumn: 1 }}
             >
               Time
@@ -141,11 +146,11 @@ const ProgramFinalLayout: React.FC<ProgramFinalLayoutProps> = ({
             {venues.map((venue, index) => (
               <div
                 key={venue.id}
-                className="flex items-center justify-center gap-1.5 bg-slate-100 px-2 py-3 text-center text-xs font-bold uppercase tracking-wide text-slate-700"
+                className="flex min-h-16 items-center justify-center gap-2 bg-slate-100 px-3 py-4 text-center text-xs font-bold uppercase leading-snug tracking-wide text-slate-700"
                 style={{ gridRow: 1, gridColumn: index + 2 }}
               >
-                <MapPin className="h-3.5 w-3.5 shrink-0 text-slate-500" strokeWidth={2} />
-                <span className="line-clamp-2">{venue.name}</span>
+                <MapPin className="h-4 w-4 shrink-0 text-slate-500" strokeWidth={2} aria-hidden />
+                <span className="break-words">{venue.name}</span>
               </div>
             ))}
 
@@ -179,6 +184,7 @@ const ProgramFinalLayout: React.FC<ProgramFinalLayoutProps> = ({
               const endVenueIndex = Math.min(startVenueIndex + card.colSpan - 1, venues.length - 1);
               const spannedVenues = venues.slice(startVenueIndex, endVenueIndex + 1);
               const venueNames = spannedVenues.map((v) => v.name).join(' · ');
+              const blockStyles = getSessionBlockStyles(card.color);
 
               return (
                 <div
@@ -188,9 +194,11 @@ const ProgramFinalLayout: React.FC<ProgramFinalLayoutProps> = ({
                     gridRowEnd: rowStart + rowSpan,
                     gridColumnStart: colStart,
                     gridColumnEnd: colEnd,
-                    borderLeftColor: card.color,
+                    borderLeftColor: blockStyles.borderLeftColor,
+                    backgroundColor: blockStyles.backgroundColor,
+                    borderColor: blockStyles.borderColor,
                   }}
-                  className="z-[1] m-1.5 flex min-h-0 flex-col rounded-xl border border-slate-200/90 border-l-[4px] bg-white p-3.5 shadow-sm"
+                  className="z-[1] m-1.5 flex min-h-0 flex-col rounded-xl border border-l-[4px] p-3.5 shadow-sm"
                 >
                   <div className="flex min-h-0 flex-1 flex-col gap-1">
                     <h3 className="text-sm font-bold leading-snug text-slate-900">{card.title}</h3>
@@ -208,6 +216,7 @@ const ProgramFinalLayout: React.FC<ProgramFinalLayoutProps> = ({
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
       </div>

@@ -5,10 +5,13 @@ import { getEvaluationForm } from '../../../services/evaluationFormService';
 import { getEvent } from '../../../services/eventService';
 import { getJuryMemberProfile } from '../../../services/juryMemberService';
 import { getReviewForSubmission, saveReview } from '../../../services/reviewService';
+import { syncArticleDispatchingProgressBySubmissionId } from '../../../services/submissionReviewProgressService';
 import { DispatchedItem } from '../../../services/dispatchedItemsService';
-import { FormField, FormSection, EvaluationForm, ReviewStatus } from '../../../types';
+import { FormField, FormSection, EvaluationForm, ReviewStatus, SubmissionModificationRound } from '../../../types';
 import { supabase, TABLES, STORAGE_BUCKETS } from '../../../supabase';
 import { getFileDownloadURL } from '../../../services/storageService';
+import { hasBlockingActiveRound } from '../../../services/submissionModificationService';
+import ReviewModificationsPanel from './ReviewModificationsPanel';
 
 interface ReviewFormProps {
   item: DispatchedItem;
@@ -31,6 +34,7 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [formWidth, setFormWidth] = useState(30); // Percentage width for form (PDF will be 100 - formWidth)
   const [isResizing, setIsResizing] = useState(false);
+  const [modificationRounds, setModificationRounds] = useState<SubmissionModificationRound[]>([]);
 
   useEffect(() => {
     if (currentUser) {
@@ -361,7 +365,11 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
       });
       
       console.log(`[ReviewForm] Review saved successfully with ID: ${reviewId}`);
-      
+
+      if (status === 'completed' && item.submissionType === 'submission') {
+        void syncArticleDispatchingProgressBySubmissionId(item.submissionId);
+      }
+
       // Note: We no longer save to evaluation_answers table as it lacks proper linking fields
       // (submission_id, event_id, participant_id, status). participant_reviews is the single source of truth.
 
@@ -388,6 +396,10 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (item.submissionType === 'submission' && hasBlockingActiveRound(modificationRounds)) {
+      setError('Resolve pending modifications before submitting your evaluation.');
+      return;
+    }
     await handleSave('completed');
   };
 
@@ -815,6 +827,10 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
     ? (submission.generalInfo?.name || submission.submittedBy || 'Unnamed Submission')
     : (submission.generalInfo?.name || submission.submittedBy || 'Unnamed Evaluation');
 
+  const submissionEventId = 'eventId' in submission ? submission.eventId : item.eventId;
+  const submitReviewBlocked =
+    item.submissionType === 'submission' && hasBlockingActiveRound(modificationRounds);
+
   return (
     <div className="h-full">
       <div className="mb-6">
@@ -876,6 +892,17 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
           <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-lg">
             <p className="text-sm text-slate-700">{form.description}</p>
           </div>
+        )}
+
+        {item.submissionType === 'submission' && participantId && form && (
+          <ReviewModificationsPanel
+            submissionId={item.submissionId}
+            reviewerId={participantId}
+            evaluationFormId={form.id}
+            eventId={submissionEventId}
+            reviewCompleted={reviewStatus === 'completed'}
+            onRoundsChange={setModificationRounds}
+          />
         )}
 
         <div className="space-y-6">
@@ -956,7 +983,8 @@ const ReviewForm: React.FC<ReviewFormProps> = ({ item, onBack }) => {
                 </button>
                 <button
                   type="submit"
-                  disabled={saving}
+                  disabled={saving || submitReviewBlocked}
+                  title={submitReviewBlocked ? 'Resolve pending modifications first' : undefined}
                   className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:bg-slate-400 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
                 >
                   {saving ? (

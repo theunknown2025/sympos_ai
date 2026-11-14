@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Loader2, FileText, Calendar, CheckCircle2, XCircle, Clock, AlertCircle, Trash2, Eye, Edit2, Download, Image as ImageIcon, X, Search, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { useAuth } from '../../../hooks/useAuth';
-import { getRegistrationSubmissions, deleteFormSubmission } from '../../../services/registrationSubmissionService';
-import { FormSubmission, DecisionStatus, ApprovalStatus } from '../../../types';
-import { getRegistrationForm } from '../../../services/registrationFormService';
-import { getJuryMemberProfile } from '../../../services/juryMemberService';
-import { getBadgeForSubmission, ParticipantBadge } from '../../../services/badgeGeneratorService';
+import { deleteFormSubmission } from '../../../services/registrationSubmissionService';
+import { FormSubmission, ApprovalStatus } from '../../../types';
+import { loadParticipantRegistrations } from '../../../services/participantRegistrationService';
+import { getBadgesForSubmissions, ParticipantBadge } from '../../../services/badgeGeneratorService';
 import DateRangePicker from '../../Admin/ProjectManagement/Projects/DateRangePicker';
 import EditRegistration from './EditRegistration';
 import PreviewRegistration from './PreviewRegistration';
@@ -14,6 +13,7 @@ const Registrations: React.FC = () => {
   const { currentUser } = useAuth();
   const [registrations, setRegistrations] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [badgesLoading, setBadgesLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedRegistration, setSelectedRegistration] = useState<FormSubmission | null>(null);
   const [previewRegistration, setPreviewRegistration] = useState<FormSubmission | null>(null);
@@ -63,97 +63,43 @@ const Registrations: React.FC = () => {
     }
   };
 
+  const loadBadgesInBackground = async (registrationList: FormSubmission[]) => {
+    if (registrationList.length === 0) return;
+
+    try {
+      setBadgesLoading(true);
+      setLoadingBadges(new Set(registrationList.map((r) => r.id)));
+      const badges = await getBadgesForSubmissions(registrationList.map((r) => r.id));
+      setBadgesMap(badges);
+    } catch (err) {
+      console.error('Error loading badges:', err);
+    } finally {
+      setBadgesLoading(false);
+      setLoadingBadges(new Set());
+    }
+  };
+
   const loadRegistrations = async () => {
     if (!currentUser?.email || !currentUser?.id) return;
 
     try {
       setLoading(true);
       setError('');
-      
-      // Get jury member profile to get their email
-      let juryMemberEmail: string | undefined;
-      try {
-        const juryProfile = await getJuryMemberProfile(currentUser.id);
-        if (juryProfile) {
-          juryMemberEmail = juryProfile.email;
-        }
-      } catch (err) {
-        console.error('Error loading jury member profile:', err);
-      }
-      
-      // Load all registration submissions for the current user by email(s)
-      const allSubmissions = await getRegistrationSubmissions(
+
+      const registrationSubmissions = await loadParticipantRegistrations(
         currentUser.email,
-        currentUser.id,
-        juryMemberEmail
+        currentUser.id
       );
-      
-      // Filter to only registration forms (not submission forms)
-      // We'll check the form title to determine if it's a registration or submission
-      const registrationSubmissions = [];
-      for (const submission of allSubmissions) {
-        try {
-          const form = await getRegistrationForm(submission.formId);
-          if (form) {
-            const titleLower = form.title.toLowerCase();
-            const isSubmissionForm = titleLower.startsWith('sub - ') || titleLower.startsWith('sub-') || 
-                                     titleLower.includes('submission') || titleLower.includes('submit');
-            if (!isSubmissionForm) {
-              registrationSubmissions.push({
-                ...submission,
-                formTitle: form.title,
-              });
-            }
-          }
-        } catch (err) {
-          // If form not found, skip this submission
-          console.error('Error loading form:', err);
-        }
-      }
-      
+
       setRegistrations(registrationSubmissions);
-      
-      // Load badges for accepted registrations
-      await loadBadgesForRegistrations(registrationSubmissions);
+      setLoading(false);
+
+      void loadBadgesInBackground(registrationSubmissions);
     } catch (err: any) {
       console.error('Error loading registrations:', err);
       setError(err.message || 'Failed to load registrations');
-    } finally {
       setLoading(false);
     }
-  };
-
-  const loadBadgesForRegistrations = async (registrationList: FormSubmission[]) => {
-    // Load badges for all registrations (check if badge exists in database)
-    // We check all registrations, not just accepted ones, because badge might exist regardless
-    if (registrationList.length === 0) {
-      return;
-    }
-
-    // Load badges for all registrations in parallel
-    const badgePromises = registrationList.map(async (registration) => {
-      try {
-        setLoadingBadges(prev => new Set(prev).add(registration.id));
-        const badge = await getBadgeForSubmission(registration.id);
-        if (badge) {
-          setBadgesMap(prev => new Map(prev).set(registration.id, badge));
-        }
-      } catch (err) {
-        // If badge doesn't exist, that's fine - just don't add it to the map
-        // Only log actual errors (not "not found" errors)
-        if (err && typeof err === 'object' && 'code' in err && err.code !== 'PGRST116') {
-          console.error(`Error loading badge for registration ${registration.id}:`, err);
-        }
-      } finally {
-        setLoadingBadges(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(registration.id);
-          return newSet;
-        });
-      }
-    });
-
-    await Promise.all(badgePromises);
   };
 
   const handleDownloadBadge = async (badge: ParticipantBadge) => {
@@ -291,7 +237,12 @@ const Registrations: React.FC = () => {
           <FileText size={32} className="text-indigo-600" />
           My Registrations
         </h1>
-        <p className="text-slate-500 mt-1 text-sm">View and manage your event registrations</p>
+        <p className="text-slate-500 mt-1 text-sm">
+          View and manage your event registrations
+          {badgesLoading && (
+            <span className="text-slate-400"> · Loading badges…</span>
+          )}
+        </p>
       </header>
 
       {/* Search and Filters */}

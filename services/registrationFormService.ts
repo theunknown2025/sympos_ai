@@ -1,7 +1,63 @@
 import { supabase, TABLES } from '../supabase';
-import { RegistrationForm } from '../types';
+import type { FormField, FormFieldType, RegistrationForm, RegistrationFormCategory } from '../types';
 
 const TABLE_NAME = TABLES.REGISTRATION_FORMS;
+
+export type { RegistrationForm, FormField, FormFieldType, RegistrationFormCategory } from '../types';
+
+/**
+ * Category for registration-table forms: prefers stored `formCategory`, then title prefix.
+ */
+export function inferRegistrationFormCategory(form: RegistrationForm): RegistrationFormCategory {
+  const explicit = form.formCategory;
+  if (explicit === 'payment' || explicit === 'submission' || explicit === 'registration') {
+    return explicit;
+  }
+  const t = form.title.trim().toLowerCase();
+  if (t.startsWith('pay - ') || t.startsWith('pay-')) return 'payment';
+  if (t.startsWith('sub - ') || t.startsWith('sub-')) return 'submission';
+  if (t.startsWith('reg - ') || t.startsWith('reg-')) return 'registration';
+  return 'registration';
+}
+
+function parseCategory(raw: unknown): RegistrationFormCategory | undefined {
+  if (raw === 'payment' || raw === 'submission' || raw === 'registration') {
+    return raw;
+  }
+  return undefined;
+}
+
+function mapRegistrationFormRow(data: any): RegistrationForm {
+  const sections =
+    typeof data.sections === 'string' ? JSON.parse(data.sections) : data.sections || [];
+  const fields = typeof data.fields === 'string' ? JSON.parse(data.fields) : data.fields || [];
+  const generalInfo =
+    typeof data.general_info === 'string'
+      ? JSON.parse(data.general_info)
+      : data.general_info || {
+          collectName: true,
+          collectEmail: true,
+          collectPhone: false,
+          collectOrganization: false,
+          collectAddress: false,
+        };
+  const actions =
+    typeof data.actions === 'string' ? JSON.parse(data.actions) : data.actions || undefined;
+
+  return {
+    id: data.id,
+    userId: data.user_id,
+    title: data.title,
+    formCategory: parseCategory(data.form_category),
+    description: data.description,
+    sections,
+    fields,
+    generalInfo,
+    actions,
+    createdAt: new Date(data.created_at),
+    updatedAt: new Date(data.updated_at),
+  };
+}
 
 /**
  * Remove undefined values from an object recursively
@@ -11,11 +67,11 @@ const removeUndefined = (obj: any): any => {
   if (obj === null || obj === undefined) {
     return null;
   }
-  
+
   if (Array.isArray(obj)) {
     return obj.map(item => removeUndefined(item));
   }
-  
+
   if (typeof obj === 'object') {
     const cleaned: any = {};
     for (const key in obj) {
@@ -28,7 +84,7 @@ const removeUndefined = (obj: any): any => {
     }
     return cleaned;
   }
-  
+
   return obj;
 };
 
@@ -43,15 +99,18 @@ export const saveRegistrationForm = async (
     if (!userId) {
       throw new Error('User ID is required');
     }
-    
+
     const cleanedForm = removeUndefined(form);
-    
+
     // Serialize JSON fields for Supabase storage
     const insertData: any = {
       user_id: userId,
       title: cleanedForm.title,
       description: cleanedForm.description,
     };
+    if (cleanedForm.formCategory !== undefined) {
+      insertData.form_category = cleanedForm.formCategory;
+    }
     if (cleanedForm.sections !== undefined) {
       insertData.sections = JSON.stringify(cleanedForm.sections);
     }
@@ -64,17 +123,13 @@ export const saveRegistrationForm = async (
     if (cleanedForm.actions !== undefined) {
       insertData.actions = JSON.stringify(cleanedForm.actions);
     }
-    
-    const { data, error } = await supabase
-      .from(TABLE_NAME)
-      .insert(insertData)
-      .select()
-      .single();
-    
+
+    const { data, error } = await supabase.from(TABLE_NAME).insert(insertData).select().single();
+
     if (error) {
       throw error;
     }
-    
+
     return data.id;
   } catch (error) {
     console.error('Error saving registration form:', error);
@@ -91,13 +146,16 @@ export const updateRegistrationForm = async (
 ): Promise<void> => {
   try {
     const cleanedForm = removeUndefined(form);
-    
+
     // Serialize JSON fields for Supabase storage
     const updateData: any = {
       updated_at: new Date().toISOString(),
     };
     if (cleanedForm.title !== undefined) updateData.title = cleanedForm.title;
     if (cleanedForm.description !== undefined) updateData.description = cleanedForm.description;
+    if (cleanedForm.formCategory !== undefined) {
+      updateData.form_category = cleanedForm.formCategory;
+    }
     if (cleanedForm.sections !== undefined) {
       updateData.sections = JSON.stringify(cleanedForm.sections);
     }
@@ -110,12 +168,9 @@ export const updateRegistrationForm = async (
     if (cleanedForm.actions !== undefined) {
       updateData.actions = JSON.stringify(cleanedForm.actions);
     }
-    
-    const { error } = await supabase
-      .from(TABLE_NAME)
-      .update(updateData)
-      .eq('id', formId);
-    
+
+    const { error } = await supabase.from(TABLE_NAME).update(updateData).eq('id', formId);
+
     if (error) {
       throw error;
     }
@@ -126,59 +181,58 @@ export const updateRegistrationForm = async (
 };
 
 /**
+ * Batch-load form metadata for classifying submissions (id + title + category only).
+ */
+export const getRegistrationFormsMetadataByIds = async (
+  formIds: string[]
+): Promise<Map<string, Pick<RegistrationForm, 'id' | 'title' | 'formCategory'>>> => {
+  const uniqueIds = [...new Set(formIds.filter(Boolean))];
+  const result = new Map<string, Pick<RegistrationForm, 'id' | 'title' | 'formCategory'>>();
+
+  if (uniqueIds.length === 0) {
+    return result;
+  }
+
+  const { data, error } = await supabase
+    .from(TABLE_NAME)
+    .select('id, title, form_category')
+    .in('id', uniqueIds);
+
+  if (error) {
+    throw error;
+  }
+
+  for (const row of data || []) {
+    const formCategory = parseCategory(row.form_category);
+    result.set(row.id, {
+      id: row.id,
+      title: row.title,
+      formCategory,
+    });
+  }
+
+  return result;
+};
+
+/**
  * Get a single registration form by ID
  */
 export const getRegistrationForm = async (formId: string): Promise<RegistrationForm | null> => {
   try {
-    const { data, error } = await supabase
-      .from(TABLE_NAME)
-      .select('*')
-      .eq('id', formId)
-      .single();
-    
+    const { data, error } = await supabase.from(TABLE_NAME).select('*').eq('id', formId).single();
+
     if (error) {
       if (error.code === 'PGRST116') {
         return null;
       }
       throw error;
     }
-    
+
     if (!data) {
       return null;
     }
-    
-    // Deserialize JSON fields from Supabase storage
-    const sections = typeof data.sections === 'string' 
-      ? JSON.parse(data.sections) 
-      : (data.sections || []);
-    const fields = typeof data.fields === 'string' 
-      ? JSON.parse(data.fields) 
-      : (data.fields || []);
-    const generalInfo = typeof data.general_info === 'string' 
-      ? JSON.parse(data.general_info) 
-      : (data.general_info || {
-        collectName: true,
-        collectEmail: true,
-        collectPhone: false,
-        collectOrganization: false,
-        collectAddress: false,
-      });
-    const actions = typeof data.actions === 'string' 
-      ? JSON.parse(data.actions) 
-      : (data.actions || undefined);
-    
-    return {
-      id: data.id,
-      userId: data.user_id,
-      title: data.title,
-      description: data.description,
-      sections: sections,
-      fields: fields,
-      generalInfo: generalInfo,
-      actions: actions,
-      createdAt: new Date(data.created_at),
-      updatedAt: new Date(data.updated_at),
-    };
+
+    return mapRegistrationFormRow(data);
   } catch (error: any) {
     console.error('Error getting registration form:', error);
     throw error;
@@ -193,55 +247,22 @@ export const getUserRegistrationForms = async (userId: string): Promise<Registra
     if (!userId) {
       throw new Error('User ID is required');
     }
-    
+
     const { data, error } = await supabase
       .from(TABLE_NAME)
       .select('*')
       .eq('user_id', userId)
       .order('updated_at', { ascending: false });
-    
+
     if (error) {
       throw error;
     }
-    
+
     if (!data) {
       return [];
     }
-    
-    return data.map(doc => {
-      // Deserialize JSON fields from Supabase storage
-      const sections = typeof doc.sections === 'string' 
-        ? JSON.parse(doc.sections) 
-        : (doc.sections || []);
-      const fields = typeof doc.fields === 'string' 
-        ? JSON.parse(doc.fields) 
-        : (doc.fields || []);
-      const generalInfo = typeof doc.general_info === 'string' 
-        ? JSON.parse(doc.general_info) 
-        : (doc.general_info || {
-          collectName: true,
-          collectEmail: true,
-          collectPhone: false,
-          collectOrganization: false,
-          collectAddress: false,
-        });
-      const actions = typeof doc.actions === 'string' 
-        ? JSON.parse(doc.actions) 
-        : (doc.actions || undefined);
-      
-      return {
-        id: doc.id,
-        userId: doc.user_id,
-        title: doc.title,
-        description: doc.description,
-        sections: sections,
-        fields: fields,
-        generalInfo: generalInfo,
-        actions: actions,
-        createdAt: new Date(doc.created_at),
-        updatedAt: new Date(doc.updated_at),
-      };
-    });
+
+    return data.map(mapRegistrationFormRow);
   } catch (error) {
     console.error('Error getting user registration forms:', error);
     throw error;
@@ -253,11 +274,8 @@ export const getUserRegistrationForms = async (userId: string): Promise<Registra
  */
 export const deleteRegistrationForm = async (formId: string): Promise<void> => {
   try {
-    const { error } = await supabase
-      .from(TABLE_NAME)
-      .delete()
-      .eq('id', formId);
-    
+    const { error } = await supabase.from(TABLE_NAME).delete().eq('id', formId);
+
     if (error) {
       throw error;
     }

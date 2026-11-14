@@ -103,10 +103,7 @@ const GenerateProgramModal: React.FC<GenerateProgramModalProps> = ({
           </button>
         </div>
 
-        <div
-          ref={previewWrapRef}
-          className="min-h-0 flex-1 overflow-y-auto bg-slate-200/60 px-4 py-6 md:px-8"
-        >
+        <div className="min-h-0 flex-1 overflow-y-auto bg-slate-200/60 px-4 py-6 md:px-8">
           <ProgramFinalLayout
             id={EXPORT_ROOT_ID}
             title={programTitle}

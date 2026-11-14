@@ -436,6 +436,62 @@ export const generateAndSaveBadge = async (
 };
 
 /**
+ * Map DB row to ParticipantBadge
+ */
+const mapBadgeRow = (data: Record<string, unknown>): ParticipantBadge => ({
+  id: String(data.id),
+  userId: String(data.user_id),
+  eventId: String(data.event_id),
+  formSubmissionId: String(data.form_submission_id),
+  badgeTemplateId: String(data.badge_template_id),
+  badgeImageUrl: String(data.badge_image_url),
+  participantName: String(data.participant_name),
+  participantEmail: data.participant_email ? String(data.participant_email) : undefined,
+  participantPhone: data.participant_phone ? String(data.participant_phone) : undefined,
+  participantOrganization: data.participant_organization
+    ? String(data.participant_organization)
+    : undefined,
+  registrationType: data.registration_type as 'internal' | 'external',
+  createdAt: new Date(String(data.created_at)),
+  updatedAt: new Date(String(data.updated_at)),
+});
+
+/**
+ * Batch-load badges for many form submissions in one query.
+ */
+export const getBadgesForSubmissions = async (
+  formSubmissionIds: string[]
+): Promise<Map<string, ParticipantBadge>> => {
+  const uniqueIds = [...new Set(formSubmissionIds.filter(Boolean))];
+  const result = new Map<string, ParticipantBadge>();
+
+  if (uniqueIds.length === 0) {
+    return result;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from(TABLES.PARTICIPANTS_BADGE)
+      .select('*')
+      .in('form_submission_id', uniqueIds);
+
+    if (error) {
+      throw error;
+    }
+
+    for (const row of data || []) {
+      const badge = mapBadgeRow(row as Record<string, unknown>);
+      result.set(badge.formSubmissionId, badge);
+    }
+
+    return result;
+  } catch (error: unknown) {
+    console.error('Error getting badges for submissions:', error);
+    throw error;
+  }
+};
+
+/**
  * Get badge for a form submission
  */
 export const getBadgeForSubmission = async (
@@ -459,21 +515,7 @@ export const getBadgeForSubmission = async (
       return null;
     }
 
-    return {
-      id: data.id,
-      userId: data.user_id,
-      eventId: data.event_id,
-      formSubmissionId: data.form_submission_id,
-      badgeTemplateId: data.badge_template_id,
-      badgeImageUrl: data.badge_image_url,
-      participantName: data.participant_name,
-      participantEmail: data.participant_email || undefined,
-      participantPhone: data.participant_phone || undefined,
-      participantOrganization: data.participant_organization || undefined,
-      registrationType: data.registration_type as 'internal' | 'external',
-      createdAt: new Date(data.created_at),
-      updatedAt: new Date(data.updated_at),
-    };
+    return mapBadgeRow(data as Record<string, unknown>);
   } catch (error: any) {
     console.error('Error getting badge for submission:', error);
     throw error;
@@ -501,21 +543,7 @@ export const getBadgesForEvent = async (
       return [];
     }
 
-    return data.map(doc => ({
-      id: doc.id,
-      userId: doc.user_id,
-      eventId: doc.event_id,
-      formSubmissionId: doc.form_submission_id,
-      badgeTemplateId: doc.badge_template_id,
-      badgeImageUrl: doc.badge_image_url,
-      participantName: doc.participant_name,
-      participantEmail: doc.participant_email || undefined,
-      participantPhone: doc.participant_phone || undefined,
-      participantOrganization: doc.participant_organization || undefined,
-      registrationType: doc.registration_type as 'internal' | 'external',
-      createdAt: new Date(doc.created_at),
-      updatedAt: new Date(doc.updated_at),
-    }));
+    return (data || []).map((doc) => mapBadgeRow(doc as Record<string, unknown>));
   } catch (error: any) {
     console.error('Error getting badges for event:', error);
     throw error;

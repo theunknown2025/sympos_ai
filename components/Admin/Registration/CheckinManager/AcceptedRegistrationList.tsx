@@ -1,38 +1,43 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Search,
-  Loader2,
-  CheckCircle,
-  XCircle,
-  User,
-  Mail,
-  Calendar,
-  CheckSquare,
-  AlertCircle,
-  Square,
-  Clock,
-  Camera
-} from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Search, Loader2, AlertCircle, Camera } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
 import { getUserSubmissions, FormSubmission } from '../../../../services/registrationSubmissionService';
 import { getUserEvents, getEvent } from '../../../../services/eventService';
-import { Event, EventDate } from '../../../../types';
+import { Event, EventDate, RegistrationForm } from '../../../../types';
 import { toggleCheckin, getCheckinStatusMap, bulkToggleCheckin, RegistrationCheckin } from '../../../../services/checkinService';
 import BadgerDisplay from './BadgerDisplay';
+import CheckinParticipantsTable from './CheckinParticipantsTable';
+import CheckinDisplayConfigModal from './CheckinDisplayConfigModal';
+import {
+  isRegistrationCheckinRow,
+  isSubmissionCheckinRow,
+  resolveEventForSubmission,
+} from '../../../../utils/checkinRowClassification';
+import { getSubmissionDisplayTitle } from '../../../../services/submissionBadgeService';
 import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
+import { getRegistrationForm } from '../../../../services/registrationFormService';
+import {
+  buildCheckinSelectableFields,
+  getCheckinDisplayFieldKeys,
+  type CheckinDisplayKind,
+} from '../../../../services/checkinDisplayFields';
+import {
+  findCertificateFieldLabel,
+  resolveCertificateFieldValue,
+} from '../../../../services/certificateTemplateFields';
 
 interface AcceptedRegistrationListProps {
-  eventId?: string; // Optional: filter by specific event
+  eventId?: string;
 }
 
-const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
-  eventId
-}) => {
+const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({ eventId }) => {
   const { currentUser } = useAuth();
   const organizerScopedEventId = useOrganizerScopedEventId();
   const isEventScopeLocked = !!organizerScopedEventId;
-  const [submissions, setSubmissions] = useState<FormSubmission[]>([]);
-  const [filteredSubmissions, setFilteredSubmissions] = useState<FormSubmission[]>([]);
+  const [registrationRows, setRegistrationRows] = useState<FormSubmission[]>([]);
+  const [submissionRows, setSubmissionRows] = useState<FormSubmission[]>([]);
+  const [filteredRegistrationRows, setFilteredRegistrationRows] = useState<FormSubmission[]>([]);
+  const [filteredSubmissionRows, setFilteredSubmissionRows] = useState<FormSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -42,32 +47,29 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
   const [checkinMap, setCheckinMap] = useState<Map<string, RegistrationCheckin[]>>(new Map());
   const [checkingIn, setCheckingIn] = useState<Set<string>>(new Set());
   const [bulkCheckingIn, setBulkCheckingIn] = useState(false);
-  const [selectedSubmissions, setSelectedSubmissions] = useState<Set<string>>(new Set());
+  const [selectedRegistrationIds, setSelectedRegistrationIds] = useState<Set<string>>(new Set());
+  const [selectedSubmissionIds, setSelectedSubmissionIds] = useState<Set<string>>(new Set());
   const [checkinMode, setCheckinMode] = useState<'collective' | 'day-specific'>('collective');
   const [selectedDayId, setSelectedDayId] = useState<string | null>(null);
   const [badgerOpen, setBadgerOpen] = useState(false);
+  const [eventForms, setEventForms] = useState<RegistrationForm[]>([]);
+  const [configModalKind, setConfigModalKind] = useState<CheckinDisplayKind | null>(null);
 
   const deriveEventDays = (dates?: EventDate[] | null): EventDate[] => {
     if (!dates || dates.length === 0) return [];
 
     const dayMap = new Map<string, EventDate>();
 
-    dates.forEach(range => {
+    dates.forEach((range) => {
       const start = new Date(range.startDate);
       const end = new Date(range.endDate || range.startDate);
-
-      // Normalize times to midnight to avoid DST issues
       start.setHours(0, 0, 0, 0);
       end.setHours(0, 0, 0, 0);
 
       for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-        const isoDate = d.toISOString().slice(0, 10); // YYYY-MM-DD
+        const isoDate = d.toISOString().slice(0, 10);
         if (!dayMap.has(isoDate)) {
-          dayMap.set(isoDate, {
-            id: isoDate,
-            startDate: isoDate,
-            endDate: isoDate,
-          });
+          dayMap.set(isoDate, { id: isoDate, startDate: isoDate, endDate: isoDate });
         }
       }
     });
@@ -90,8 +92,8 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
   }, [selectedEvent]);
 
   useEffect(() => {
-    filterSubmissions();
-  }, [searchQuery, submissions, selectedEvent]);
+    filterRows();
+  }, [searchQuery, registrationRows, submissionRows]);
 
   useEffect(() => {
     if (organizerScopedEventId) {
@@ -99,7 +101,6 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
     }
   }, [organizerScopedEventId]);
 
-  // Load selected event data when event changes
   useEffect(() => {
     const loadEventData = async () => {
       if (selectedEvent !== 'all' && currentUser) {
@@ -112,10 +113,8 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
             return;
           }
           setSelectedEventData(event);
-          
-          const days = deriveEventDays(event.dates);
 
-          // If event has multiple days, default to day-specific mode
+          const days = deriveEventDays(event.dates);
           if (days.length > 1) {
             setCheckinMode('day-specific');
             if (days.length > 0 && !selectedDayId) {
@@ -138,68 +137,102 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
     loadEventData();
   }, [selectedEvent, currentUser]);
 
+  useEffect(() => {
+    const loadForms = async () => {
+      if (!selectedEventData) {
+        setEventForms([]);
+        return;
+      }
+
+      const formIds = [
+        ...(selectedEventData.registrationFormIds || []),
+        ...(selectedEventData.submissionFormIds || []),
+        ...(selectedEventData.abstractSubmissionFormIds || []),
+      ];
+      const uniqueIds = [...new Set(formIds)];
+      if (uniqueIds.length === 0) {
+        setEventForms([]);
+        return;
+      }
+
+      try {
+        const loaded = await Promise.all(uniqueIds.map((id) => getRegistrationForm(id)));
+        setEventForms(loaded.filter((f): f is RegistrationForm => f !== null));
+      } catch (err) {
+        console.error('Error loading event forms for check-in display:', err);
+        setEventForms([]);
+      }
+    };
+
+    void loadForms();
+  }, [selectedEventData]);
+
   const loadData = async (userId: string) => {
     try {
       setLoading(true);
       setError('');
 
-      // Load events
       const userEvents = await getUserEvents(userId);
       setEvents(userEvents);
 
-      // Load all submissions
       const allSubmissions = await getUserSubmissions(userId);
+      const eventForFilter =
+        selectedEvent !== 'all' ? userEvents.find((e) => e.id === selectedEvent) ?? null : null;
 
-      // Filter to only accepted registrations
-      const acceptedSubmissions = allSubmissions.filter(
-        submission => submission.approvalStatus === 'accepted'
-      );
+      const reg: FormSubmission[] = [];
+      const sub: FormSubmission[] = [];
 
-      // Filter by event if specified
-      let filtered = acceptedSubmissions;
-      if (selectedEvent !== 'all') {
-        filtered = acceptedSubmissions.filter(s => s.eventId === selectedEvent);
+      for (const row of allSubmissions) {
+        const ev =
+          selectedEvent !== 'all' ? eventForFilter : resolveEventForSubmission(row, userEvents);
+        if (!ev) continue;
+        if (selectedEvent !== 'all' && ev.id !== selectedEvent) continue;
+        if (isRegistrationCheckinRow(row, ev)) reg.push(row);
+        if (isSubmissionCheckinRow(row, ev)) sub.push(row);
       }
 
-      setSubmissions(filtered);
+      setRegistrationRows(reg);
+      setSubmissionRows(sub);
 
-      // Load check-in statuses
-      if (filtered.length > 0) {
-        const submissionIds = filtered.map(s => s.id);
-        const checkins = await getCheckinStatusMap(submissionIds);
+      const allIds = [...reg, ...sub].map((s) => s.id);
+      if (allIds.length > 0) {
+        const checkins = await getCheckinStatusMap(allIds);
         setCheckinMap(checkins);
       } else {
         setCheckinMap(new Map());
       }
-    } catch (err: any) {
-      setError('Failed to load registrations. Please try again.');
+    } catch (err) {
+      setError('Failed to load check-in list. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const filterSubmissions = () => {
-    let filtered = submissions;
+  const filterBySearch = (list: FormSubmission[]) => {
+    if (!searchQuery.trim()) return list;
+    const query = searchQuery.toLowerCase().trim();
+    return list.filter((submission) => {
+      const name = (submission.generalInfo?.name || submission.submittedBy || '').toLowerCase();
+      const email = (
+        submission.generalInfo?.email ||
+        (submission.answers['general_email'] as string) ||
+        ''
+      ).toLowerCase();
+      return name.includes(query) || email.includes(query);
+    });
+  };
 
-    // Filter by search query (name or email)
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter(submission => {
-        const name = (submission.generalInfo?.name || submission.submittedBy || '').toLowerCase();
-        const email = (submission.generalInfo?.email || submission.answers['general_email'] as string || '').toLowerCase();
-        return name.includes(query) || email.includes(query);
-      });
-    }
-
-    setFilteredSubmissions(filtered);
+  const filterRows = () => {
+    setFilteredRegistrationRows(filterBySearch(registrationRows));
+    setFilteredSubmissionRows(filterBySearch(submissionRows));
   };
 
   const handleCheckin = async (submission: FormSubmission, dayId?: string | null, dayLabel?: string) => {
     if (!currentUser?.id) return;
 
     try {
-      setCheckingIn(prev => new Set(prev).add(submission.id));
+      setCheckingIn((prev) => new Set(prev).add(submission.id));
 
       const checkin = await toggleCheckin(
         currentUser.id,
@@ -210,51 +243,49 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
         dayLabel
       );
 
-      // Update check-in map
       const existingCheckins = checkinMap.get(submission.id) || [];
-      const updatedCheckins = existingCheckins.filter(c => 
-        (c.eventDayId || null) !== (dayId || null)
-      );
+      const updatedCheckins = existingCheckins.filter((c) => (c.eventDayId || null) !== (dayId || null));
       updatedCheckins.push(checkin);
-      setCheckinMap(prev => new Map(prev).set(submission.id, updatedCheckins));
+      setCheckinMap((prev) => new Map(prev).set(submission.id, updatedCheckins));
 
-      // Reload check-in data to ensure consistency
-      const submissionIds = [submission.id];
-      const updatedMap = await getCheckinStatusMap(submissionIds);
-      setCheckinMap(prev => {
+      const updatedMap = await getCheckinStatusMap([submission.id]);
+      setCheckinMap((prev) => {
         const newMap = new Map(prev);
-        updatedMap.forEach((checkins, id) => {
-          newMap.set(id, checkins);
-        });
+        updatedMap.forEach((checkins, id) => newMap.set(id, checkins));
         return newMap;
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error toggling check-in:', err);
-      setError(err.message || 'Failed to update check-in status');
+      const message = err instanceof Error ? err.message : 'Failed to update check-in status';
+      setError(message);
     } finally {
-      setCheckingIn(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(submission.id);
-        return newSet;
+      setCheckingIn((prev) => {
+        const next = new Set(prev);
+        next.delete(submission.id);
+        return next;
       });
     }
   };
 
-  const handleBulkCheckin = async () => {
-    if (!currentUser?.id || selectedSubmissions.size === 0) return;
+  const handleBulkCheckin = async (
+    selectedIds: Set<string>,
+    rows: FormSubmission[],
+    clearSelection: () => void
+  ) => {
+    if (!currentUser?.id || selectedIds.size === 0) return;
 
     try {
       setBulkCheckingIn(true);
       setError('');
 
-      const submissionIds = Array.from(selectedSubmissions);
-      const submissionsToCheckin = filteredSubmissions.filter(s => submissionIds.includes(s.id));
+      const submissionIds = Array.from(selectedIds);
+      const submissionsToCheckin = rows.filter((s) => submissionIds.includes(s.id));
 
       let dayId: string | null = null;
-      let dayLabel: string | undefined = undefined;
+      let dayLabel: string | undefined;
 
       if (checkinMode === 'day-specific' && selectedDayId) {
-        const day = selectedEventData?.dates?.find(d => d.id === selectedDayId);
+        const day = selectedEventData?.dates?.find((d) => d.id === selectedDayId);
         dayId = selectedDayId;
         dayLabel = day ? formatDayLabel(day) : selectedDayId;
       }
@@ -268,120 +299,122 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
         dayLabel
       );
 
-      // Reload check-in data
       const updatedMap = await getCheckinStatusMap(submissionIds);
-      setCheckinMap(prev => {
+      setCheckinMap((prev) => {
         const newMap = new Map(prev);
-        updatedMap.forEach((checkins, id) => {
-          newMap.set(id, checkins);
-        });
+        updatedMap.forEach((checkins, id) => newMap.set(id, checkins));
         return newMap;
       });
 
-      // Clear selection
-      setSelectedSubmissions(new Set());
-    } catch (err: any) {
+      clearSelection();
+    } catch (err: unknown) {
       console.error('Error bulk checking in:', err);
-      setError(err.message || 'Failed to bulk check-in');
+      const message = err instanceof Error ? err.message : 'Failed to bulk check-in';
+      setError(message);
     } finally {
       setBulkCheckingIn(false);
     }
   };
 
-  const toggleSelectSubmission = (submissionId: string) => {
-    setSelectedSubmissions(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(submissionId)) {
-        newSet.delete(submissionId);
-      } else {
-        newSet.add(submissionId);
-      }
-      return newSet;
+  const toggleSelectId = (
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    id: string
+  ) => {
+    setter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
   };
 
-  const toggleSelectAll = () => {
-    if (selectedSubmissions.size === filteredSubmissions.length) {
-      setSelectedSubmissions(new Set());
+  const toggleSelectAllInList = (
+    selected: Set<string>,
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
+    rows: FormSubmission[]
+  ) => {
+    if (selected.size === rows.length && rows.length > 0) {
+      setter(new Set());
     } else {
-      setSelectedSubmissions(new Set(filteredSubmissions.map(s => s.id)));
+      setter(new Set(rows.map((s) => s.id)));
     }
   };
 
   const getCheckinStatus = (submissionId: string, dayId?: string | null): 'done' | 'undone' => {
     const checkins = checkinMap.get(submissionId) || [];
-    
+
     if (dayId === null || dayId === undefined) {
-      // Check for collective check-in (event_day_id is null)
-      const collectiveCheckin = checkins.find(c => !c.eventDayId);
+      const collectiveCheckin = checkins.find((c) => !c.eventDayId);
       return collectiveCheckin?.checkinStatus || 'undone';
-    } else {
-      // Check for day-specific check-in
-      const dayCheckin = checkins.find(c => c.eventDayId === dayId);
-      return dayCheckin?.checkinStatus || 'undone';
     }
+
+    const dayCheckin = checkins.find((c) => c.eventDayId === dayId);
+    return dayCheckin?.checkinStatus || 'undone';
   };
 
-  const formatDate = (date: Date): string => {
-    return new Date(date).toLocaleDateString('en-US', {
+  const formatDate = (date: Date): string =>
+    new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
-  };
 
   const formatDayLabel = (day: EventDate): string => {
     const startDate = new Date(day.startDate);
     const endDate = new Date(day.endDate);
-    
+
     if (day.startDate === day.endDate) {
       return startDate.toLocaleDateString('en-US', {
         month: 'short',
         day: 'numeric',
-        year: 'numeric'
+        year: 'numeric',
       });
-    } else {
-      return `${startDate.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric'
-      })} - ${endDate.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      })}`;
     }
+
+    return `${startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
   };
 
-  const getRowBackgroundColor = (submissionId: string, dayId?: string | null): string => {
-    const status = getCheckinStatus(submissionId, dayId);
-    if (status === 'done') {
-      return 'bg-green-50 hover:bg-green-100';
-    }
-    return 'bg-yellow-50 hover:bg-yellow-100';
-  };
-
-  const getCheckedInCount = (): number => {
+  const getCheckedInCount = (rows: FormSubmission[], days: EventDate[]): number => {
     let count = 0;
-    filteredSubmissions.forEach(submission => {
-      let isDone = false;
-
-      if (checkinMode === 'collective') {
-        // Count based on collective (all days) check-in
-        isDone = getCheckinStatus(submission.id, null) === 'done';
-      } else {
-        // In daily mode, consider a registration checked in if any day has a done status
-        const days = eventDays;
-        isDone = days.some(day => getCheckinStatus(submission.id, day.id) === 'done');
-      }
-
-      if (isDone) {
-        count++;
-      }
+    rows.forEach((submission) => {
+      const isDone =
+        checkinMode === 'collective'
+          ? getCheckinStatus(submission.id, null) === 'done'
+          : days.some((day) => getCheckinStatus(submission.id, day.id) === 'done');
+      if (isDone) count++;
     });
     return count;
   };
+
+  const buildDisplayColumns = useCallback(
+    (kind: CheckinDisplayKind) => {
+      if (!selectedEventData) return [];
+      const keys = getCheckinDisplayFieldKeys(selectedEventData, kind);
+      const catalog = buildCheckinSelectableFields(selectedEventData, eventForms, kind);
+      return keys.map((key) => ({
+        key,
+        label: findCertificateFieldLabel(key, undefined, catalog),
+      }));
+    },
+    [selectedEventData, eventForms]
+  );
+
+  const registrationDisplayColumns = useMemo(
+    () => buildDisplayColumns('registration'),
+    [buildDisplayColumns]
+  );
+  const submissionDisplayColumns = useMemo(
+    () => buildDisplayColumns('submission'),
+    [buildDisplayColumns]
+  );
+
+  const getDisplayValue = useCallback(
+    (submission: FormSubmission, fieldKey: string) =>
+      resolveCertificateFieldValue(fieldKey, submission, selectedEventData),
+    [selectedEventData]
+  );
 
   if (loading) {
     return (
@@ -393,47 +426,86 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
 
   const eventDays = deriveEventDays(selectedEventData?.dates);
   const hasMultipleDays = eventDays.length > 1;
+  const showSubmissionsTable = Boolean(selectedEventData?.submissionFormIds?.length);
+  const eventSelected = selectedEvent !== 'all';
+  const allFilteredRows = [...filteredRegistrationRows, ...filteredSubmissionRows];
+  const totalRows = registrationRows.length + submissionRows.length;
+  const checkedInTotal = getCheckedInCount(allFilteredRows, eventDays);
+
+  const tableSharedProps = {
+    checkinMap,
+    checkingIn,
+    checkinMode,
+    eventDays,
+    hasMultipleDays,
+    selectedEventIsAll: selectedEvent === 'all',
+    onCheckin: handleCheckin,
+    onCheckinModeChange: setCheckinMode,
+    getCheckinStatus,
+    formatDate,
+    formatDayLabel,
+  };
+
+  const renderBulkBar = (
+    selectedIds: Set<string>,
+    rows: FormSubmission[],
+    clearSelection: () => void,
+    label: string
+  ) => {
+    if (selectedIds.size === 0) return null;
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-indigo-50 border border-indigo-100 rounded-lg">
+        <span className="text-sm text-indigo-900">
+          {selectedIds.size} {label} selected
+        </span>
+        <button
+          type="button"
+          disabled={bulkCheckingIn}
+          onClick={() => handleBulkCheckin(selectedIds, rows, clearSelection)}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+        >
+          {bulkCheckingIn ? <Loader2 className="animate-spin" size={14} /> : null}
+          Bulk check-in
+        </button>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Accepted Registrations Check-in</h2>
+          <h2 className="text-2xl font-bold text-slate-900">Check-in</h2>
           <p className="text-sm text-slate-600 mt-1">
-            Manage check-in for accepted registrations
+            Registrations and submission presenters for the selected event
           </p>
         </div>
         <button
           type="button"
           onClick={() => setBadgerOpen(true)}
           disabled={selectedEvent === 'all'}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors ${
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium shadow-sm transition-colors shrink-0 ${
             selectedEvent === 'all'
               ? 'bg-slate-300 text-slate-500 cursor-not-allowed'
               : 'bg-indigo-600 hover:bg-indigo-700 text-white'
           }`}
-          title={selectedEvent === 'all' ? 'Please select an event first' : 'Open QR scanner'}
+          title={selectedEvent === 'all' ? 'Select an event first' : 'Open QR scanner'}
         >
           <Camera size={16} />
           Use Badger
         </button>
       </div>
 
-      {error && (
+      {error ? (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-800">
           <AlertCircle size={20} />
           <span>{error}</span>
         </div>
-      )}
+      ) : null}
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
-        {/* Event Filter */}
         <div className="flex-1">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            Event
-          </label>
+          <label className="block text-sm font-medium text-slate-700 mb-2">Event</label>
           {isEventScopeLocked ? (
             <p className="w-full text-sm text-slate-600 py-2">
               Showing only your selected event (change it from the header).
@@ -443,12 +515,13 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
               value={selectedEvent}
               onChange={(e) => {
                 setSelectedEvent(e.target.value);
-                setSelectedSubmissions(new Set());
+                setSelectedRegistrationIds(new Set());
+                setSelectedSubmissionIds(new Set());
               }}
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="all">All Events</option>
-              {events.map(event => (
+              {events.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.name}
                 </option>
@@ -457,13 +530,13 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
           )}
         </div>
 
-        {/* Search Bar */}
         <div className="flex-1">
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            Search by Name or Email
-          </label>
+          <label className="block text-sm font-medium text-slate-700 mb-2">Search by Name or Email</label>
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+            <Search
+              className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400"
+              size={18}
+            />
             <input
               type="text"
               value={searchQuery}
@@ -474,332 +547,121 @@ const AcceptedRegistrationList: React.FC<AcceptedRegistrationListProps> = ({
           </div>
         </div>
       </div>
-      {/* Badger Display - Full Page QR Scanner */}
-      <BadgerDisplay 
-        isOpen={badgerOpen} 
+
+      <BadgerDisplay
+        isOpen={badgerOpen}
         onClose={() => setBadgerOpen(false)}
-        eventId={selectedEvent !== 'all' ? selectedEvent : undefined}
+        eventId={eventSelected ? selectedEvent : undefined}
         eventName={selectedEventData?.name}
+        eventData={selectedEventData}
+        eventForms={eventForms}
       />
 
-      {/* (Check-in mode toggle and bulk actions moved into table header) */}
+      <CheckinDisplayConfigModal
+        isOpen={configModalKind === 'registration'}
+        onClose={() => setConfigModalKind(null)}
+        eventId={eventSelected ? selectedEvent : undefined}
+        kind="registration"
+        onSaved={setSelectedEventData}
+      />
+      <CheckinDisplayConfigModal
+        isOpen={configModalKind === 'submission'}
+        onClose={() => setConfigModalKind(null)}
+        eventId={eventSelected ? selectedEvent : undefined}
+        kind="submission"
+        onSaved={setSelectedEventData}
+      />
 
-      {/* Statistics */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <div className="text-sm text-yellow-700 font-medium">Total Accepted</div>
-          <div className="text-2xl font-bold text-yellow-900 mt-1">{submissions.length}</div>
+          <div className="text-sm text-yellow-700 font-medium">Total</div>
+          <div className="text-2xl font-bold text-yellow-900 mt-1">{totalRows}</div>
         </div>
         <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
           <div className="text-sm text-green-700 font-medium">Checked In</div>
-          <div className="text-2xl font-bold text-green-900 mt-1">
-            {getCheckedInCount()}
-          </div>
+          <div className="text-2xl font-bold text-green-900 mt-1">{checkedInTotal}</div>
         </div>
         <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg">
-          <div className="text-sm text-slate-700 font-medium">Pending Check-in</div>
-          <div className="text-2xl font-bold text-slate-900 mt-1">
-            {submissions.length - getCheckedInCount()}
-          </div>
+          <div className="text-sm text-slate-700 font-medium">Pending</div>
+          <div className="text-2xl font-bold text-slate-900 mt-1">{totalRows - checkedInTotal}</div>
         </div>
       </div>
 
-      {/* Registrations Table */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        {filteredSubmissions.length === 0 ? (
-          <div className="p-12 text-center">
-            <p className="text-slate-500">
-              {searchQuery ? 'No registrations found matching your search.' : 'No accepted registrations found.'}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-10">
-                    <button
-                      onClick={toggleSelectAll}
-                      className="flex items-center justify-center"
-                    >
-                      {selectedSubmissions.size === filteredSubmissions.length ? (
-                        <CheckSquare size={16} className="text-indigo-600" />
-                      ) : (
-                        <Square size={16} className="text-slate-400 border-2 border-slate-300 rounded" />
-                      )}
-                    </button>
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                    Participant
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                    Email
-                  </th>
-                  <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                    Submitted At
-                  </th>
-                  {checkinMode === 'collective' || !hasMultipleDays ? (
-                    <>
-                      <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                        Status
-                      </th>
-                      <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
-                        <div className="inline-flex items-center gap-2">
-                          <span className="text-[11px] text-slate-500">View</span>
-                          <div className="inline-flex rounded-full border border-slate-300 bg-white overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => setCheckinMode('collective')}
-                              className={`px-3 py-1 text-[11px] font-medium transition-colors ${
-                                checkinMode === 'collective'
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'text-slate-600 hover:bg-slate-50'
-                              }`}
-                            >
-                              All
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (hasMultipleDays && selectedEvent !== 'all') {
-                                  setCheckinMode('day-specific');
-                                }
-                              }}
-                              disabled={!hasMultipleDays || selectedEvent === 'all'}
-                              className={`px-3 py-1 text-[11px] font-medium border-l border-slate-300 transition-colors ${
-                                checkinMode === 'day-specific'
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'text-slate-600 hover:bg-slate-50'
-                              } ${(!hasMultipleDays || selectedEvent === 'all') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                              Daily
-                            </button>
-                          </div>
-                        </div>
-                      </th>
-                    </>
-                  ) : (
-                    <>
-                      {eventDays.map(day => (
-                        <th
-                          key={day.id}
-                          scope="col"
-                          className="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider"
-                        >
-                          {formatDayLabel(day)}
-                        </th>
-                      ))}
-                      <th scope="col" className="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">
-                        <div className="inline-flex items-center gap-2">
-                          <span className="text-[11px] text-slate-500">View</span>
-                          <div className="inline-flex rounded-full border border-slate-300 bg-white overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => setCheckinMode('collective')}
-                              className={`px-3 py-1 text-[11px] font-medium transition-colors ${
-                                checkinMode === 'collective'
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'text-slate-600 hover:bg-slate-50'
-                              }`}
-                            >
-                              All
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (hasMultipleDays && selectedEvent !== 'all') {
-                                  setCheckinMode('day-specific');
-                                }
-                              }}
-                              disabled={!hasMultipleDays || selectedEvent === 'all'}
-                              className={`px-3 py-1 text-[11px] font-medium border-l border-slate-300 transition-colors ${
-                                checkinMode === 'day-specific'
-                                  ? 'bg-indigo-600 text-white'
-                                  : 'text-slate-600 hover:bg-slate-50'
-                              } ${(!hasMultipleDays || selectedEvent === 'all') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            >
-                              Daily
-                            </button>
-                          </div>
-                        </div>
-                      </th>
-                    </>
-                  )}
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-slate-200">
-                {filteredSubmissions.map(submission => {
-                  const name = submission.generalInfo?.name || submission.submittedBy || 'Anonymous';
-                  const email = (submission.generalInfo?.email || submission.answers['general_email'] as string || 'N/A') as string;
-                  const isSelected = selectedSubmissions.has(submission.id);
-
-                  const collectiveStatus = getCheckinStatus(submission.id, null);
-                  const collectiveCheckins = checkinMap.get(submission.id) || [];
-                  const collectiveCheckin = collectiveCheckins.find(c => !c.eventDayId);
-
-                  const rowClass =
-                    checkinMode === 'collective' || !hasMultipleDays
-                      ? getRowBackgroundColor(submission.id, null)
-                      : (() => {
-                          const anyDayDone = eventDays.some(day => getCheckinStatus(submission.id, day.id) === 'done');
-                          return anyDayDone ? 'bg-green-50 hover:bg-green-100' : 'bg-yellow-50 hover:bg-yellow-100';
-                        })();
-
-                  return (
-                    <tr key={submission.id} className={rowClass}>
-                      {/* Selection */}
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => toggleSelectSubmission(submission.id)}
-                          className="flex items-center justify-center"
-                        >
-                          {isSelected ? (
-                            <CheckSquare size={16} className="text-indigo-600" />
-                          ) : (
-                            <Square size={16} className="text-slate-400 border-2 border-slate-300 rounded" />
-                          )}
-                        </button>
-                      </td>
-
-                      {/* Participant */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <User size={16} className="text-slate-400 flex-shrink-0" />
-                          <span className="font-medium text-slate-900 truncate">{name}</span>
-                        </div>
-                      </td>
-
-                      {/* Email */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-2 text-sm text-slate-600">
-                          <Mail size={14} className="flex-shrink-0" />
-                          <span className="truncate">{email}</span>
-                        </div>
-                      </td>
-
-                      {/* Submitted At */}
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-500">
-                        <div className="flex items-center gap-1">
-                          <Calendar size={12} />
-                          <span>{formatDate(submission.submittedAt)}</span>
-                        </div>
-                      </td>
-
-                      {/* All mode: single status + button */}
-                      {checkinMode === 'collective' || !hasMultipleDays ? (
-                        <>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            {collectiveStatus === 'done' ? (
-                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                <CheckCircle size={12} className="mr-1" />
-                                Checked In
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
-                                <XCircle size={12} className="mr-1" />
-                                Not Checked In
-                              </span>
-                            )}
-                            {collectiveCheckin?.checkedInAt && (
-                              <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
-                                <Clock size={10} />
-                                <span>
-                                  {formatDate(collectiveCheckin.checkedInAt)}
-                                  {collectiveCheckin.eventDayLabel && ` (${collectiveCheckin.eventDayLabel})`}
-                                </span>
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-right">
-                            <button
-                              onClick={() => handleCheckin(submission, null, 'All Days')}
-                              disabled={checkingIn.has(submission.id)}
-                              className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                                collectiveStatus === 'done'
-                                  ? 'bg-red-600 hover:bg-red-700 text-white'
-                                  : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                              } disabled:opacity-50 disabled:cursor-not-allowed`}
-                            >
-                              {checkingIn.has(submission.id) ? (
-                                <>
-                                  <Loader2 className="animate-spin" size={16} />
-                                  Processing...
-                                </>
-                              ) : collectiveStatus === 'done' ? (
-                                <>
-                                  <XCircle size={16} />
-                                  Undo Check-in
-                                </>
-                              ) : (
-                                <>
-                                  <CheckSquare size={16} />
-                                  Check In
-                                </>
-                              )}
-                            </button>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          {eventDays.map(day => {
-                            const status = getCheckinStatus(submission.id, day.id);
-                            const dayCheckins = checkinMap.get(submission.id) || [];
-                            const dayCheckin = dayCheckins.find(c => c.eventDayId === day.id);
-                            const isCheckingIn = checkingIn.has(submission.id);
-
-                            return (
-                              <td key={day.id} className="px-4 py-3 whitespace-nowrap text-center">
-                                <div className="flex flex-col items-center gap-1">
-                                  {status === 'done' ? (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-green-100 text-green-800">
-                                      <CheckCircle size={10} className="mr-1" />
-                                      Done
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600">
-                                      <XCircle size={10} className="mr-1" />
-                                      Not Done
-                                    </span>
-                                  )}
-                                  {dayCheckin?.checkedInAt && (
-                                    <div className="flex items-center gap-1 text-[10px] text-slate-500">
-                                      <Clock size={10} />
-                                      <span>{formatDate(dayCheckin.checkedInAt)}</span>
-                                    </div>
-                                  )}
-                                  <button
-                                    onClick={() => handleCheckin(submission, day.id, formatDayLabel(day))}
-                                    disabled={isCheckingIn}
-                                    className={`mt-1 inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                                      status === 'done'
-                                        ? 'bg-red-600 hover:bg-red-700 text-white'
-                                        : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                                  >
-                                    {isCheckingIn ? (
-                                      <Loader2 className="animate-spin" size={12} />
-                                    ) : status === 'done' ? (
-                                      <XCircle size={12} />
-                                    ) : (
-                                      <CheckSquare size={12} />
-                                    )}
-                                  </button>
-                                </div>
-                              </td>
-                            );
-                          })}
-                          {/* Empty cell to align toggle in header */}
-                          <td className="px-4 py-3" />
-                        </>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+      <div className="space-y-3">
+        {renderBulkBar(
+          selectedRegistrationIds,
+          filteredRegistrationRows,
+          () => setSelectedRegistrationIds(new Set()),
+          'registration'
         )}
+        <CheckinParticipantsTable
+          title="Registrations"
+          subtitle="Simple event registrations"
+          emptyMessage={
+            searchQuery
+              ? 'No registrations match your search.'
+              : 'No accepted registrations for this event.'
+          }
+          rows={filteredRegistrationRows}
+          selectedIds={selectedRegistrationIds}
+          onToggleSelect={(id) => toggleSelectId(setSelectedRegistrationIds, id)}
+          onToggleSelectAll={() =>
+            toggleSelectAllInList(
+              selectedRegistrationIds,
+              setSelectedRegistrationIds,
+              filteredRegistrationRows
+            )
+          }
+          displayColumns={registrationDisplayColumns}
+          getDisplayValue={getDisplayValue}
+          configureMenuLabel="Configure check-in Registration"
+          onConfigure={() => setConfigModalKind('registration')}
+          configureDisabled={!eventSelected}
+          configureDisabledHint="Select an event first"
+          {...tableSharedProps}
+        />
       </div>
+
+      {showSubmissionsTable ? (
+        <div className="space-y-3">
+          {renderBulkBar(
+            selectedSubmissionIds,
+            filteredSubmissionRows,
+            () => setSelectedSubmissionIds(new Set()),
+            'presenter'
+          )}
+          <CheckinParticipantsTable
+            title="Submissions"
+            subtitle="Accepted article presenters"
+            emptyMessage={
+              searchQuery
+                ? 'No submissions match your search.'
+                : 'No accepted submission presenters for this event.'
+            }
+            rows={filteredSubmissionRows}
+            selectedIds={selectedSubmissionIds}
+            onToggleSelect={(id) => toggleSelectId(setSelectedSubmissionIds, id)}
+            onToggleSelectAll={() =>
+              toggleSelectAllInList(
+                selectedSubmissionIds,
+                setSelectedSubmissionIds,
+                filteredSubmissionRows
+              )
+            }
+            extraColumnHeader="Paper"
+            renderExtraCell={(submission) => (
+              <span className="line-clamp-2">{getSubmissionDisplayTitle(submission)}</span>
+            )}
+            displayColumns={submissionDisplayColumns}
+            getDisplayValue={getDisplayValue}
+            configureMenuLabel="Configure check-in Submission"
+            onConfigure={() => setConfigModalKind('submission')}
+            configureDisabled={!eventSelected}
+            configureDisabledHint="Select an event first"
+            {...tableSharedProps}
+          />
+        </div>
+      ) : null}
     </div>
   );
 };

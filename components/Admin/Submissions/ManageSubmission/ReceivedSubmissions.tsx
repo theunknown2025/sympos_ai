@@ -21,52 +21,36 @@ import {
   Plus
 } from 'lucide-react';
 import { useAuth } from '../../../../hooks/useAuth';
-import { getSubmissionsForUserForms, FormSubmission, deleteFormSubmission, deleteFormSubmissions, updateSubmissionDecision } from '../../../../services/registrationSubmissionService';
+import {
+  FormSubmission,
+  deleteFormSubmission,
+  deleteFormSubmissions,
+  updateSubmissionDecision,
+  updateSubmissionPaymentCompleted,
+} from '../../../../services/registrationSubmissionService';
 import { getRegistrationForm } from '../../../../services/registrationFormService';
-import { getUserEvents } from '../../../../services/eventService';
 import { getFileDownloadURL } from '../../../../services/storageService';
 import { STORAGE_BUCKETS } from '../../../../supabase';
 import { RegistrationForm, Event, DecisionStatus } from '../../../../types';
 import SubmissionDecisionModal from './SubmissionDecisionModal';
 import DisplayManagerModal from './DisplayManagerModal';
 import { useOrganizerScopedEventId } from '../../../../contexts/OrganizerEventScopeContext';
-
-/**
- * Map a submission to exactly one event when the same submission form is used on several events.
- * Prefers stored event UUID, then acceptedEventId, then an unambiguous landing-page id match.
- * Returns null if the row cannot be tied to a single event (avoids showing it under the wrong event).
- */
-function resolveSubmissionEvent(submission: FormSubmission, userEvents: Event[]): Event | null {
-  const eventsWithForm = userEvents.filter((event) => {
-    if (event.submissionFormIds && event.submissionFormIds.length > 0) {
-      return event.submissionFormIds.includes(submission.formId);
-    }
-    return Boolean((event as unknown as { submissionFormId?: string }).submissionFormId === submission.formId);
-  });
-  if (eventsWithForm.length === 0) return null;
-
-  const byStoredEventId = eventsWithForm.find((e) => e.id === submission.eventId);
-  if (byStoredEventId) return byStoredEventId;
-
-  if (submission.acceptedEventId) {
-    const byAccepted = eventsWithForm.find((e) => e.id === submission.acceptedEventId);
-    if (byAccepted) return byAccepted;
-  }
-
-  const landingHits = eventsWithForm.filter(
-    (e) => Array.isArray(e.landingPageIds) && e.landingPageIds.includes(submission.eventId)
-  );
-  if (landingHits.length === 1) return landingHits[0];
-  if (landingHits.length > 1) {
-    if (submission.acceptedEventId) {
-      const resolved = landingHits.find((e) => e.id === submission.acceptedEventId);
-      if (resolved) return resolved;
-    }
-    return null;
-  }
-
-  return null;
-}
+import {
+  eventSubmissionPreset,
+  workflowNeedsPayment,
+  workflowPresetLabel,
+} from '../../../../services/submissionPipelineService';
+import ReceivedSubmissionsScenarioTabs from './ReceivedSubmissionsScenarioTabs';
+import { fetchNormalizedSubmissionsForOrganizer } from './fetchOrganizerSubmissions';
+import {
+  getReceivedScenarioTabs,
+  submissionMatchesReceivedTab,
+  defaultReceivedTabForEvent,
+  eventHasSubmissionForms,
+  isArticleSubmission,
+  findPaymentFormSubmissionForArticle,
+  type ReceivedScenarioTabId,
+} from './receivedSubmissionsUtils';
 
 const ReceivedSubmissions: React.FC = () => {
   const { currentUser } = useAuth();
@@ -76,6 +60,7 @@ const ReceivedSubmissions: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<string>('all');
+  const [receivedTab, setReceivedTab] = useState<ReceivedScenarioTabId>('article');
   const [formsMap, setFormsMap] = useState<Map<string, RegistrationForm>>(new Map());
   const [loadingForms, setLoadingForms] = useState(false);
   const [selectedSubmissions, setSelectedSubmissions] = useState<Set<string>>(new Set());
@@ -86,6 +71,7 @@ const ReceivedSubmissions: React.FC = () => {
   const [fileUrls, setFileUrls] = useState<Map<string, string>>(new Map());
   const [loadingUrls, setLoadingUrls] = useState<Set<string>>(new Set());
   const [decisionModalOpen, setDecisionModalOpen] = useState(false);
+  const [paymentBusyId, setPaymentBusyId] = useState<string | null>(null);
   const [selectedSubmissionForDecision, setSelectedSubmissionForDecision] = useState<FormSubmission | null>(null);
   const [displayManagerModalOpen, setDisplayManagerModalOpen] = useState(false);
   const [headerDisplayFields, setHeaderDisplayFields] = useState<string[]>(['general_name', 'general_email']); // Default fields
@@ -102,6 +88,18 @@ const ReceivedSubmissions: React.FC = () => {
       setSelectedEvent(organizerScopedEventId);
     }
   }, [organizerScopedEventId]);
+
+  useEffect(() => {
+    if (selectedEvent === 'all') return;
+    const ev = events.find((e) => e.id === selectedEvent);
+    if (!ev) return;
+    const validIds = getReceivedScenarioTabs(ev).map((t) => t.id);
+    if (validIds.length === 0) return;
+    if (!validIds.includes(receivedTab)) {
+      setReceivedTab(defaultReceivedTabForEvent(ev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-sync when event or event list changes, not on every tab click
+  }, [selectedEvent, events]);
 
   // Initialize header display fields with filter fields when forms are loaded
   useEffect(() => {
@@ -158,59 +156,12 @@ const ReceivedSubmissions: React.FC = () => {
     try {
       setLoading(true);
       setError('');
-      
-      // Load events to get submission form IDs
-      const userEvents = await getUserEvents(currentUser.id);
+
+      const { submissions: normalizedSubmissions, events: userEvents } =
+        await fetchNormalizedSubmissionsForOrganizer(currentUser.id);
       setEvents(userEvents);
-      
-      // Create a set of submission form IDs from all events
-      // Each event can have multiple submission forms (submissionFormIds array)
-      const submissionFormIds = new Set<string>();
-      userEvents.forEach(event => {
-        // Handle both old single value (backward compatibility) and new array
-        if (event.submissionFormIds && event.submissionFormIds.length > 0) {
-          // New array format
-          event.submissionFormIds.forEach(formId => {
-            submissionFormIds.add(formId);
-          });
-        } else if ((event as any).submissionFormId) {
-          // Old single value format (backward compatibility)
-          submissionFormIds.add((event as any).submissionFormId);
-        }
-      });
-      
-      // Get submissions for forms created by this user
-      // This gets all submissions where user_id = currentUser.id (form creator/organizer)
-      // If submission form IDs are available, filter by them; otherwise show all
-      const submissionFormIdsArray = submissionFormIds.size > 0 
-        ? Array.from(submissionFormIds) 
-        : undefined;
-      
-      const allSubmissions = await getSubmissionsForUserForms(
-        currentUser.id,
-        submissionFormIdsArray
-      );
-      
-      // Normalize submissions: one canonical event per row (event + form pair), never guess across events sharing the same form
-      const normalizedSubmissions = allSubmissions
-        .map((submission) => {
-          if (!submissionFormIds.has(submission.formId)) {
-            return null;
-          }
-          const matchingEvent = resolveSubmissionEvent(submission, userEvents);
-          if (!matchingEvent) {
-            return null;
-          }
-          return {
-            ...submission,
-            eventId: matchingEvent.id,
-            eventTitle: matchingEvent.name,
-          };
-        })
-        .filter((submission): submission is FormSubmission => submission !== null);
-      
       setSubmissions(normalizedSubmissions);
-      
+
       // Load forms to get field labels
       await loadForms(normalizedSubmissions);
     } catch (err: any) {
@@ -275,10 +226,7 @@ const ReceivedSubmissions: React.FC = () => {
     // Get ALL events that have submission forms (regardless of whether they have submissions)
     const eventsWithSubmissionForms: { id: string; title: string }[] = events
       .filter(event => {
-        // Check if event has submission forms
-        const hasSubmissionForms = (event.submissionFormIds && event.submissionFormIds.length > 0) ||
-                                  ((event as any).submissionFormId);
-        return hasSubmissionForms;
+        return eventHasSubmissionForms(event);
       })
       .map(event => ({
         id: event.id,
@@ -315,18 +263,29 @@ const ReceivedSubmissions: React.FC = () => {
 
   const getSubmissionsByEvent = () => {
     const grouped = new Map<string, FormSubmission[]>();
+    const scenarioEvent =
+      selectedEvent !== 'all' ? events.find((e) => e.id === selectedEvent) : undefined;
+
     submissions.forEach(submission => {
       // Filter by selected event
       if (selectedEvent !== 'all' && submission.eventId !== selectedEvent) {
         return;
       }
       
-      // Additional safety check: verify the submission's formId is in the event's submissionFormIds
+      // Additional safety check: verify the submission's formId belongs to this event (article or abstract forms)
       const event = events.find(e => e.id === submission.eventId);
       if (event) {
-        const hasFormId = (event.submissionFormIds && event.submissionFormIds.includes(submission.formId)) ||
-                         ((event as any).submissionFormId === submission.formId);
-        if (!hasFormId) {
+        const inArticle =
+          Boolean(event.submissionFormIds?.includes(submission.formId)) ||
+          (event as { submissionFormId?: string }).submissionFormId === submission.formId;
+        const inAbstract = Boolean(event.abstractSubmissionFormIds?.includes(submission.formId));
+        if (!inArticle && !inAbstract) {
+          return;
+        }
+      }
+
+      if (scenarioEvent && selectedEvent !== 'all') {
+        if (!submissionMatchesReceivedTab(submission, scenarioEvent, receivedTab)) {
           return;
         }
       }
@@ -845,7 +804,22 @@ const ReceivedSubmissions: React.FC = () => {
   }
 
   const uniqueEvents = getUniqueEvents();
+  const selectedScenarioEvent =
+    selectedEvent !== 'all' ? events.find((e) => e.id === selectedEvent) : undefined;
   const submissionsByEvent = getSubmissionsByEvent();
+  const emptySubmissionsMessage =
+    selectedEvent === 'all'
+      ? 'Submissions will appear here once users submit forms.'
+      : !selectedScenarioEvent
+        ? 'No submissions found for this event.'
+        : (() => {
+            const tabLabel = getReceivedScenarioTabs(selectedScenarioEvent).find(
+              (t) => t.id === receivedTab
+            )?.label;
+            return tabLabel
+              ? `No submissions in « ${tabLabel} » for this event.`
+              : 'No submissions found for this event.';
+          })();
 
   return (
     <div className="h-full">
@@ -921,6 +895,26 @@ const ReceivedSubmissions: React.FC = () => {
         </div>
       </div>
 
+      {selectedScenarioEvent && (
+        <div className="mb-6 p-4 rounded-xl border border-indigo-200 bg-indigo-50/90 text-sm text-slate-800 shadow-sm">
+          <p className="font-semibold text-indigo-950">
+            Submission scenario: {workflowPresetLabel(eventSubmissionPreset(selectedScenarioEvent))}
+          </p>
+          <p className="mt-1 text-slate-700">
+            Use this list to accept or reject each step. Abstracts stay in-house; only accepted{' '}
+            <strong>articles</strong> (full papers) should be sent to the dispatch screen for peer review.
+          </p>
+        </div>
+      )}
+
+      {selectedScenarioEvent && (
+        <ReceivedSubmissionsScenarioTabs
+          tabs={getReceivedScenarioTabs(selectedScenarioEvent)}
+          activeTab={receivedTab}
+          onTabChange={setReceivedTab}
+        />
+      )}
+
       {loadingForms && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-3 text-blue-700">
           <Loader2 className="animate-spin" size={20} />
@@ -932,15 +926,12 @@ const ReceivedSubmissions: React.FC = () => {
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-12 text-center">
           <FileText className="mx-auto text-slate-300 mb-4" size={48} />
           <h3 className="text-lg font-semibold text-slate-700 mb-2">No submissions yet</h3>
-          <p className="text-slate-500">
-            {selectedEvent === 'all' 
-              ? 'Submissions will appear here once users submit forms.'
-              : 'No submissions found for this event.'}
-          </p>
+          <p className="text-slate-500">{emptySubmissionsMessage}</p>
         </div>
       ) : (
         <div className="space-y-8">
           {Array.from(submissionsByEvent.entries()).map(([eventId, eventSubmissions]) => {
+            const rowEvent = events.find((e) => e.id === eventId);
             const eventTitle = eventSubmissions[0]?.eventTitle || 'Unknown Event';
             const formId = eventSubmissions[0]?.formId;
             const fieldLabels = formId ? getAllFieldLabels(formId) : [];
@@ -1109,7 +1100,21 @@ const ReceivedSubmissions: React.FC = () => {
                                 )}
                               </div>
                             </div>
-                            
+
+                            <span
+                              className={`self-center shrink-0 text-[10px] font-semibold uppercase px-2 py-0.5 rounded-full border ${
+                                rowEvent?.abstractSubmissionFormIds?.includes(submission.formId) ||
+                                submission.submissionPipelineKind === 'abstract'
+                                  ? 'bg-amber-50 text-amber-900 border-amber-200'
+                                  : 'bg-slate-50 text-slate-800 border-slate-200'
+                              }`}
+                            >
+                              {rowEvent?.abstractSubmissionFormIds?.includes(submission.formId) ||
+                              submission.submissionPipelineKind === 'abstract'
+                                ? 'Abstract'
+                                : 'Article'}
+                            </span>
+
                             <div className="flex items-center gap-3 flex-shrink-0">
                               {eventSubmissions.indexOf(submission) === 0 && (
                                 <button
@@ -1138,6 +1143,58 @@ const ReceivedSubmissions: React.FC = () => {
                               >
                                 <CheckCircle2 size={16} />
                               </button>
+                              {rowEvent &&
+                                workflowNeedsPayment(eventSubmissionPreset(rowEvent)) &&
+                                isArticleSubmission(submission, rowEvent) &&
+                                submission.decisionStatus === 'accepted' &&
+                                !submission.submissionPaymentCompleted && (
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      try {
+                                        setPaymentBusyId(submission.id);
+                                        await updateSubmissionPaymentCompleted(submission.id, true);
+                                        await loadSubmissions();
+                                      } catch (err) {
+                                        console.error(err);
+                                        setError('Failed to update payment status');
+                                      } finally {
+                                        setPaymentBusyId(null);
+                                      }
+                                    }}
+                                    disabled={
+                                      isDeleting ||
+                                      paymentBusyId === submission.id ||
+                                      Boolean(
+                                        rowEvent &&
+                                          !findPaymentFormSubmissionForArticle(
+                                            submission,
+                                            rowEvent,
+                                            submissions
+                                          )
+                                      )
+                                    }
+                                    title={
+                                      rowEvent &&
+                                      !findPaymentFormSubmissionForArticle(submission, rowEvent, submissions)
+                                        ? 'Participant must submit the payment form first'
+                                        : undefined
+                                    }
+                                    className="px-2 py-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-lg border border-emerald-200 whitespace-nowrap"
+                                  >
+                                    {paymentBusyId === submission.id ? 'Saving…' : 'Payment received'}
+                                  </button>
+                                )}
+                              {rowEvent &&
+                                workflowNeedsPayment(eventSubmissionPreset(rowEvent)) &&
+                                isArticleSubmission(submission, rowEvent) &&
+                                submission.decisionStatus === 'accepted' &&
+                                submission.submissionPaymentCompleted && (
+                                  <span className="px-2 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 rounded-lg border border-slate-200 whitespace-nowrap">
+                                    Paiement reçu
+                                  </span>
+                                )}
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
