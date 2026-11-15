@@ -161,20 +161,20 @@ if [ "$SKIP_ENV" != "true" ]; then
     read -p "Supabase URL: " SUPABASE_URL
     read -p "Supabase Anon Key: " SUPABASE_ANON_KEY
     
-    # SMTP Configuration (Hostinger)
+    # SMTP Configuration (Amazon SES)
     echo ""
-    echo "SMTP Configuration (Hostinger):"
-    read -p "SMTP Host [smtp.hostinger.com]: " SMTP_HOST
-    SMTP_HOST=${SMTP_HOST:-smtp.hostinger.com}
+    echo "SMTP Configuration (Amazon SES):"
+    read -p "SMTP Host [email-smtp.us-east-1.amazonaws.com]: " SMTP_HOST
+    SMTP_HOST=${SMTP_HOST:-email-smtp.us-east-1.amazonaws.com}
     
     read -p "SMTP Port [465]: " SMTP_PORT
     SMTP_PORT=${SMTP_PORT:-465}
     
-    read -p "SMTP User (email): " SMTP_USER
-    read -sp "SMTP Password: " SMTP_PASSWORD
+    read -p "SMTP User (SES SMTP username): " SMTP_USER
+    read -sp "SMTP Password (from AWS CSV): " SMTP_PASSWORD
     echo ""
     
-    read -p "From Email: " FROM_EMAIL
+    read -p "From Email (verified SES identity): " FROM_EMAIL
     FROM_EMAIL=${FROM_EMAIL:-$SMTP_USER}
     
     read -p "From Name [Sympos-ia Committee]: " FROM_NAME
@@ -206,9 +206,10 @@ if [ "$SKIP_ENV" != "true" ]; then
 VITE_SUPABASE_URL=${SUPABASE_URL}
 VITE_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
 
-# SMTP Configuration (Hostinger)
+# SMTP Configuration (Amazon SES)
 SMTP_HOST=${SMTP_HOST}
 SMTP_PORT=${SMTP_PORT}
+SMTP_SECURE=true
 SMTP_USER=${SMTP_USER}
 SMTP_PASSWORD=${SMTP_PASSWORD}
 

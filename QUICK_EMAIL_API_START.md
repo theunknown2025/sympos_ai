@@ -1,6 +1,6 @@
-# Quick Start: Email API with Hostinger SMTP
+# Quick Start: Email API with Amazon SES SMTP
 
-## 🚀 3-Step Setup
+## 3-Step Setup
 
 ### Step 1: Install Dependencies
 ```bash
@@ -9,18 +9,19 @@ npm install
 
 ### Step 2: Configure Environment Variables
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (or copy `.env.example`):
 
 ```env
-SMTP_HOST=smtp.hostinger.com
-SMTP_PORT=465
-SMTP_USER=your-email@yourdomain.com
-SMTP_PASSWORD=your-email-password
-FROM_EMAIL=your-email@yourdomain.com
+SMTP_HOST=tftz737gwpnj.zevm.mail-manager-smtp.amazonaws.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=inp-your-ses-username
+SMTP_PASSWORD=your-ses-smtp-password-from-csv
+FROM_EMAIL=admin@symposai.pro
 FROM_NAME=Sympos-ia Committee
 ```
 
-**Replace with your actual Hostinger email credentials!**
+Use the SMTP endpoint, username, and CSV password from Amazon SES. Mail Manager needs **port 587**. `FROM_EMAIL` must be a verified SES identity.
 
 ### Step 3: Start the Servers
 
@@ -38,24 +39,8 @@ npm run dev
 npm run email-server
 ```
 
-## ✅ Verify It's Working
+### Verify
+- Health: http://localhost:3001/health
+- Auth test: `npm run email-server:test`
 
-1. **Check Email API Health:**
-   - Open: http://localhost:3001/health
-   - Should show: `{"status":"ok","service":"email-api","smtpConfigured":true}`
-
-2. **Test Email Sending:**
-   - Go to your app
-   - Navigate to Committee Management
-   - Try sending an invitation email
-
-## 🎉 That's It!
-
-Your email sending should now work without Supabase Edge Functions!
-
-## 📝 Need Help?
-
-- See `EMAIL_API_SETUP.md` for detailed documentation
-- Check server logs in the terminal for errors
-- Verify your SMTP credentials in `.env`
-
+Full guide: `AMAZON_SES_SMTP_SETUP.md`

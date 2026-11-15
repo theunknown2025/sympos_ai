@@ -1,12 +1,12 @@
 /**
- * Express API Server for Sending Emails via Hostinger SMTP
- * 
- * This server handles email sending using nodemailer with Hostinger SMTP credentials.
+ * Express API Server for Sending Emails via Amazon SES SMTP
+ *
+ * Uses nodemailer with SES / Mail Manager SMTP credentials from .env.
  * Run this server alongside your Vite dev server.
- * 
+ *
  * Usage:
  *   npm run email-server
- * 
+ *
  * Or manually:
  *   node server/email-api.js
  */
@@ -58,7 +58,7 @@ function buildSmtpRuntime() {
 
   return {
     smtp: {
-      host: readEnv('SMTP_HOST') || 'smtp.hostinger.com',
+      host: readEnv('SMTP_HOST') || 'email-smtp.us-east-1.amazonaws.com',
       port: smtpPort,
       secure: smtpSecure,
       auth: { user: authUser, pass: authPass },
@@ -120,30 +120,35 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '2mb' }));
 
-function printHostingerSmtpHelp() {
+function printSesSmtpHelp() {
   console.error(`
-⚠️  Hostinger SMTP authentication failed (EAUTH)
+⚠️  Amazon SES SMTP authentication failed (EAUTH)
 
 Where to check (in order):
 
-1) Hostinger hPanel → Emails → mailbox (e.g. admin@symposai.pro)
-   - Confirm the mailbox exists and is active
-   - Use "Reset password" and set the mailbox password (not hPanel login password)
-   - Open "Configuration" / "Connect apps" and confirm SMTP is enabled
+1) AWS Console → Amazon SES → SMTP settings / Mail Manager ingress
+   - Confirm the SMTP endpoint status is Active
+   - Username must match the SMTP credentials (inp-...)
+   - Password comes from the CSV downloaded when credentials were created
+     (AWS cannot show it again — create new credentials if lost)
 
 2) Project .env only (NOT .env.example) at:
    ${ENV_FILE_PATH}
-   - SMTP_USER = full address
-   - SMTP_PASSWORD = mailbox password in DOUBLE QUOTES if it contains @ # or spaces
+   - SMTP_HOST = SES / Mail Manager SMTP endpoint
+   - SMTP_USER = SMTP username from AWS
+   - SMTP_PASSWORD = SMTP password from the CSV (quote if needed)
+   - FROM_EMAIL = a verified SES identity/domain
    - Restart after changes: npm run email-server
 
-3) Try alternate Hostinger port (in .env):
-   - SSL:  SMTP_PORT=465  SMTP_SECURE=true
-   - TLS:  SMTP_PORT=587  SMTP_SECURE=false
+3) Mail Manager ingress: use port 587 with STARTTLS
+   - SMTP_PORT=587
+   - SMTP_SECURE=false
+   Port 465 often times out and is not supported for Mail Manager auth.
 
-4) Log in to webmail (https://webmail.hostinger.com) with the same email + password.
+4) If still failing: leave SES sandbox or verify recipient, and confirm
+   FROM_EMAIL is verified in SES.
 
-See HOSTINGER_SMTP_SETUP.md in the project for full steps.
+See AMAZON_SES_SMTP_SETUP.md in the project for full steps.
 `);
 }
 
@@ -381,10 +386,10 @@ app.listen(PORT, () => {
     console.warn('\n⚠️  WARNING: SMTP credentials not configured in .env!');
   } else {
     verifySmtpConnection()
-      .then(() => console.log('\n✅ SMTP login verified with Hostinger.'))
+      .then(() => console.log('\n✅ SMTP login verified with Amazon SES.'))
       .catch((err) => {
         console.error('\n❌ SMTP login failed:', err.message);
-        printHostingerSmtpHelp();
+        printSesSmtpHelp();
       });
   }
   console.log('');

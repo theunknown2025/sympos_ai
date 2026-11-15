@@ -57,7 +57,7 @@ function localServerDownMessage(): string {
 function hostedConfigMessage(): string {
   return (
     'Email service is not configured on the hosted site.\n\n' +
-    'Set these Supabase Edge Function secrets from the Hostinger mailbox:\n' +
+    'Set these Supabase Edge Function secrets from Amazon SES SMTP:\n' +
     'SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, FROM_EMAIL, FROM_NAME\n\n' +
     'Then redeploy the send-email function and the Amplify frontend.'
   );
@@ -68,8 +68,8 @@ function hostedSmtpAuthMessage(): string {
     'SMTP Authentication Failed\n\n' +
     'The hosted site sends mail through the Supabase send-email function. ' +
     'It does not use the local email server.\n\n' +
-    'Update the function secrets with the Hostinger mailbox password (not the hPanel login), ' +
-    'then redeploy send-email.'
+    'Update the function secrets with the Amazon SES SMTP username/password ' +
+    '(from the AWS credentials CSV), then redeploy send-email.'
   );
 }
 

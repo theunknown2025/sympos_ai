@@ -4,13 +4,16 @@
 
 1. **Make sure your `.env` file is configured** (in the project root):
    ```env
-   SMTP_HOST=smtp.hostinger.com
-   SMTP_PORT=465
-   SMTP_USER=your-email@yourdomain.com
-   SMTP_PASSWORD=your-password
-   FROM_EMAIL=your-email@yourdomain.com
+   SMTP_HOST=tftz737gwpnj.zevm.mail-manager-smtp.amazonaws.com
+   SMTP_PORT=587
+   SMTP_SECURE=false
+   SMTP_USER=inp-your-ses-username
+   SMTP_PASSWORD=your-ses-smtp-password-from-csv
+   FROM_EMAIL=admin@symposai.pro
    FROM_NAME=Sympos-ia Committee
    ```
+
+   See `AMAZON_SES_SMTP_SETUP.md` for full details.
 
 2. **Start the email server:**
    ```bash
