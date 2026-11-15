@@ -1,4 +1,4 @@
-// Supabase Edge Function: send email through Amazon SES SMTP.
+// Supabase Edge Function: send email through Hostinger SMTP.
 // Used by the AWS Amplify site, which cannot run the local Node email server.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -83,7 +83,7 @@ serve(async (req) => {
       return json({ error: 'Invalid email address' }, 400);
     }
 
-    const smtpHost = readEnv('SMTP_HOST') || 'email-smtp.us-east-1.amazonaws.com';
+    const smtpHost = readEnv('SMTP_HOST') || 'smtp.hostinger.com';
     const smtpPort = parseInt(readEnv('SMTP_PORT') || '465', 10);
     const smtpUser = readEnv('SMTP_USER');
     const smtpPassword = readEnv('SMTP_PASSWORD');

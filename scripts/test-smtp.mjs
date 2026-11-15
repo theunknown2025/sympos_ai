@@ -23,7 +23,7 @@ const secure =
 
 const user = readEnv('SMTP_USER');
 const pass = readEnv('SMTP_PASSWORD');
-const host = readEnv('SMTP_HOST') || 'email-smtp.us-east-1.amazonaws.com';
+const host = readEnv('SMTP_HOST') || 'smtp.hostinger.com';
 
 console.log('Host:', host);
 console.log('Port:', port, 'secure:', secure);
@@ -53,7 +53,7 @@ try {
   console.error('SMTP authentication: FAILED');
   console.error('Code:', err.code);
   console.error('Message:', err.message);
-  console.error('\nSee AMAZON_SES_SMTP_SETUP.md');
+  console.error('\nSee HOSTINGER_SMTP_SETUP.md');
   process.exit(1);
 } finally {
   transporter.close();
