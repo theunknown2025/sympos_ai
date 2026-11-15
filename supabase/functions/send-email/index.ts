@@ -1,16 +1,9 @@
-// Supabase Edge Function to send emails
-// This function uses Hostinger SMTP to send emails securely from the server
+// Supabase Edge Function: send email through Hostinger SMTP.
+// Used by the AWS Amplify site, which cannot run the local Node email server.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-
-// SMTP Configuration (Hostinger)
-const SMTP_HOST = Deno.env.get('SMTP_HOST') || 'smtp.hostinger.com';
-const SMTP_PORT = parseInt(Deno.env.get('SMTP_PORT') || '465');
-const SMTP_USER = Deno.env.get('SMTP_USER') || 'admin@symos-ai.online';
-const SMTP_PASSWORD = Deno.env.get('SMTP_PASSWORD');
-const FROM_EMAIL = Deno.env.get('FROM_EMAIL') || SMTP_USER || 'admin@symos-ai.online';
-const FROM_NAME = Deno.env.get('FROM_NAME') || 'Sympos-ia Committee';
+import nodemailer from 'npm:nodemailer@6.9.16';
 
 interface EmailRequest {
   to: string;
@@ -19,277 +12,141 @@ interface EmailRequest {
   recipientName?: string;
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function readEnv(key: string): string {
+  const raw = Deno.env.get(key);
+  if (raw == null) return '';
+  return raw.trim().replace(/^["']|["']$/g, '');
+}
+
 serve(async (req) => {
-  // Handle CORS
   if (req.method === 'OPTIONS') {
-    return new Response('ok', {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
-    });
+    return new Response('ok', { headers: corsHeaders });
+  }
+
+  if (req.method !== 'POST') {
+    return json({ error: 'Method not allowed' }, 405);
   }
 
   try {
-    // Verify the request is authenticated (optional but recommended)
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Missing authorization header' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
-      );
+      return json({ error: 'Unauthorized', message: 'Missing authorization header' }, 401);
     }
 
-    // Get Supabase client with proper environment variables
-    // Edge Functions automatically have access to SUPABASE_URL and SUPABASE_ANON_KEY
     const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY');
-    
     if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('Missing Supabase environment variables:', {
-        hasUrl: !!supabaseUrl,
-        hasKey: !!supabaseAnonKey
-      });
-      return new Response(
-        JSON.stringify({ error: 'Server configuration error' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
-      );
+      return json({ error: 'Server configuration error' }, 500);
     }
 
     const supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: {
-        headers: { Authorization: authHeader },
-      },
+      global: { headers: { Authorization: authHeader } },
     });
 
-    // Verify user is authenticated
-    // Log auth header for debugging (first 20 chars only)
-    const authHeaderPrefix = authHeader.substring(0, 20) + '...';
-    console.log('Received auth header:', authHeaderPrefix);
-    
     const {
       data: { user },
       error: userError,
     } = await supabaseClient.auth.getUser();
 
-    if (userError) {
-      console.error('Auth error:', userError);
-      console.error('Auth error details:', {
-        message: userError.message,
-        status: userError.status,
-        name: userError.name
-      });
-      
-      // Check if it's a JWT error
-      const errorMessage = userError.message || 'Authentication failed';
-      const isJWTError = errorMessage.includes('JWT') || errorMessage.includes('token') || errorMessage.includes('expired');
-      
-      return new Response(
-        JSON.stringify({ 
+    if (userError || !user) {
+      const errorMessage = userError?.message || 'User not found';
+      const isJWTError = /jwt|token|expired/i.test(errorMessage);
+      return json(
+        {
           error: 'Unauthorized',
-          message: isJWTError ? 'Invalid JWT' : errorMessage
-        }),
-        { 
-          status: 401, 
-          headers: { 
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          } 
-        }
+          message: isJWTError ? 'Invalid JWT' : errorMessage,
+        },
+        401
       );
     }
 
-    if (!user) {
-      console.error('No user found after authentication');
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized', message: 'User not found' }),
-        { 
-          status: 401, 
-          headers: { 
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          } 
-        }
-      );
-    }
-    
-    console.log('User authenticated:', user.id);
-
-    // Parse request body
-    const emailData: EmailRequest = await req.json();
-
+    const emailData = (await req.json()) as EmailRequest;
     if (!emailData.to || !emailData.subject || !emailData.html) {
-      return new Response(
-      JSON.stringify({ error: 'Missing required fields: to, subject, html' }),
-      { status: 400, headers: { 'Content-Type': 'application/json' } }
-    );
+      return json({ error: 'Missing required fields: to, subject, html' }, 400);
     }
 
-    // Validate SMTP configuration
-    if (!SMTP_USER || !SMTP_PASSWORD) {
-      console.error('SMTP credentials not configured');
-      return new Response(
-        JSON.stringify({ error: 'Email service not configured. Please set SMTP_USER and SMTP_PASSWORD secrets.' }),
-        { status: 500, headers: { 'Content-Type': 'application/json' } }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(emailData.to)) {
+      return json({ error: 'Invalid email address' }, 400);
+    }
+
+    const smtpHost = readEnv('SMTP_HOST') || 'smtp.hostinger.com';
+    const smtpPort = parseInt(readEnv('SMTP_PORT') || '465', 10);
+    const smtpUser = readEnv('SMTP_USER');
+    const smtpPassword = readEnv('SMTP_PASSWORD');
+    const secureEnv = readEnv('SMTP_SECURE');
+    const smtpSecure =
+      secureEnv === 'true' ? true : secureEnv === 'false' ? false : smtpPort === 465;
+    const fromEmail = readEnv('FROM_EMAIL') || smtpUser;
+    const fromName = readEnv('FROM_NAME') || 'Sympos-ia Committee';
+
+    if (!smtpUser || !smtpPassword || !fromEmail) {
+      return json(
+        {
+          error: 'Email service not configured',
+          message: 'Set SMTP_USER, SMTP_PASSWORD, and FROM_EMAIL as Edge Function secrets.',
+        },
+        500
       );
     }
 
-    // Send email using SMTP
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpSecure,
+      auth: { user: smtpUser, pass: smtpPassword },
+      requireTLS: smtpPort === 587 && !smtpSecure,
+      connectionTimeout: 15_000,
+      greetingTimeout: 15_000,
+      socketTimeout: 20_000,
+      tls: { minVersion: 'TLSv1.2' },
+    });
+
     try {
-      const emailResult = await sendEmailViaSMTP({
+      const info = await transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
         to: emailData.to,
         subject: emailData.subject,
         html: emailData.html,
-        from: FROM_EMAIL,
-        fromName: FROM_NAME,
+        text: emailData.html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim(),
       });
 
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          messageId: emailResult.messageId,
-          to: emailData.to 
-        }),
+      return json({
+        success: true,
+        messageId: info.messageId,
+        to: emailData.to,
+      });
+    } catch (smtpError) {
+      const message = smtpError instanceof Error ? smtpError.message : 'Unknown SMTP error';
+      const code = (smtpError as { code?: string })?.code;
+      console.error('SMTP error:', code || message);
+      const status = code === 'EAUTH' ? 401 : 500;
+      return json(
         {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          },
-        }
+          error: code === 'EAUTH' ? 'SMTP Authentication failed' : 'Failed to send email via SMTP',
+          message,
+        },
+        status
       );
-    } catch (smtpError: any) {
-      console.error('SMTP error:', smtpError);
-      
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to send email via SMTP',
-          message: smtpError.message || 'Unknown SMTP error',
-          details: smtpError.toString()
-        }),
-        { 
-          status: 500, 
-          headers: { 
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*',
-          } 
-        }
-      );
+    } finally {
+      transporter.close();
     }
   } catch (error) {
-    console.error('Error in send-email function:', error);
-    return new Response(
-      JSON.stringify({ error: error.message || 'Internal server error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    );
+    const message = error instanceof Error ? error.message : 'Internal server error';
+    console.error('Error in send-email function:', message);
+    return json({ error: message }, 500);
   }
 });
-
-// SMTP Email Sending Function using Deno's native TLS
-async function sendEmailViaSMTP(options: {
-  to: string;
-  subject: string;
-  html: string;
-  from: string;
-  fromName: string;
-}): Promise<{ messageId: string }> {
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
-  
-  // Connect to SMTP server with TLS
-  const conn = await Deno.connectTls({
-    hostname: SMTP_HOST,
-    port: SMTP_PORT,
-  });
-
-  try {
-    // Helper to read response
-    const readResponse = async (): Promise<string> => {
-      const buffer = new Uint8Array(4096);
-      const bytesRead = await conn.read(buffer);
-      if (bytesRead === null) throw new Error('Connection closed unexpectedly');
-      return decoder.decode(buffer.subarray(0, bytesRead));
-    };
-
-    // Helper to send command and read response
-    const sendCommand = async (command: string): Promise<string> => {
-      await conn.write(encoder.encode(command + '\r\n'));
-      return await readResponse();
-    };
-
-    // Read initial greeting
-    const greeting = await readResponse();
-    console.log('SMTP greeting:', greeting);
-
-    // Send EHLO
-    const ehloResponse = await sendCommand(`EHLO ${SMTP_HOST}`);
-    console.log('EHLO response:', ehloResponse);
-
-    // AUTH LOGIN
-    const authResponse = await sendCommand('AUTH LOGIN');
-    console.log('AUTH response:', authResponse);
-    
-    // Send username (base64)
-    const usernameB64 = btoa(SMTP_USER);
-    const userResponse = await sendCommand(usernameB64);
-    console.log('Username response:', userResponse);
-    
-    // Send password (base64)
-    const passwordB64 = btoa(SMTP_PASSWORD);
-    const passResponse = await sendCommand(passwordB64);
-    console.log('Password response:', passResponse);
-
-    // Check if authentication was successful (should start with 235)
-    if (!passResponse.startsWith('235')) {
-      throw new Error(`SMTP authentication failed: ${passResponse}`);
-    }
-
-    // MAIL FROM
-    const mailFromResponse = await sendCommand(`MAIL FROM:<${options.from}>`);
-    if (!mailFromResponse.startsWith('250')) {
-      throw new Error(`MAIL FROM failed: ${mailFromResponse}`);
-    }
-
-    // RCPT TO
-    const rcptToResponse = await sendCommand(`RCPT TO:<${options.to}>`);
-    if (!rcptToResponse.startsWith('250')) {
-      throw new Error(`RCPT TO failed: ${rcptToResponse}`);
-    }
-
-    // DATA
-    const dataResponse = await sendCommand('DATA');
-    if (!dataResponse.startsWith('354')) {
-      throw new Error(`DATA command failed: ${dataResponse}`);
-    }
-
-    // Email content
-    const messageId = `<${Date.now()}-${Math.random().toString(36)}@${SMTP_HOST}>`;
-    const emailContent = [
-      `Message-ID: ${messageId}`,
-      `From: ${options.fromName} <${options.from}>`,
-      `To: ${options.to}`,
-      `Subject: ${options.subject}`,
-      `Date: ${new Date().toUTCString()}`,
-      'MIME-Version: 1.0',
-      'Content-Type: text/html; charset=UTF-8',
-      'Content-Transfer-Encoding: 8bit',
-      '',
-      options.html,
-      '.'
-    ].join('\r\n');
-
-    const dataSentResponse = await sendCommand(emailContent);
-    if (!dataSentResponse.startsWith('250')) {
-      throw new Error(`Email sending failed: ${dataSentResponse}`);
-    }
-
-    // QUIT
-    await sendCommand('QUIT');
-
-    return { messageId };
-  } finally {
-    conn.close();
-  }
-}
-

@@ -3,6 +3,7 @@ import {
   getMandatoryInvitationResponseSectionHtml,
   stripMandatoryInvitationSection,
 } from './committeeInvitationEmailMandatory';
+import { sendTransactionalEmail } from './emailTransport';
 
 /**
  * Email service for sending form-related emails
@@ -160,12 +161,7 @@ export const sendCopyOfAnswers = async (
       </html>
     `;
 
-    // TODO: Implement actual email sending logic
-    // This would typically use a service like SendGrid, AWS SES, or Firebase Extensions
-    console.log('Would send email:', { to: email, subject, html });
-    
-    // For now, we'll just log it. In production, you would integrate with an email service
-    // Example: await sendEmail({ to: email, subject, html });
+    await sendTransactionalEmail({ to: email, subject, html });
     
   } catch (error) {
     console.error('Error sending copy of answers:', error);
@@ -215,12 +211,7 @@ export const sendConfirmationEmail = async (
       </html>
     `;
 
-    // TODO: Implement actual email sending logic
-    // This would typically use a service like SendGrid, AWS SES, or Firebase Extensions
-    console.log('Would send confirmation email:', { to: email, subject, html });
-    
-    // For now, we'll just log it. In production, you would integrate with an email service
-    // Example: await sendEmail({ to: email, subject, html });
+    await sendTransactionalEmail({ to: email, subject, html });
     
   } catch (error) {
     console.error('Error sending confirmation email:', error);
@@ -333,189 +324,40 @@ export const sendInvitationEmail = async (
       `;
     };
 
-    // Get the email API URL from environment or use default
-    const EMAIL_API_URL = import.meta.env.VITE_EMAIL_API_URL || 'http://localhost:3001';
-    
-    // Send emails to all recipients using the Express email API
     const results = await Promise.allSettled(
       recipients.map(async (recipient) => {
-        console.log(`Sending invitation email to ${recipient.email}...`);
         const html = formatEmailContent(recipient.fullName, content, recipient.email, attachments);
-        
+
         try {
-          // Call the Express email API endpoint
-          const response = await fetch(`${EMAIL_API_URL}/api/send-email`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              to: recipient.email,
-              subject,
-              html,
-              recipientName: recipient.fullName
-            })
+          const data = await sendTransactionalEmail({
+            to: recipient.email,
+            subject,
+            html,
+            recipientName: recipient.fullName,
           });
-          
-          const data = await response.json();
-          
-          console.log('Email API response for', recipient.email, ':', { 
-            status: response.status,
-            success: data.success,
-            hasError: !!data.error,
-            messageId: data.messageId
-                });
-                
-          // Check if request failed
-          if (!response.ok) {
-            const errorMsg = data.message || data.error || `HTTP ${response.status}: Failed to send email`;
-            console.error('Server error response:', {
-              status: response.status,
-              statusText: response.statusText,
-              data: data
-            });
-            throw new Error(errorMsg);
-          }
-
-          // Check if response contains an error
-          if (data.error) {
-            console.error('Server returned error:', data);
-            throw new Error(data.message || data.error || 'Failed to send email');
-          }
-          
-          // Verify success
-          if (!data.success) {
-            console.error('Server returned unsuccessful response:', data);
-            throw new Error(data.message || 'Failed to send email');
-          }
-
           return { success: true, email: recipient.email, data };
-        } catch (err: any) {
-          console.error(`Failed to send email to ${recipient.email}:`, err);
-          console.error('Full error object:', JSON.stringify(err, null, 2));
-          
-          // Extract error message from various possible locations
-          const errorMessage = err.message || 
-                             err.error?.message || 
-                             err.context?.body?.message ||
-                             err.context?.body?.error ||
-                             (err.error && typeof err.error === 'string' ? err.error : null) ||
-                             String(err);
-          const errorCode = err.status || 
-                           err.statusCode || 
-                           err.code ||
-                           err.context?.statusCode;
-          
-          // If email API server is not running
-          if (errorMessage.includes('fetch failed') || 
-              errorMessage.includes('ECONNREFUSED') ||
-              errorMessage.includes('Failed to fetch') ||
-              errorCode === 'ECONNREFUSED') {
-            const serverError = 'Email API server is not running. Please start it using: npm run email-server';
-            console.error(serverError);
-            return { 
-              success: false, 
-              email: recipient.email, 
-              error: serverError 
-            };
-          }
-          
-          // If SMTP authentication failed
-          if (errorMessage.includes('SMTP Authentication failed') ||
-              errorMessage.includes('EAUTH') ||
-              errorMessage.includes('Invalid SMTP credentials')) {
-            return { 
-              success: false, 
-              email: recipient.email, 
-              error: 'SMTP Authentication failed. Please check your SMTP_USER and SMTP_PASSWORD environment variables.' 
-            };
-          }
-          
-          // If email service not configured
-          if (errorMessage.includes('Email service not configured') ||
-              errorMessage.includes('SMTP credentials')) {
-            return { 
-              success: false, 
-              email: recipient.email, 
-              error: 'Email service not configured. Please set SMTP_USER and SMTP_PASSWORD environment variables.' 
-            };
-          }
-          
-          // Generic error
-          return { 
-            success: false, 
-            email: recipient.email, 
-            error: errorMessage || 'Failed to send email. Check console for details.' 
+        } catch (err: unknown) {
+          const errorMessage = err instanceof Error ? err.message : 'Failed to send email';
+          console.error(`Failed to send email to ${recipient.email}:`, errorMessage);
+          return {
+            success: false,
+            email: recipient.email,
+            error: errorMessage,
           };
         }
       })
     );
 
-    // Check if any emails failed
     const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success));
     const succeeded = results.filter(r => r.status === 'fulfilled' && r.value?.success);
 
     if (failed.length > 0 && succeeded.length === 0) {
-      // Get the first error message for better debugging
-      const firstError = failed.find(r => 
+      const firstError = failed.find(r =>
         r.status === 'fulfilled' && r.value?.error
-      )?.value?.error || 
+      )?.value?.error ||
       failed.find(r => r.status === 'rejected')?.reason?.message ||
       'Unknown error';
-      
-      // Check if email API server is not running
-      if (firstError.includes('not running') || 
-          firstError.includes('ECONNREFUSED') ||
-          firstError.includes('Failed to fetch')) {
-        throw new Error(
-          'Email API Server is not running.\n\n' +
-          'Please start it using:\n\n' +
-          'npm run email-server\n\n' +
-          'Or run both servers together:\n' +
-          'npm run dev:all'
-        );
-      }
-      
-      // Check if it's a configuration issue
-      if (firstError.includes('not configured') || 
-          firstError.includes('SMTP credentials')) {
-        throw new Error(
-          'Email service not configured.\n\n' +
-          'The email API server is running, but SMTP credentials are missing.\n\n' +
-          'Please check:\n' +
-          '1. The email API server is running (check terminal for startup messages)\n' +
-          '2. Your .env file is in the project root (same folder as package.json)\n' +
-          '3. Your .env file contains:\n' +
-          '   SMTP_HOST=smtp.hostinger.com\n' +
-          '   SMTP_PORT=465\n' +
-          '   SMTP_USER=your-email@yourdomain.com\n' +
-          '   SMTP_PASSWORD=your-password\n' +
-          '   FROM_EMAIL=your-email@yourdomain.com\n' +
-          '   FROM_NAME=Sympos-ia Committee\n\n' +
-          '4. Restart the email server after changing .env:\n' +
-          '   npm run email-server\n\n' +
-          'See START_EMAIL_SERVER.md for troubleshooting help.'
-        );
-      }
-      
-      // Check if it's an SMTP authentication issue
-      if (firstError.includes('SMTP Authentication failed') ||
-          firstError.includes('EAUTH') ||
-          firstError.includes('Invalid SMTP credentials')) {
-        throw new Error(
-          'SMTP Authentication Failed\n\n' +
-          'The email server is running, but SMTP credentials are incorrect.\n\n' +
-          'The app uses .env only (NOT .env.example).\n\n' +
-          'Please verify:\n' +
-          '1. .env in the project root has SMTP_USER = your full email (e.g. admin@symposai.pro)\n' +
-          '2. SMTP_PASSWORD is in double quotes if it contains @\n' +
-          '3. Open http://localhost:3001/health — smtpUser must match your mailbox\n' +
-          '4. Stop the old email server, then run: npm run email-server\n' +
-          '5. Test: npm run email-server:test'
-        );
-      }
-      
-      throw new Error(`Failed to send emails: ${firstError}`);
+      throw new Error(firstError);
     }
 
     if (failed.length > 0) {

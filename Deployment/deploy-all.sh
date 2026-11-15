@@ -187,6 +187,13 @@ if [ "$SKIP_ENV" != "true" ]; then
     # Frontend Configuration
     read -p "Frontend URL [http://localhost:3000]: " FRONTEND_URL
     FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+
+    # Browsers cannot reach the server's localhost. Leave empty unless the public site proxies /api/send-email.
+    if [[ "$FRONTEND_URL" == *"localhost"* || "$FRONTEND_URL" == *"127.0.0.1"* ]]; then
+        VITE_EMAIL_API_URL_VALUE=
+    else
+        VITE_EMAIL_API_URL_VALUE=${FRONTEND_URL}
+    fi
     
     # Other API Keys (optional)
     echo ""
@@ -212,7 +219,7 @@ FROM_NAME=${FROM_NAME}
 # Server Configuration
 EMAIL_SERVER_PORT=${EMAIL_PORT}
 VITE_APP_URL=${FRONTEND_URL}
-VITE_EMAIL_API_URL=http://localhost:${EMAIL_PORT}
+VITE_EMAIL_API_URL=${VITE_EMAIL_API_URL_VALUE}
 
 # Optional API Keys
 GEMINI_API_KEY=${GEMINI_API_KEY}

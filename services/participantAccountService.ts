@@ -5,6 +5,7 @@ import {
   InvitationStatus,
 } from '../types';
 import { stripMandatoryParticipantSection } from './participantAccountEmailMandatory';
+import { sendTransactionalEmail } from './emailTransport';
 
 const EMAIL_API_URL = import.meta.env.VITE_EMAIL_API_URL || 'http://localhost:3001';
 const JURY_TABLE = TABLES.JURY_MEMBERS;
@@ -178,14 +179,5 @@ export async function sendParticipantInvitationEmail(params: {
   html: string;
   recipientName?: string;
 }): Promise<void> {
-  const response = await fetch(`${EMAIL_API_URL}/api/send-email`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data.message || data.error || 'Failed to send email');
-  }
+  await sendTransactionalEmail(params);
 }

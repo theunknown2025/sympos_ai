@@ -96,11 +96,29 @@ const app = express();
 const PORT = readEnv('EMAIL_SERVER_PORT') || 3001;
 
 // Middleware
+const allowedOrigins = new Set(
+  [readEnv('VITE_APP_URL'), ...readEnv('EMAIL_CORS_ORIGINS').split(',')]
+    .map((value) => value.trim())
+    .filter(Boolean)
+);
+
 app.use(cors({
-  origin: process.env.VITE_APP_URL || 'http://localhost:3000',
-  credentials: true
+  origin(origin, callback) {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.has(origin)) return callback(null, true);
+    try {
+      const host = new URL(origin).hostname;
+      if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.amplifyapp.com')) {
+        return callback(null, true);
+      }
+    } catch {
+      // Ignore malformed Origin headers.
+    }
+    return callback(null, false);
+  },
+  credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 function printHostingerSmtpHelp() {
   console.error(`

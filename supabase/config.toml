@@ -3,6 +3,9 @@ project_id = "gcgxgtixscwpiiuenlub"
 [api]
 enabled = true
 
+[functions.send-email]
+verify_jwt = true
+
 [auth]
 site_url = "https://master.d1oom0lj5oput.amplifyapp.com"
 additional_redirect_urls = [
