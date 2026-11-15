@@ -30,12 +30,25 @@ function isLocalhostUrl(url: string): boolean {
 
 /**
  * Public Node email API, when the build was given one.
- * A localhost URL baked in at build time is ignored on the hosted site:
- * the visitor's browser cannot reach the machine that built the app.
+ * Ignored when:
+ * - empty / localhost (browser cannot reach the build machine)
+ * - different origin than the page (cross-origin Amplify URL from www.symposai.pro
+ *   causes CORS preflight failures on OPTIONS redirects)
  */
 function configuredPublicBase(): string | null {
   const configured = String(import.meta.env.VITE_EMAIL_API_URL || '').trim().replace(/\/$/, '');
   if (!configured || isLocalhostUrl(configured)) return null;
+
+  if (typeof window !== 'undefined') {
+    try {
+      if (new URL(configured).origin !== window.location.origin) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+  }
+
   return configured;
 }
 
@@ -202,8 +215,8 @@ async function sendViaSupabase(email: TransactionalEmail): Promise<{ messageId?:
 /**
  * Sends one email.
  * Local dev uses the Node SMTP server.
- * The hosted app (AWS Amplify) uses same-origin /api when a server is actually there,
- * then the Supabase send-email function. It never calls the visitor's localhost.
+ * Hosted: same-origin Node /api only when it actually exists, otherwise Supabase send-email.
+ * Never calls a cross-origin Amplify URL from a custom domain (CORS).
  */
 export async function sendTransactionalEmail(
   email: TransactionalEmail
@@ -220,9 +233,14 @@ export async function sendTransactionalEmail(
   if (publicBase) {
     const attempt = await trySendViaNode(publicBase, email);
     if (attempt.kind === 'sent') return { messageId: attempt.messageId };
-  } else if (typeof window !== 'undefined') {
-    const attempt = await trySendViaNode(window.location.origin, email);
-    if (attempt.kind === 'sent') return { messageId: attempt.messageId };
+  }
+
+  if (typeof window !== 'undefined') {
+    const sameOrigin = window.location.origin;
+    if (!publicBase || publicBase !== sameOrigin) {
+      const attempt = await trySendViaNode(sameOrigin, email);
+      if (attempt.kind === 'sent') return { messageId: attempt.messageId };
+    }
   }
 
   return sendViaSupabase(email);
