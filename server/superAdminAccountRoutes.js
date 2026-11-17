@@ -297,6 +297,105 @@ export function registerSuperAdminAccountRoutes(app, { readEnv }) {
     }
   });
 
+  // Manual Pro grant — no payment and no proof required.
+  app.post('/api/superadmin/accounts/:userId/grant-pro', async (req, res) => {
+    try {
+      const admin = getAdminClient(readEnv);
+      const actor = await requireSuperAdmin(req, admin);
+      const { userId } = req.params;
+      if (!userId) return res.status(400).json({ error: 'userId required' });
+
+      let eventsCount = Math.floor(Number(req.body?.eventsCount));
+      if (!Number.isFinite(eventsCount)) eventsCount = 1;
+      eventsCount = Math.min(50, Math.max(1, eventsCount));
+
+      const { data: target, error: getErr } = await admin.auth.admin.getUserById(userId);
+      if (getErr || !target?.user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const role = resolveUserRole(target.user);
+      if (role !== 'Organizer') {
+        return res.status(400).json({ error: 'Only organizer accounts can be granted Pro' });
+      }
+
+      const { data: existing, error: subReadErr } = await admin
+        .from('organizer_platform_subscriptions')
+        .select('plan_code, status')
+        .eq('organizer_user_id', userId)
+        .maybeSingle();
+      if (subReadErr) throw subReadErr;
+      if (existing?.plan_code === 'pro' && existing?.status === 'active') {
+        return res.status(409).json({ error: 'This account is already Pro' });
+      }
+
+      const now = new Date();
+      const periodEnd = new Date(now);
+      periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+      const email = String(target.user.email || '').trim().toLowerCase();
+      const fullName =
+        target.user.user_metadata?.fullName ||
+        target.user.user_metadata?.full_name ||
+        email ||
+        'Organizer';
+      const offerCode = eventsCount >= 2 ? 'multi_events' : 'single_event';
+
+      const { error: orderErr } = await admin.from('organizer_pro_orders').insert({
+        organizer_user_id: userId,
+        offer_code: offerCode,
+        full_name: String(fullName).trim() || 'Organizer',
+        account_email: email || 'unknown@local',
+        events_count: eventsCount,
+        editions_count: 0,
+        price_per_event_mad: 0,
+        price_per_edition_mad: 0,
+        amount_ht_mad: 0,
+        tva_rate: 0,
+        amount_ttc_mad: 0,
+        currency: 'MAD',
+        status: 'approved',
+        proof_file_urls: [],
+        proof_file_names: [],
+        organizer_notes: null,
+        admin_notes: 'Manual Pro grant by Super Admin (no payment).',
+        reviewed_by: actor.id,
+        reviewed_at: now.toISOString(),
+      });
+      if (orderErr) throw orderErr;
+
+      const { error: subErr } = await admin.from('organizer_platform_subscriptions').upsert({
+        organizer_user_id: userId,
+        plan_code: 'pro',
+        status: 'active',
+        current_period_start: now.toISOString(),
+        current_period_end: periodEnd.toISOString(),
+        trial_started_at: null,
+        trial_ends_at: null,
+      });
+      if (subErr) throw subErr;
+
+      try {
+        await admin.auth.admin.updateUserById(userId, { ban_duration: 'none' });
+      } catch {
+        /* ignore */
+      }
+
+      res.json({
+        success: true,
+        userId,
+        planCode: 'pro',
+        accountStatus: 'active',
+        eventsCount,
+      });
+    } catch (error) {
+      console.error('superadmin grant pro:', error);
+      res.status(error.status || 500).json({
+        error: 'Failed to grant Pro',
+        message: error.message || 'Unexpected error',
+      });
+    }
+  });
+
   // —— Pro payment orders ——
   app.get('/api/superadmin/pro-orders', async (req, res) => {
     try {

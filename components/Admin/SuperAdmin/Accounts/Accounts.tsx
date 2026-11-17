@@ -28,8 +28,8 @@ const SuperAdminAccounts: React.FC = () => {
         </h1>
         <p className="mt-1 text-slate-500 text-sm">
           {fr
-            ? 'Comptes, jours Free, suspension, et validation des paiements Pro.'
-            : 'Accounts, Free days, suspend, and Pro payment validation.'}
+            ? 'Comptes, jours Free, suspension, activation Pro manuelle, et validation des paiements.'
+            : 'Accounts, Free days, suspend, manual Pro activation, and payment validation.'}
         </p>
       </div>
 

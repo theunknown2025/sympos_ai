@@ -17,6 +17,8 @@ const OrganizersAccountsTab: React.FC = () => {
     busyId,
     pendingById,
     setPending,
+    grantEvents,
+    setGrantEvents,
     confirmPending,
     activate,
     load,
@@ -82,6 +84,8 @@ const OrganizersAccountsTab: React.FC = () => {
                   const busy = busyId === row.id;
                   const isFree = row.planCode === 'free';
                   const suspended = isAccountSuspended(row);
+                  const alreadyPro =
+                    row.planCode === 'pro' && row.subscriptionStatus === 'active' && !suspended;
                   const rowStyle = accountRowStyle(pending, suspended);
                   const cellClass = 'px-4 py-3 align-middle border-b border-slate-100';
 
@@ -127,6 +131,10 @@ const OrganizersAccountsTab: React.FC = () => {
                           busy={busy}
                           isSuspended={suspended}
                           pending={pending}
+                          showGrantPro={!alreadyPro}
+                          grantEvents={grantEvents}
+                          onGrantEventsChange={setGrantEvents}
+                          onRequestGrantPro={() => setPending(row.id, 'grant_pro')}
                           onRequestSuspend={() => setPending(row.id, 'suspend')}
                           onRequestDelete={() => setPending(row.id, 'delete')}
                           onRequestActivate={() => void activate(row.id)}

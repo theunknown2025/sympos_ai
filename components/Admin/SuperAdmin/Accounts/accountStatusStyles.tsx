@@ -39,7 +39,7 @@ export function StatusCell({ status }: { status: string }) {
   );
 }
 
-export type AccountPendingAction = 'suspend' | 'delete' | null;
+export type AccountPendingAction = 'suspend' | 'delete' | 'grant_pro' | null;
 
 export function isAccountSuspended(row: {
   accountStatus: string;

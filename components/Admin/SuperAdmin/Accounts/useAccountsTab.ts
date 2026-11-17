@@ -3,6 +3,7 @@ import {
   activateSuperAdminAccount,
   deleteSuperAdminAccount,
   fetchSuperAdminAccounts,
+  grantOrganizerProAccount,
   matchesAccountTabRole,
   SuperAdminAccountRow,
   suspendSuperAdminAccount,
@@ -18,6 +19,7 @@ export function useAccountsTab(role: AccountsTabRole) {
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingById, setPendingById] = useState<Record<string, AccountPendingAction>>({});
+  const [grantEvents, setGrantEvents] = useState(1);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,6 +59,7 @@ export function useAccountsTab(role: AccountsTabRole) {
       if (!action) return {};
       return { [id]: action };
     });
+    if (action === 'grant_pro') setGrantEvents(1);
   };
 
   const confirmPending = async (id: string) => {
@@ -66,6 +69,7 @@ export function useAccountsTab(role: AccountsTabRole) {
     setError(null);
     try {
       if (action === 'suspend') await suspendSuperAdminAccount(id);
+      else if (action === 'grant_pro') await grantOrganizerProAccount(id, grantEvents);
       else await deleteSuperAdminAccount(id);
       await load();
     } catch (e) {
@@ -99,6 +103,8 @@ export function useAccountsTab(role: AccountsTabRole) {
     busyId,
     pendingById,
     setPending,
+    grantEvents,
+    setGrantEvents,
     confirmPending,
     activate,
     load,

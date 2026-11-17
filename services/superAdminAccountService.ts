@@ -81,6 +81,20 @@ export async function activateSuperAdminAccount(userId: string): Promise<void> {
   if (!res.ok) throw new Error(body.message || body.error || 'Activate failed');
 }
 
+export async function grantOrganizerProAccount(
+  userId: string,
+  eventsCount = 1
+): Promise<void> {
+  const headers = await authHeaders();
+  const res = await fetch(`${EMAIL_API_URL}/api/superadmin/accounts/${userId}/grant-pro`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ eventsCount }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.message || body.error || 'Grant Pro failed');
+}
+
 export async function deleteSuperAdminAccount(userId: string): Promise<void> {
   const headers = await authHeaders();
   const res = await fetch(`${EMAIL_API_URL}/api/superadmin/accounts/${userId}`, {
