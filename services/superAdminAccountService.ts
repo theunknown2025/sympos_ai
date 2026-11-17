@@ -1,6 +1,4 @@
-import { supabase } from '../supabase';
-
-const EMAIL_API_URL = import.meta.env.VITE_EMAIL_API_URL || 'http://localhost:3001';
+import { callSuperAdminApi } from './superAdminRemote';
 
 export type SuperAdminAccountStatus =
   | 'active'
@@ -25,16 +23,6 @@ export interface SuperAdminAccountRow {
   fullName: string | null;
 }
 
-async function authHeaders(): Promise<HeadersInit> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error('Not signed in');
-  return {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
-}
-
 export function matchesAccountTabRole(
   accountRole: string,
   tabRole: 'Organizer' | 'Participant' | 'SuperAdmin'
@@ -48,59 +36,52 @@ export function matchesAccountTabRole(
 export async function fetchSuperAdminAccounts(
   role?: 'Organizer' | 'Participant' | 'SuperAdmin'
 ): Promise<SuperAdminAccountRow[]> {
-  const headers = await authHeaders();
   const qs = role ? `?role=${encodeURIComponent(role)}` : '';
-  const res = await fetch(`${EMAIL_API_URL}/api/superadmin/accounts${qs}`, { headers });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body.message || body.error || 'Failed to load accounts');
-  }
-  const rows = (body.accounts || []) as SuperAdminAccountRow[];
-  // Always filter client-side so tabs stay correct even if API is stale
+  const body = await callSuperAdminApi<{ accounts?: SuperAdminAccountRow[] }>(
+    { path: `/api/superadmin/accounts${qs}` },
+    { action: 'list-accounts', role: role || '' },
+    'Failed to load accounts'
+  );
+  const rows = body.accounts || [];
   if (!role) return rows;
   return rows.filter((a) => matchesAccountTabRole(a.role, role));
 }
 
 export async function suspendSuperAdminAccount(userId: string): Promise<void> {
-  const headers = await authHeaders();
-  const res = await fetch(`${EMAIL_API_URL}/api/superadmin/accounts/${userId}/suspend`, {
-    method: 'POST',
-    headers,
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.message || body.error || 'Suspend failed');
+  await callSuperAdminApi(
+    { path: `/api/superadmin/accounts/${userId}/suspend`, method: 'POST' },
+    { action: 'suspend', userId },
+    'Suspend failed'
+  );
 }
 
 export async function activateSuperAdminAccount(userId: string): Promise<void> {
-  const headers = await authHeaders();
-  const res = await fetch(`${EMAIL_API_URL}/api/superadmin/accounts/${userId}/activate`, {
-    method: 'POST',
-    headers,
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.message || body.error || 'Activate failed');
+  await callSuperAdminApi(
+    { path: `/api/superadmin/accounts/${userId}/activate`, method: 'POST' },
+    { action: 'activate', userId },
+    'Activate failed'
+  );
 }
 
 export async function grantOrganizerProAccount(
   userId: string,
   eventsCount = 1
 ): Promise<void> {
-  const headers = await authHeaders();
-  const res = await fetch(`${EMAIL_API_URL}/api/superadmin/accounts/${userId}/grant-pro`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ eventsCount }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.message || body.error || 'Grant Pro failed');
+  await callSuperAdminApi(
+    {
+      path: `/api/superadmin/accounts/${userId}/grant-pro`,
+      method: 'POST',
+      body: { eventsCount },
+    },
+    { action: 'grant-pro', userId, eventsCount },
+    'Grant Pro failed'
+  );
 }
 
 export async function deleteSuperAdminAccount(userId: string): Promise<void> {
-  const headers = await authHeaders();
-  const res = await fetch(`${EMAIL_API_URL}/api/superadmin/accounts/${userId}`, {
-    method: 'DELETE',
-    headers,
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.message || body.error || 'Delete failed');
+  await callSuperAdminApi(
+    { path: `/api/superadmin/accounts/${userId}`, method: 'DELETE' },
+    { action: 'delete', userId },
+    'Delete failed'
+  );
 }
