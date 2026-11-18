@@ -29,13 +29,14 @@ import { getUserSubmissions, FormSubmission, deleteFormSubmission, deleteFormSub
 import { getRegistrationForm } from '../../../services/registrationFormService';
 import { getUserEvents } from '../../../services/eventService';
 import { RegistrationForm, Event, ApprovalStatus } from '../../../types';
-import { supabase, TABLES } from '../../../supabase';
+import { supabase, TABLES, STORAGE_BUCKETS } from '../../../supabase';
 import type { EmailRecipient } from '../Tools/EmailSender/EmailSender';
 import { generateAndSaveBadge, getBadgeForSubmission, ParticipantBadge } from '../../../services/badgeGeneratorService';
 import RegistrationApprovalModal from './RegistrationApprovalModal';
 import RegistrationEmailModal from './RegistrationEmailModal';
 import { useOrganizerScopedEventId } from '../../../contexts/OrganizerEventScopeContext';
 import { PRICING_OFFER_FREE_KEY, PRICING_OFFER_ID_KEY } from '../../../services/pricingOfferCapacity';
+import { resolveSubFilesDownloadUrl } from '../../../services/storageService';
 
 const RegistrationsView: React.FC = () => {
   const { currentUser } = useAuth();
@@ -61,6 +62,7 @@ const RegistrationsView: React.FC = () => {
   const [badgesMap, setBadgesMap] = useState<Map<string, ParticipantBadge>>(new Map());
   const [badgePreviewOpen, setBadgePreviewOpen] = useState(false);
   const [previewBadgeUrl, setPreviewBadgeUrl] = useState<string>('');
+  const [signedFileUrls, setSignedFileUrls] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     if (currentUser) {
@@ -913,6 +915,27 @@ const RegistrationsView: React.FC = () => {
     return typeof value === 'string' && (value.startsWith('http://') || value.startsWith('https://'));
   };
 
+  const isSubFilesUrl = (url: string): boolean =>
+    url.includes(STORAGE_BUCKETS.SUB_FILES) || url.includes('Sub_Files');
+
+  const openStoredFile = async (e: React.MouseEvent<HTMLAnchorElement>, fileUrl: string) => {
+    if (!isSubFilesUrl(fileUrl)) return;
+    e.preventDefault();
+    try {
+      const cached = signedFileUrls.get(fileUrl);
+      if (cached) {
+        window.open(cached, '_blank', 'noopener,noreferrer');
+        return;
+      }
+      const signedUrl = await resolveSubFilesDownloadUrl(fileUrl);
+      setSignedFileUrls((prev) => new Map(prev).set(fileUrl, signedUrl));
+      window.open(signedUrl, '_blank', 'noopener,noreferrer');
+    } catch (err) {
+      console.error('Error opening registration file:', err);
+      window.open(fileUrl, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const getFileIcon = (fileName: string) => {
     const ext = fileName.split('.').pop()?.toLowerCase();
     switch (ext) {
@@ -1474,14 +1497,15 @@ const RegistrationsView: React.FC = () => {
                                                   {isImage && fileUrl && (
                                                     <div className="space-y-2">
                                                       <a 
-                                                        href={fileUrl} 
+                                                        href={signedFileUrls.get(fileUrl) || fileUrl} 
                                                         target="_blank" 
                                                         rel="noopener noreferrer"
+                                                        onClick={(e) => openStoredFile(e, fileUrl)}
                                                         className="block group"
                                                       >
                                                         <div className="relative overflow-hidden rounded-lg border border-slate-200 hover:border-indigo-300 transition-colors">
                                                           <img 
-                                                            src={fileUrl} 
+                                                            src={signedFileUrls.get(fileUrl) || fileUrl} 
                                                             alt={field.label}
                                                             className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
                                                             onError={(e) => {
@@ -1489,6 +1513,13 @@ const RegistrationsView: React.FC = () => {
                                                               e.currentTarget.style.display = 'none';
                                                               const fallback = e.currentTarget.nextElementSibling as HTMLElement;
                                                               if (fallback) fallback.style.display = 'block';
+                                                              if (isSubFilesUrl(fileUrl) && !signedFileUrls.has(fileUrl)) {
+                                                                resolveSubFilesDownloadUrl(fileUrl)
+                                                                  .then((signed) => {
+                                                                    setSignedFileUrls((prev) => new Map(prev).set(fileUrl, signed));
+                                                                  })
+                                                                  .catch(() => undefined);
+                                                              }
                                                             }}
                                                           />
                                                           <div 
@@ -1506,12 +1537,13 @@ const RegistrationsView: React.FC = () => {
                                                         </div>
                                                       </a>
                                                       <a 
-                                                        href={fileUrl} 
+                                                        href={signedFileUrls.get(fileUrl) || fileUrl} 
                                                         target="_blank" 
                                                         rel="noopener noreferrer"
+                                                        onClick={(e) => openStoredFile(e, fileUrl)}
                                                         className="text-sm text-indigo-600 hover:underline flex items-center gap-1"
                                                       >
-                                                        <span className="truncate">{value}</span>
+                                                        <span className="truncate">{value.split('/').pop() || 'Open file'}</span>
                                                         <ExternalLink size={14} />
                                                       </a>
                                                     </div>
@@ -1520,9 +1552,10 @@ const RegistrationsView: React.FC = () => {
                                                   {/* PDF Link with Click to Open */}
                                                   {isPdf && fileUrl && (
                                                     <a 
-                                                      href={fileUrl} 
+                                                      href={signedFileUrls.get(fileUrl) || fileUrl} 
                                                       target="_blank" 
                                                       rel="noopener noreferrer"
+                                                      onClick={(e) => openStoredFile(e, fileUrl)}
                                                       className="inline-flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors group"
                                                     >
                                                       <File size={18} className="text-red-600" />
@@ -1534,13 +1567,14 @@ const RegistrationsView: React.FC = () => {
                                                   {/* Other Files or URLs */}
                                                   {!isImage && !isPdf && fileUrl && (
                                                     <a 
-                                                      href={fileUrl} 
+                                                      href={signedFileUrls.get(fileUrl) || fileUrl} 
                                                       target="_blank" 
                                                       rel="noopener noreferrer"
+                                                      onClick={(e) => openStoredFile(e, fileUrl)}
                                                       className="inline-flex items-center gap-2 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors group"
                                                     >
                                                       <span className="text-lg">{getFileIcon(value)}</span>
-                                                      <span className="text-sm font-medium text-slate-700 truncate max-w-xs">{value}</span>
+                                                      <span className="text-sm font-medium text-slate-700 truncate max-w-xs">{value.split('/').pop() || 'Open file'}</span>
                                                       <ExternalLink size={14} className="text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
                                                     </a>
                                                   )}

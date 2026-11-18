@@ -375,3 +375,40 @@ export const getFileDownloadURLSync = (bucketId: string, filePath: string): stri
     .getPublicUrl(filePath);
   return data.publicUrl;
 };
+
+/**
+ * Extract object path from a Supabase storage public/signed URL.
+ */
+export const extractStoragePathFromUrl = (url: string, bucketId: string): string | null => {
+  try {
+    const urlObj = new URL(url);
+    const publicMatch = urlObj.pathname.match(new RegExp(`/object/public/${bucketId}/(.+)`));
+    if (publicMatch?.[1]) return decodeURIComponent(publicMatch[1]);
+    const signedMatch = urlObj.pathname.match(new RegExp(`/object/sign/${bucketId}/(.+)`));
+    if (signedMatch?.[1]) return decodeURIComponent(signedMatch[1]);
+    const directMatch = url.match(new RegExp(`${bucketId}/(.+)`));
+    if (directMatch?.[1]) return decodeURIComponent(directMatch[1].split('?')[0]);
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Resolve a stored Sub_Files public URL to a usable signed download URL.
+ * Private buckets reject raw public URLs, so organizers/participants need this.
+ */
+export const resolveSubFilesDownloadUrl = async (
+  fileUrl: string,
+  expiresIn: number = 3600
+): Promise<string> => {
+  if (!fileUrl) return fileUrl;
+  const isSubFiles =
+    fileUrl.includes(STORAGE_BUCKETS.SUB_FILES) || fileUrl.includes('Sub_Files');
+  if (!isSubFiles) return fileUrl;
+
+  const filePath = extractStoragePathFromUrl(fileUrl, STORAGE_BUCKETS.SUB_FILES);
+  if (!filePath) return fileUrl;
+
+  return getFileDownloadURL(STORAGE_BUCKETS.SUB_FILES, filePath, expiresIn);
+};

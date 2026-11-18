@@ -54,29 +54,34 @@ const EditRegistration: React.FC<EditRegistrationProps> = ({ submission, onClose
   };
 
   const handleGeneralInfoChange = (field: string, value: string) => {
-    setGeneralInfo({ ...generalInfo, [field]: value });
+    setGeneralInfo((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleFieldChange = (fieldId: string, value: any) => {
-    setAnswers({ ...answers, [fieldId]: value });
+    setAnswers((prev) => ({ ...prev, [fieldId]: value }));
   };
 
   const handleMultipleFieldChange = (fieldId: string, index: number, value: any) => {
-    const currentValues = (answers[fieldId] as any[]) || [];
-    const newValues = [...currentValues];
-    newValues[index] = value;
-    setAnswers({ ...answers, [fieldId]: newValues });
+    setAnswers((prev) => {
+      const currentValues = (prev[fieldId] as any[]) || [];
+      const newValues = [...currentValues];
+      newValues[index] = value;
+      return { ...prev, [fieldId]: newValues };
+    });
   };
 
   const addMultipleAnswer = (fieldId: string) => {
-    const currentValues = (answers[fieldId] as any[]) || [];
-    setAnswers({ ...answers, [fieldId]: [...currentValues, ''] });
+    setAnswers((prev) => {
+      const currentValues = (prev[fieldId] as any[]) || [];
+      return { ...prev, [fieldId]: [...currentValues, ''] };
+    });
   };
 
   const removeMultipleAnswer = (fieldId: string, index: number) => {
-    const currentValues = (answers[fieldId] as any[]) || [];
-    const newValues = currentValues.filter((_, i) => i !== index);
-    setAnswers({ ...answers, [fieldId]: newValues });
+    setAnswers((prev) => {
+      const currentValues = (prev[fieldId] as any[]) || [];
+      return { ...prev, [fieldId]: currentValues.filter((_, i) => i !== index) };
+    });
   };
 
   const getSubFieldRows = (fieldId: string): any[] => {
@@ -88,18 +93,22 @@ const EditRegistration: React.FC<EditRegistrationProps> = ({ submission, onClose
   };
 
   const addSubFieldRow = (fieldId: string, subFields: FormField[]) => {
-    const currentRows = getSubFieldRows(fieldId);
-    const newRow: any = {};
-    subFields.forEach(subField => {
-      newRow[subField.id] = '';
+    setAnswers((prev) => {
+      const currentRows =
+        Array.isArray(prev[fieldId]) && prev[fieldId].length > 0 ? prev[fieldId] : [{}];
+      const newRow: any = {};
+      subFields.forEach((subField) => {
+        newRow[subField.id] = '';
+      });
+      return { ...prev, [fieldId]: [...currentRows, newRow] };
     });
-    setAnswers({ ...answers, [fieldId]: [...currentRows, newRow] });
   };
 
   const removeSubFieldRow = (fieldId: string, rowIndex: number) => {
-    const currentRows = getSubFieldRows(fieldId);
-    const newRows = currentRows.filter((_, i) => i !== rowIndex);
-    setAnswers({ ...answers, [fieldId]: newRows });
+    setAnswers((prev) => {
+      const currentRows = Array.isArray(prev[fieldId]) ? prev[fieldId] : [{}];
+      return { ...prev, [fieldId]: currentRows.filter((_: any, i: number) => i !== rowIndex) };
+    });
   };
 
   const handleFileUpload = async (fieldId: string, file: File) => {
@@ -109,14 +118,14 @@ const EditRegistration: React.FC<EditRegistrationProps> = ({ submission, onClose
     }
 
     try {
-      setUploadingFiles({ ...uploadingFiles, [fieldId]: true });
+      setUploadingFiles((prev) => ({ ...prev, [fieldId]: true }));
       // Use 'form-submissions' folder which maps to Sub_Files bucket
       const fileUrl = await uploadFileToStorage(currentUser.id, file, 'form-submissions');
-      setAnswers({ ...answers, [fieldId]: fileUrl });
+      setAnswers((prev) => ({ ...prev, [fieldId]: fileUrl }));
     } catch (err: any) {
       setError(err.message || 'Failed to upload file');
     } finally {
-      setUploadingFiles({ ...uploadingFiles, [fieldId]: false });
+      setUploadingFiles((prev) => ({ ...prev, [fieldId]: false }));
     }
   };
 
@@ -163,6 +172,11 @@ const EditRegistration: React.FC<EditRegistrationProps> = ({ submission, onClose
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (Object.values(uploadingFiles).some(Boolean)) {
+      setError('Please wait for file uploads to finish before saving');
+      return;
+    }
 
     if (!validateForm()) {
       return;

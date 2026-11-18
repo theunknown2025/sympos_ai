@@ -145,29 +145,35 @@ const FormModal: React.FC<FormModalProps> = ({
   };
 
   const handleGeneralInfoChange = (field: string, value: string) => {
-    setGeneralInfo({ ...generalInfo, [field]: value });
+    setGeneralInfo((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleFieldChange = (fieldId: string, value: any) => {
-    setAnswers({ ...answers, [fieldId]: value });
+    // Functional update avoids losing answers when async file uploads finish
+    setAnswers((prev) => ({ ...prev, [fieldId]: value }));
   };
 
   const handleMultipleFieldChange = (fieldId: string, index: number, value: any) => {
-    const currentValues = (answers[fieldId] as any[]) || [];
-    const newValues = [...currentValues];
-    newValues[index] = value;
-    setAnswers({ ...answers, [fieldId]: newValues });
+    setAnswers((prev) => {
+      const currentValues = (prev[fieldId] as any[]) || [];
+      const newValues = [...currentValues];
+      newValues[index] = value;
+      return { ...prev, [fieldId]: newValues };
+    });
   };
 
   const addMultipleAnswer = (fieldId: string) => {
-    const currentValues = (answers[fieldId] as any[]) || [];
-    setAnswers({ ...answers, [fieldId]: [...currentValues, ''] });
+    setAnswers((prev) => {
+      const currentValues = (prev[fieldId] as any[]) || [];
+      return { ...prev, [fieldId]: [...currentValues, ''] };
+    });
   };
 
   const removeMultipleAnswer = (fieldId: string, index: number) => {
-    const currentValues = (answers[fieldId] as any[]) || [];
-    const newValues = currentValues.filter((_, i) => i !== index);
-    setAnswers({ ...answers, [fieldId]: newValues });
+    setAnswers((prev) => {
+      const currentValues = (prev[fieldId] as any[]) || [];
+      return { ...prev, [fieldId]: currentValues.filter((_, i) => i !== index) };
+    });
   };
 
   // Sub-fields handlers (for fields with multiple sub-fields in each row)
@@ -180,28 +186,38 @@ const FormModal: React.FC<FormModalProps> = ({
   };
 
   const addSubFieldRow = (fieldId: string, subFields: FormField[]) => {
-    const currentRows = getSubFieldRows(fieldId);
-    const newRow: any = {};
-    subFields.forEach(subField => {
-      newRow[subField.id] = '';
+    setAnswers((prev) => {
+      const currentRows =
+        Array.isArray(prev[fieldId]) && prev[fieldId].length > 0 ? prev[fieldId] : [{}];
+      const newRow: any = {};
+      subFields.forEach((subField) => {
+        newRow[subField.id] = '';
+      });
+      return { ...prev, [fieldId]: [...currentRows, newRow] };
     });
-    setAnswers({ ...answers, [fieldId]: [...currentRows, newRow] });
   };
 
   const removeSubFieldRow = (fieldId: string, rowIndex: number) => {
-    const currentRows = getSubFieldRows(fieldId);
-    const newRows = currentRows.filter((_, i) => i !== rowIndex);
-    setAnswers({ ...answers, [fieldId]: newRows.length > 0 ? newRows : [{}] });
+    setAnswers((prev) => {
+      const currentRows = Array.isArray(prev[fieldId]) ? prev[fieldId] : [{}];
+      const newRows = currentRows.filter((_: any, i: number) => i !== rowIndex);
+      return { ...prev, [fieldId]: newRows.length > 0 ? newRows : [{}] };
+    });
   };
 
   const handleSubFieldChange = (fieldId: string, rowIndex: number, subFieldId: string, value: any) => {
-    const currentRows = getSubFieldRows(fieldId);
-    const newRows = [...currentRows];
-    if (!newRows[rowIndex]) {
-      newRows[rowIndex] = {};
-    }
-    newRows[rowIndex] = { ...newRows[rowIndex], [subFieldId]: value };
-    setAnswers({ ...answers, [fieldId]: newRows });
+    setAnswers((prev) => {
+      const currentRows =
+        Array.isArray(prev[fieldId]) && prev[fieldId].length > 0
+          ? [...prev[fieldId]]
+          : [{}];
+      const newRows = [...currentRows];
+      if (!newRows[rowIndex]) {
+        newRows[rowIndex] = {};
+      }
+      newRows[rowIndex] = { ...newRows[rowIndex], [subFieldId]: value };
+      return { ...prev, [fieldId]: newRows };
+    });
   };
 
   const handleFileUpload = async (fieldId: string, file: File) => {
@@ -211,14 +227,14 @@ const FormModal: React.FC<FormModalProps> = ({
     }
 
     try {
-      setUploadingFiles({ ...uploadingFiles, [fieldId]: true });
+      setUploadingFiles((prev) => ({ ...prev, [fieldId]: true }));
       setError('');
       
       // Upload file to Supabase Storage
       const downloadURL = await uploadFileToStorage(currentUser.id, file, 'form-submissions');
       
-      // Store the download URL in answers
-      handleFieldChange(fieldId, downloadURL);
+      // Store the download URL without clobbering other fields typed during upload
+      setAnswers((prev) => ({ ...prev, [fieldId]: downloadURL }));
     } catch (err: any) {
       console.error('Error uploading file:', err);
       // If it's a CORS error, provide a helpful message with link to fix
@@ -233,7 +249,32 @@ const FormModal: React.FC<FormModalProps> = ({
         setError(err.message || 'Failed to upload file. Please try again.');
       }
     } finally {
-      setUploadingFiles({ ...uploadingFiles, [fieldId]: false });
+      setUploadingFiles((prev) => ({ ...prev, [fieldId]: false }));
+    }
+  };
+
+  const handleSubFieldFileUpload = async (
+    fieldId: string,
+    rowIndex: number,
+    subFieldId: string,
+    file: File
+  ) => {
+    if (!currentUser) {
+      setError('You must be logged in to upload files');
+      return;
+    }
+
+    const uploadKey = `${fieldId}:${rowIndex}:${subFieldId}`;
+    try {
+      setUploadingFiles((prev) => ({ ...prev, [uploadKey]: true }));
+      setError('');
+      const downloadURL = await uploadFileToStorage(currentUser.id, file, 'form-submissions');
+      handleSubFieldChange(fieldId, rowIndex, subFieldId, downloadURL);
+    } catch (err: any) {
+      console.error('Error uploading sub-field file:', err);
+      setError(err.message || 'Failed to upload file. Please try again.');
+    } finally {
+      setUploadingFiles((prev) => ({ ...prev, [uploadKey]: false }));
     }
   };
 
@@ -325,6 +366,11 @@ const FormModal: React.FC<FormModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (Object.values(uploadingFiles).some(Boolean)) {
+      setError('Please wait for file uploads to finish before submitting');
+      return;
+    }
 
     if (!validateForm()) {
       return;
@@ -593,6 +639,43 @@ const FormModal: React.FC<FormModalProps> = ({
                                 <option key={idx} value={option}>{option}</option>
                               ))}
                             </select>
+                          )}
+                          {subField.type === 'file' && (
+                            <div className="space-y-1">
+                              <input
+                                type="file"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) {
+                                    handleSubFieldFileUpload(field.id, rowIndex, subField.id, file);
+                                  }
+                                }}
+                                required={
+                                  subField.required &&
+                                  rowIndex === 0 &&
+                                  !(
+                                    typeof row[subField.id] === 'string' &&
+                                    row[subField.id].startsWith('http')
+                                  )
+                                }
+                                disabled={!!uploadingFiles[`${field.id}:${rowIndex}:${subField.id}`]}
+                                className="w-full px-2 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm disabled:opacity-50"
+                              />
+                              {uploadingFiles[`${field.id}:${rowIndex}:${subField.id}`] && (
+                                <div className="flex items-center gap-1 text-xs text-slate-600">
+                                  <Loader2 className="animate-spin" size={12} />
+                                  <span>Uploading...</span>
+                                </div>
+                              )}
+                              {typeof row[subField.id] === 'string' &&
+                                row[subField.id].startsWith('http') &&
+                                !uploadingFiles[`${field.id}:${rowIndex}:${subField.id}`] && (
+                                  <div className="flex items-center gap-1 text-xs text-green-600">
+                                    <CheckCircle size={12} />
+                                    <span>Uploaded</span>
+                                  </div>
+                                )}
+                            </div>
                           )}
                         </td>
                       ))}
@@ -909,7 +992,11 @@ const FormModal: React.FC<FormModalProps> = ({
                   handleFileUpload(field.id, file);
                 }
               }}
-              required={field.required}
+              // Once the URL is stored in answers, don't rely on the empty file input for required
+              required={
+                field.required &&
+                !(typeof value === 'string' && value.startsWith('http'))
+              }
               disabled={uploadingFiles[field.id]}
               className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
             />

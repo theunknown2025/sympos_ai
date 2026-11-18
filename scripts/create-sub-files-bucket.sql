@@ -20,13 +20,16 @@ VALUES (
     'application/vnd.ms-powerpoint',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'text/plain',
+    'text/csv',
     'text/markdown',
     'application/zip',
     'application/x-zip-compressed',
     'application/x-rar-compressed',
+    'application/octet-stream',
     'image/jpeg',
     'image/png',
-    'image/gif'
+    'image/gif',
+    'image/webp'
   ]::text[]
 )
 ON CONFLICT (id) DO NOTHING;
